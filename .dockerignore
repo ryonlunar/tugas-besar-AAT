@@ -1,0 +1,12 @@
+# Docker build contexts need only the shared Go module and these three services.
+# In particular, never send local environment files or unrelated project artifacts.
+*
+!go.mod
+!go.sum
+!services/
+!services/aggregator/
+!services/aggregator/**
+!services/bmkg-mock/
+!services/bmkg-mock/**
+!services/pvmbg-mock/
+!services/pvmbg-mock/**
