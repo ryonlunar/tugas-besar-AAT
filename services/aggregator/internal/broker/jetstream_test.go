@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 )
@@ -36,5 +37,49 @@ func TestJetStreamRejectsProducerSubjectOutsideStreamFilter(t *testing.T) {
 	}
 	if _, err := NewJetStreamPublisher(config); err == nil {
 		t.Fatal("invalid stream filter was accepted")
+	}
+}
+
+func TestJetStreamPublishConnectionSetupRespectsCallerDeadline(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		<-release // emulate a connected but unresponsive NATS server
+	}()
+	defer func() {
+		close(release)
+		_ = listener.Close()
+		<-serverDone
+	}()
+
+	publisher, err := NewJetStreamPublisher(JetStreamConfig{
+		URL: "nats://" + listener.Addr().String(), Token: "synthetic-test-token", Stream: "HAZARD_EVENTS",
+		Subjects: []string{"hazard.events.v1.BMKG"},
+		MaxAge:   time.Hour, MaxBytes: 1 << 20, MaxMsgs: 100, MaxMsgSize: 65536,
+		DuplicateWindow: time.Minute, ConnectTimeout: 750 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = publisher.Publish(ctx, "hazard.events.v1.BMKG", []byte(`{}`), "event-1")
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("publish to an unresponsive NATS server unexpectedly succeeded")
+	}
+	if elapsed > 300*time.Millisecond {
+		t.Fatalf("connection setup ignored caller deadline: elapsed=%s, err=%v", elapsed, err)
 	}
 }

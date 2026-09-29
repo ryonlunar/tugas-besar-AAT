@@ -1,11 +1,14 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,16 +169,19 @@ func TestPVMBGClientUsesBearerAndRejectsOversizedResponse(t *testing.T) {
 type fakeStore struct {
 	ids           map[string]string
 	events        []storedCycle
+	snapshots     [][]mapper.HazardEvent
 	lookups       []string
 	pendingOutbox int64
 	capacityErr   error
 }
 
 type storedCycle struct {
-	source  string
-	events  int
-	success bool
-	code    string
+	source     string
+	events     int
+	success    bool
+	code       string
+	attemptAt  time.Time
+	acceptedAt time.Time
 }
 
 func (s *fakeStore) FindHazardID(_ context.Context, source mapper.Source, ref string) (string, bool, error) {
@@ -186,9 +192,123 @@ func (s *fakeStore) FindHazardID(_ context.Context, source mapper.Source, ref st
 func (s *fakeStore) PendingOutboxCount(context.Context) (int64, error) {
 	return s.pendingOutbox, s.capacityErr
 }
-func (s *fakeStore) ApplyCycle(_ context.Context, source mapper.Source, events []mapper.HazardEvent, _ string, success bool, code string, _ time.Time) error {
-	s.events = append(s.events, storedCycle{source: string(source), events: len(events), success: success, code: code})
+func (s *fakeStore) ApplyCycle(_ context.Context, source mapper.Source, events []mapper.HazardEvent, _ string, success bool, code string, attemptAt, acceptedAt time.Time) error {
+	s.events = append(s.events, storedCycle{source: string(source), events: len(events), success: success, code: code, attemptAt: attemptAt, acceptedAt: acceptedAt})
+	s.snapshots = append(s.snapshots, append([]mapper.HazardEvent(nil), events...))
 	return nil
+}
+
+func TestPollerSeparatesAttemptStartFromAcceptedSnapshotTime(t *testing.T) {
+	start := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	fetched := start.Add(4 * time.Second)
+	accepted := fetched
+	times := []time.Time{start, accepted}
+	store := &fakeStore{ids: map[string]string{}}
+	bmkg := &fakeBMKG{events: [][]byte{[]byte(`{"event_id":"eq-accepted","magnitude":5.5,"depth_km":10,"epicenter_lat":-6,"epicenter_lon":107,"region_name":"Simulasi","occurred_at":"2026-09-28T10:00:00Z","potential_tsunami":false}`)}}
+	p := New(store, bmkg, nil, nil, nil)
+	p.now = func() time.Time {
+		if len(times) == 0 {
+			t.Fatal("poller requested more clock readings than expected")
+		}
+		value := times[0]
+		times = times[1:]
+		return value
+	}
+
+	if err := p.PollBMKG(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.events) != 1 || !store.events[0].attemptAt.Equal(start) || !store.events[0].acceptedAt.Equal(accepted) {
+		t.Fatalf("attempt/accepted timestamps=%+v; want attempt %s and accepted %s", store.events, start, accepted)
+	}
+	if len(store.snapshots) != 1 || len(store.snapshots[0]) != 1 || store.snapshots[0][0].IngestedAt != accepted.Format(time.RFC3339Nano) {
+		t.Fatalf("event ingestion timestamp=%+v; want %s", store.snapshots, accepted.Format(time.RFC3339Nano))
+	}
+}
+
+func TestPollerLogsInvalidBMKGRecordsWithCorrelationWithoutPayload(t *testing.T) {
+	const privateFixture = "synthetic-payload-must-not-be-logged"
+	store := &fakeStore{ids: map[string]string{}}
+	bmkg := &fakeBMKG{
+		events:   [][]byte{[]byte(`{"event_id":"bad id","private":"` + privateFixture + `"}`)},
+		warnings: [][]byte{[]byte(`{"related_event_id":42,"private":"` + privateFixture + `"}`)},
+	}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	p := New(store, bmkg, nil, nil, logger)
+	if err := p.PollBMKG(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	logOutput := logs.String()
+	for _, field := range []string{`"source":"BMKG"`, `"correlation_id":`, `"record_kind":"seismic_event"`, `"record_kind":"tsunami_warning"`, `"record_index":0`, `"field":"event_id"`, `"field":"related_event_id"`, `"reason":"INVALID_RECORD"`} {
+		if !strings.Contains(logOutput, field) {
+			t.Fatalf("structured invalid-record log missing %s: %s", field, logOutput)
+		}
+	}
+	if strings.Contains(logOutput, privateFixture) {
+		t.Fatalf("invalid source payload was logged: %s", logOutput)
+	}
+}
+
+func TestPollerRejectsMalformedRelatedBMKGWarningWithoutDroppingEvent(t *testing.T) {
+	store := &fakeStore{ids: map[string]string{}}
+	bmkg := &fakeBMKG{
+		events:   [][]byte{[]byte(`{"event_id":"eq-1","magnitude":5.5,"depth_km":10,"epicenter_lat":-6,"epicenter_lon":107,"region_name":"Simulasi","occurred_at":"2026-09-28T10:00:00Z","potential_tsunami":true}`)},
+		warnings: [][]byte{[]byte(`{"related_event_id":"eq-1","warning_id":"w-1","threat_level":"unknown"}`)},
+	}
+	var logs bytes.Buffer
+	p := New(store, bmkg, nil, nil, slog.New(slog.NewJSONHandler(&logs, nil)))
+	if err := p.PollBMKG(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.snapshots) != 1 || len(store.snapshots[0]) != 1 {
+		t.Fatalf("malformed warning dropped the valid seismic event: %+v", store.snapshots)
+	}
+	if store.events[0].success || store.events[0].code != "INVALID_RECORD" {
+		t.Fatalf("malformed warning did not degrade its cycle: %+v", store.events[0])
+	}
+	if !strings.Contains(logs.String(), `"record_kind":"tsunami_warning"`) {
+		t.Fatalf("malformed warning was not logged as its own record: %s", logs.String())
+	}
+}
+
+func TestPollerRejectsMalformedUnmatchedBMKGWarningAndDegradesCycle(t *testing.T) {
+	store := &fakeStore{ids: map[string]string{}}
+	bmkg := &fakeBMKG{
+		events:   [][]byte{[]byte(`{"event_id":"eq-1","magnitude":5.5,"depth_km":10,"epicenter_lat":-6,"epicenter_lon":107,"region_name":"Simulasi","occurred_at":"2026-09-28T10:00:00Z","potential_tsunami":false}`)},
+		warnings: [][]byte{[]byte(`{"related_event_id":"eq-not-in-snapshot","threat_level":"unknown"}`)},
+	}
+	p := New(store, bmkg, nil, nil, nil)
+	if err := p.PollBMKG(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.snapshots) != 1 || len(store.snapshots[0]) != 1 {
+		t.Fatalf("valid seismic event was not retained: %+v", store.snapshots)
+	}
+	if store.events[0].success || store.events[0].code != "INVALID_RECORD" {
+		t.Fatalf("malformed unmatched warning did not degrade its cycle: %+v", store.events[0])
+	}
+}
+
+func TestPollerLogsInvalidPVMBGRecordsWithoutPayload(t *testing.T) {
+	const privateFixture = "synthetic-pvmbg-payload-must-not-be-logged"
+	store := &fakeStore{ids: map[string]string{}}
+	pvmbg := &fakePVMBG{reports: [][]byte{[]byte(`{"report_id":"bad id","private":"` + privateFixture + `"}`)}}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	p := New(store, nil, pvmbg, nil, logger)
+	if err := p.PollPVMBG(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	logOutput := logs.String()
+	for _, field := range []string{`"source":"PVMBG"`, `"correlation_id":`, `"record_kind":"volcanic_report"`, `"record_index":0`, `"field":"report_id"`, `"reason":"INVALID_RECORD"`} {
+		if !strings.Contains(logOutput, field) {
+			t.Fatalf("structured invalid-record log missing %s: %s", field, logOutput)
+		}
+	}
+	if strings.Contains(logOutput, privateFixture) {
+		t.Fatalf("invalid source payload was logged: %s", logOutput)
+	}
 }
 
 func TestPollerSkipsOversizedEnvelopeAndMarksSnapshotDegraded(t *testing.T) {
@@ -253,10 +373,56 @@ func TestPollerFailsClosedWhenOutboxCapacityCannotBeChecked(t *testing.T) {
 	}
 }
 
+func TestRunLoopSkipsTicksAccumulatedDuringSlowPoll(t *testing.T) {
+	interval := 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	releaseFirstPoll := make(chan struct{}, 1)
+	started := make(chan time.Time, 2)
+	var calls int
+	p := New(nil, nil, nil, nil, nil)
+	var loops sync.WaitGroup
+	loops.Add(1)
+	defer func() {
+		cancel()
+		select {
+		case releaseFirstPoll <- struct{}{}:
+		default:
+		}
+		loops.Wait()
+	}()
+	go p.runLoop(ctx, &loops, "test", interval, func(context.Context) error {
+		calls++
+		started <- time.Now()
+		if calls == 1 {
+			<-releaseFirstPoll
+		} else {
+			cancel()
+		}
+		return nil
+	})
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first poll did not start")
+	}
+	time.Sleep(3 * interval)
+	releasedAt := time.Now()
+	releaseFirstPoll <- struct{}{}
+
+	select {
+	case secondStarted := <-started:
+		if delay := secondStarted.Sub(releasedAt); delay < interval/2 {
+			t.Fatalf("second poll started after %s; want missed ticks skipped", delay)
+		}
+	case <-time.After(2 * interval):
+		t.Fatal("second poll did not start on a later interval")
+	}
+}
+
 type fakeBMKG struct {
 	events, warnings [][]byte
 	err              error
-	seenIDs          []string
 	calls            int
 }
 

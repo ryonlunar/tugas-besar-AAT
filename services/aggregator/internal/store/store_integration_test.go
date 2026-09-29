@@ -100,9 +100,20 @@ func TestApplyCycleKeepsStableIDsHistoryAndOutboxIdempotently(t *testing.T) {
 	}
 
 	at := time.Date(2026, 9, 28, 3, 0, 0, 0, time.UTC)
+	attemptStartedAt := at.Add(-time.Second)
 	first := testHazard("", "PVMBG", "pv-1", at, map[string]any{"ash_column_height_m": 500})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-1", true, "", at); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-1", true, "", attemptStartedAt, at); err != nil {
 		t.Fatal(err)
+	}
+	var storedAttempt, storedSuccess, storedIngested time.Time
+	if err := db.QueryRowContext(ctx, `SELECT last_attempt_at,last_success_at FROM source_state WHERE source=$1`, string(mapper.SourcePVMBG)).Scan(&storedAttempt, &storedSuccess); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT ingested_at FROM hazard_events WHERE source=$1 AND source_ref_id=$2`, string(mapper.SourcePVMBG), "pv-1").Scan(&storedIngested); err != nil {
+		t.Fatal(err)
+	}
+	if !storedAttempt.Equal(attemptStartedAt) || !storedSuccess.Equal(at) || !storedIngested.Equal(at) {
+		t.Fatalf("stored attempt=%s success=%s ingested=%s; want attempt=%s and accepted/ingested=%s", storedAttempt, storedSuccess, storedIngested, attemptStartedAt, at)
 	}
 	id, found, err := s.FindHazardID(ctx, mapper.SourcePVMBG, "pv-1")
 	if err != nil || !found {
@@ -110,12 +121,12 @@ func TestApplyCycleKeepsStableIDsHistoryAndOutboxIdempotently(t *testing.T) {
 	}
 
 	second := testHazard(id, "PVMBG", "pv-1", at.Add(time.Second), map[string]any{"ash_column_height_m": 700, "confidence_level": json.Number("0.9")})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-2", true, "", at.Add(time.Second)); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-2", true, "", at.Add(time.Second), at.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	third := second
 	third.IngestedAt = at.Add(2 * time.Second).Format(time.RFC3339Nano)
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{third}, "poll-3", true, "", at.Add(2*time.Second)); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{third}, "poll-3", true, "", at.Add(2*time.Second), at.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,16 +161,32 @@ func TestApplyCycleKeepsStableIDsHistoryAndOutboxIdempotently(t *testing.T) {
 		t.Fatalf("read pool list returned items=%d hasMore=%v err=%v", len(items), hasMore, err)
 	}
 	pending, err := s.PendingOutbox(ctx, 10, at.Add(3*time.Second))
-	if err != nil || len(pending) != 2 {
-		t.Fatalf("relay pool returned pending=%d err=%v; want 2", len(pending), err)
+	if err != nil || len(pending) != 1 || pending[0].Revision != 1 {
+		t.Fatalf("relay should expose only the oldest pending hazard revision: pending=%+v err=%v", pending, err)
+	}
+	if err := s.MarkPublished(ctx, pending[0].MessageID, at.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err = s.PendingOutbox(ctx, 10, at.Add(3*time.Second))
+	if err != nil || len(pending) != 1 || pending[0].Revision != 2 {
+		t.Fatalf("next revision should become eligible after prior acknowledgement: pending=%+v err=%v", pending, err)
 	}
 
 	states, err := s.SourceStates(ctx, []mapper.Source{mapper.SourcePVMBG}, at.Add(3*time.Second))
 	if err != nil || states[mapper.SourcePVMBG].Status != "fresh" {
 		t.Fatalf("freshness after successful poll: states=%+v err=%v", states, err)
 	}
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, nil, "poll-4", false, "SOURCE_FETCH_FAILED", at.Add(4*time.Second)); err != nil {
+	failureAttemptAt := at.Add(3 * time.Second)
+	failureAcceptedAt := at.Add(4 * time.Second)
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, nil, "poll-4", false, "SOURCE_FETCH_FAILED", failureAttemptAt, failureAcceptedAt); err != nil {
 		t.Fatal(err)
+	}
+	var storedFailureAttempt, storedLastSuccess, storedFailure, storedFailureSince time.Time
+	if err := db.QueryRowContext(ctx, `SELECT last_attempt_at,last_success_at,last_failure_at,failure_since FROM source_state WHERE source=$1`, string(mapper.SourcePVMBG)).Scan(&storedFailureAttempt, &storedLastSuccess, &storedFailure, &storedFailureSince); err != nil {
+		t.Fatal(err)
+	}
+	if !storedFailureAttempt.Equal(failureAttemptAt) || !storedLastSuccess.Equal(at.Add(2*time.Second)) || !storedFailure.Equal(failureAcceptedAt) || !storedFailureSince.Equal(failureAcceptedAt) {
+		t.Fatalf("failure state attempt=%s success=%s failure=%s since=%s; want attempt=%s, previous success=%s, failure/since=%s", storedFailureAttempt, storedLastSuccess, storedFailure, storedFailureSince, failureAttemptAt, at.Add(2*time.Second), failureAcceptedAt)
 	}
 	states, err = s.SourceStates(ctx, []mapper.Source{mapper.SourcePVMBG}, at.Add(5*time.Second))
 	if err != nil || states[mapper.SourcePVMBG].Status != "stale" || states[mapper.SourcePVMBG].StaleSince == nil || !states[mapper.SourcePVMBG].StaleSince.Equal(at.Add(4*time.Second)) {
@@ -185,11 +212,11 @@ func TestApplyCycleStopsAtPendingOutboxLimit(t *testing.T) {
 	s.SetOutboxLimit(1)
 	at := time.Date(2026, 9, 28, 4, 0, 0, 0, time.UTC)
 	first := testHazard("", "PVMBG", "pv-cap-1", at, map[string]any{"ash_column_height_m": 100})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-cap-1", true, "", at); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-cap-1", true, "", at, at); err != nil {
 		t.Fatal(err)
 	}
 	second := testHazard("", "PVMBG", "pv-cap-2", at.Add(time.Second), map[string]any{"ash_column_height_m": 200})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-cap-2", true, "", at.Add(time.Second)); !errors.Is(err, ErrOutboxCapacity) {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-cap-2", true, "", at.Add(time.Second), at.Add(time.Second)); !errors.Is(err, ErrOutboxCapacity) {
 		t.Fatalf("second cycle error=%v; want ErrOutboxCapacity", err)
 	}
 	var eventCount, pendingCount int
@@ -226,7 +253,7 @@ func TestApplyCycleDoesNotOverrunPendingOutboxLimitWithinSnapshot(t *testing.T) 
 		testHazard("", "PVMBG", "pv-batch-cap-1", at, map[string]any{"ash_column_height_m": 100}),
 		testHazard("", "PVMBG", "pv-batch-cap-2", at.Add(time.Second), map[string]any{"ash_column_height_m": 200}),
 	}
-	err = s.ApplyCycle(ctx, mapper.SourcePVMBG, events, "poll-batch-cap", true, "", at)
+	err = s.ApplyCycle(ctx, mapper.SourcePVMBG, events, "poll-batch-cap", true, "", at, at)
 	if !errors.Is(err, ErrOutboxCapacity) {
 		t.Fatalf("snapshot error=%v; want ErrOutboxCapacity", err)
 	}
@@ -259,11 +286,11 @@ func TestApplyCycleTreatsEquivalentJSONBNumbersAsUnchanged(t *testing.T) {
 	}
 	at := time.Date(2026, 9, 28, 5, 0, 0, 0, time.UTC)
 	first := testHazard("", "PVMBG", "pv-semantic-1", at, map[string]any{"value": json.Number("1.0")})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-semantic-1", true, "", at); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{first}, "poll-semantic-1", true, "", at, at); err != nil {
 		t.Fatal(err)
 	}
 	second := testHazard("", "PVMBG", "pv-semantic-1", at, map[string]any{"value": json.Number("1e0")})
-	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-semantic-2", true, "", at.Add(time.Second)); err != nil {
+	if err := s.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{second}, "poll-semantic-2", true, "", at.Add(time.Second), at.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	var revision, versionCount, outboxCount int

@@ -26,6 +26,23 @@ var sourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 const DefaultOutboxLimit int64 = 10000
 
+const (
+	SubjectBMKG   = "hazard.events.v1.BMKG"
+	SubjectPVMBG  = "hazard.events.v1.PVMBG"
+	SubjectFilter = "hazard.events.v1.*"
+)
+
+func SubjectForSource(source mapper.Source) (string, error) {
+	switch source {
+	case mapper.SourceBMKG:
+		return SubjectBMKG, nil
+	case mapper.SourcePVMBG:
+		return SubjectPVMBG, nil
+	default:
+		return "", fmt.Errorf("unknown event source %q", source)
+	}
+}
+
 var ErrOutboxCapacity = errors.New("outbox capacity reached")
 
 type Store struct {
@@ -44,6 +61,8 @@ type SourceState struct {
 
 type OutboxMessage struct {
 	MessageID string
+	HazardID  string
+	Revision  int64
 	Subject   string
 	Envelope  []byte
 	Attempts  int
@@ -171,12 +190,12 @@ func (s *Store) FindHazardID(ctx context.Context, source mapper.Source, refID st
 	return id, true, nil
 }
 
-func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []mapper.HazardEvent, correlationID string, success bool, errorCode string, at time.Time) error {
+func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []mapper.HazardEvent, correlationID string, success bool, errorCode string, attemptAt, acceptedAt time.Time) error {
 	if source != mapper.SourceBMKG && source != mapper.SourcePVMBG {
 		return errors.New("unknown source")
 	}
-	if at.IsZero() {
-		return errors.New("cycle timestamp is required")
+	if attemptAt.IsZero() || acceptedAt.IsZero() {
+		return errors.New("cycle timestamps are required")
 	}
 	if success && errorCode != "" {
 		return errors.New("successful cycle cannot contain an error code")
@@ -195,16 +214,6 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 		return fmt.Errorf("begin source cycle: %w", err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(4031, 2)`); err != nil {
-		return fmt.Errorf("acquire outbox capacity lock: %w", err)
-	}
-	var pending int64
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&pending); err != nil {
-		return fmt.Errorf("count pending outbox messages: %w", err)
-	}
-	if pending >= s.outboxLimit {
-		return ErrOutboxCapacity
-	}
 	seen := make(map[string]struct{}, len(events))
 	for _, event := range events {
 		if event.Source != source || !sourceIDPattern.MatchString(event.SourceRefID) {
@@ -214,11 +223,25 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 			return fmt.Errorf("duplicate source record %q in snapshot", event.SourceRefID)
 		}
 		seen[event.SourceRefID] = struct{}{}
-		if err := s.upsertEvent(ctx, tx, event, correlationID, at.UTC(), &pending); err != nil {
+		if err := s.upsertEvent(ctx, tx, event, correlationID, acceptedAt.UTC()); err != nil {
 			return fmt.Errorf("upsert source record %s: %w", event.SourceRefID, err)
 		}
 	}
-	if err := updateSourceState(ctx, tx, source, at.UTC(), success, errorCode); err != nil {
+	if len(events) > 0 {
+		// Serialize only the final capacity check; source snapshots can be fetched
+		// and upserted concurrently, while the counter remains strictly bounded.
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(4031, 2)`); err != nil {
+			return fmt.Errorf("acquire outbox capacity lock: %w", err)
+		}
+		var pending int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&pending); err != nil {
+			return fmt.Errorf("count pending outbox messages: %w", err)
+		}
+		if pending > s.outboxLimit {
+			return ErrOutboxCapacity
+		}
+	}
+	if err := updateSourceState(ctx, tx, source, attemptAt.UTC(), acceptedAt.UTC(), success, errorCode); err != nil {
 		return fmt.Errorf("update source state: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -227,7 +250,7 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 	return nil
 }
 
-func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.HazardEvent, correlationID string, at time.Time, pending *int64) error {
+func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.HazardEvent, correlationID string, at time.Time) error {
 	if event.HazardID == "" {
 		id, err := newUUID()
 		if err != nil {
@@ -277,9 +300,6 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 			return nil
 		}
 	}
-	if *pending >= s.outboxLimit {
-		return ErrOutboxCapacity
-	}
 	revision++
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -317,22 +337,24 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return fmt.Errorf("encode outbox envelope: %w", err)
 	}
-	subject := "hazard.events.v1." + string(event.Source)
+	subject, err := SubjectForSource(event.Source)
+	if err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO outbox(message_id,hazard_id,revision,subject,envelope,created_at,next_attempt_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6)`, envelope["message_id"], event.HazardID, revision, subject, payload, at)
 	if err != nil {
 		return fmt.Errorf("insert outbox message: %w", err)
 	}
-	(*pending)++
 	_ = content
 	return nil
 }
 
-func updateSourceState(ctx context.Context, tx *sql.Tx, source mapper.Source, at time.Time, success bool, code string) error {
+func updateSourceState(ctx context.Context, tx *sql.Tx, source mapper.Source, attemptAt, acceptedAt time.Time, success bool, code string) error {
 	if success {
-		_, err := tx.ExecContext(ctx, `INSERT INTO source_state(source,last_attempt_at,last_success_at,last_failure_at,failure_since,last_error_code) VALUES($1,$2,$2,NULL,NULL,NULL) ON CONFLICT(source) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_success_at=EXCLUDED.last_success_at,failure_since=NULL,last_error_code=NULL`, string(source), at)
+		_, err := tx.ExecContext(ctx, `INSERT INTO source_state(source,last_attempt_at,last_success_at,last_failure_at,failure_since,last_error_code) VALUES($1,$2,$3,NULL,NULL,NULL) ON CONFLICT(source) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_success_at=EXCLUDED.last_success_at,failure_since=NULL,last_error_code=NULL`, string(source), attemptAt, acceptedAt)
 		return err
 	}
-	_, err := tx.ExecContext(ctx, `INSERT INTO source_state(source,last_attempt_at,last_success_at,last_failure_at,failure_since,last_error_code) VALUES($1,$2,NULL,$2,$2,$3) ON CONFLICT(source) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_failure_at=EXCLUDED.last_failure_at,failure_since=COALESCE(source_state.failure_since,EXCLUDED.failure_since),last_error_code=EXCLUDED.last_error_code`, string(source), at, code)
+	_, err := tx.ExecContext(ctx, `INSERT INTO source_state(source,last_attempt_at,last_success_at,last_failure_at,failure_since,last_error_code) VALUES($1,$2,NULL,$3,$3,$4) ON CONFLICT(source) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,last_failure_at=EXCLUDED.last_failure_at,failure_since=COALESCE(source_state.failure_since,EXCLUDED.failure_since),last_error_code=EXCLUDED.last_error_code`, string(source), attemptAt, acceptedAt, code)
 	return err
 }
 
@@ -473,7 +495,7 @@ func (s *Store) PendingOutboxCount(ctx context.Context) (int64, error) {
 func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]OutboxMessage, error) {
 	ctx, cancel := s.writeContext(ctx)
 	defer cancel()
-	rows, err := s.relayDB.QueryContext(ctx, `SELECT message_id,subject,envelope,attempts FROM outbox WHERE published_at IS NULL AND next_attempt_at <= $1 ORDER BY created_at,message_id LIMIT $2`, now, limit)
+	rows, err := s.relayDB.QueryContext(ctx, `SELECT current.message_id,current.hazard_id::text,current.revision,current.subject,current.envelope,current.attempts FROM outbox AS current WHERE current.published_at IS NULL AND current.next_attempt_at <= $1 AND NOT EXISTS (SELECT 1 FROM outbox AS earlier WHERE earlier.hazard_id=current.hazard_id AND earlier.revision<current.revision AND earlier.published_at IS NULL) ORDER BY current.created_at,current.message_id LIMIT $2`, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +503,7 @@ func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]
 	messages := make([]OutboxMessage, 0, limit)
 	for rows.Next() {
 		var msg OutboxMessage
-		if err := rows.Scan(&msg.MessageID, &msg.Subject, &msg.Envelope, &msg.Attempts); err != nil {
+		if err := rows.Scan(&msg.MessageID, &msg.HazardID, &msg.Revision, &msg.Subject, &msg.Envelope, &msg.Attempts); err != nil {
 			return nil, err
 		}
 		messages = append(messages, msg)

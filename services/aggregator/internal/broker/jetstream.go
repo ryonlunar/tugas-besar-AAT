@@ -59,6 +59,9 @@ func NewJetStreamPublisher(config JetStreamConfig) (*JetStreamPublisher, error) 
 }
 
 func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payload []byte, messageID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(payload) > int(p.config.MaxMsgSize) || messageID == "" {
 		return errors.New("NATS message violates configured envelope limits")
 	}
@@ -74,7 +77,10 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payloa
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if err := p.ensureConnectedLocked(); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := p.ensureConnectedLocked(ctx); err != nil {
 		return errors.New("NATS JetStream is unavailable")
 	}
 	msg := nats.NewMsg(subject)
@@ -86,7 +92,10 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payloa
 	return nil
 }
 
-func (p *JetStreamPublisher) ensureConnectedLocked() error {
+func (p *JetStreamPublisher) ensureConnectedLocked(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if p.conn != nil && !p.conn.IsClosed() && p.js != nil {
 		return nil
 	}
@@ -95,7 +104,17 @@ func (p *JetStreamPublisher) ensureConnectedLocked() error {
 		p.conn = nil
 		p.js = nil
 	}
-	conn, err := nats.Connect(p.config.URL, nats.Token(p.config.Token), nats.Name("aat-aggregator-outbox"), nats.Timeout(p.config.ConnectTimeout))
+	connectTimeout := p.config.ConnectTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		if remaining < connectTimeout {
+			connectTimeout = remaining
+		}
+	}
+	conn, err := nats.Connect(p.config.URL, nats.Token(p.config.Token), nats.Name("aat-aggregator-outbox"), nats.Timeout(connectTimeout))
 	if err != nil {
 		return err
 	}
@@ -105,7 +124,7 @@ func (p *JetStreamPublisher) ensureConnectedLocked() error {
 		return err
 	}
 	p.conn, p.js = conn, js
-	if err := p.ensureStreamLocked(); err != nil {
+	if err := p.ensureStreamLocked(ctx); err != nil {
 		conn.Close()
 		p.conn = nil
 		p.js = nil
@@ -114,7 +133,7 @@ func (p *JetStreamPublisher) ensureConnectedLocked() error {
 	return nil
 }
 
-func (p *JetStreamPublisher) ensureStreamLocked() error {
+func (p *JetStreamPublisher) ensureStreamLocked(ctx context.Context) error {
 	desired := nats.StreamConfig{
 		Name:       p.config.Stream,
 		Subjects:   append([]string(nil), p.config.StreamSubjects...),
@@ -128,9 +147,9 @@ func (p *JetStreamPublisher) ensureStreamLocked() error {
 		Duplicates: p.config.DuplicateWindow,
 		Discard:    nats.DiscardNew,
 	}
-	info, err := p.js.StreamInfo(desired.Name)
+	info, err := p.js.StreamInfo(desired.Name, nats.Context(ctx))
 	if errors.Is(err, nats.ErrStreamNotFound) {
-		_, err = p.js.AddStream(&desired)
+		_, err = p.js.AddStream(&desired, nats.Context(ctx))
 		if err != nil {
 			return fmt.Errorf("create JetStream stream: %w", err)
 		}

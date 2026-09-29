@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
@@ -31,6 +32,8 @@ type Relay struct {
 	retryMax       time.Duration
 	now            func() time.Time
 	logger         *slog.Logger
+	retryMu        sync.Mutex
+	localRetryAt   map[string]time.Time
 }
 
 func New(queue Queue, publisher Publisher, batchSize int, interval, retryMin, retryMax time.Duration) *Relay {
@@ -50,7 +53,15 @@ func New(queue Queue, publisher Publisher, batchSize int, interval, retryMin, re
 	if retryMax < retryMin {
 		retryMax = 30 * time.Second
 	}
-	return &Relay{queue: queue, publisher: publisher, batchSize: batchSize, interval: interval, publishTimeout: publishTimeout, retryMin: retryMin, retryMax: retryMax, now: time.Now, logger: slog.Default()}
+	return &Relay{queue: queue, publisher: publisher, batchSize: batchSize, interval: interval, publishTimeout: publishTimeout, retryMin: retryMin, retryMax: retryMax, now: time.Now, logger: slog.Default(), localRetryAt: make(map[string]time.Time)}
+}
+
+func (r *Relay) SetPublishTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		return errors.New("publish timeout must be positive")
+	}
+	r.publishTimeout = timeout
+	return nil
 }
 
 func (r *Relay) SetClock(now func() time.Time) {
@@ -76,7 +87,17 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 		return fmt.Errorf("read pending outbox: %w", err)
 	}
 	var failures []error
+	blockedHazards := make(map[string]struct{})
 	for _, message := range messages {
+		if _, blocked := blockedHazards[message.HazardID]; message.HazardID != "" && blocked {
+			continue
+		}
+		if r.isLocallyDeferred(message.MessageID, now) {
+			if message.HazardID != "" {
+				blockedHazards[message.HazardID] = struct{}{}
+			}
+			continue
+		}
 		correlationID := envelopeCorrelationID(message.Envelope)
 		publishCtx, cancel := context.WithTimeout(ctx, r.publishTimeout)
 		publishStarted := time.Now()
@@ -84,13 +105,18 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 		cancel()
 		publishAttrs := []any{"operation", "jetstream_publish", "message_id", message.MessageID, "subject", message.Subject, "correlation_id", correlationID, "duration_ms", time.Since(publishStarted).Milliseconds(), "status", statusFor(err)}
 		if err != nil {
+			if message.HazardID != "" {
+				blockedHazards[message.HazardID] = struct{}{}
+			}
 			r.logger.WarnContext(ctx, "JetStream publish failed", append(publishAttrs, "reason", "NATS_PUBLISH_FAILED")...)
-			next := now.Add(retryDelay(message.Attempts+1, r.retryMin, r.retryMax))
+			next := r.now().UTC().Add(retryDelay(message.Attempts+1, r.retryMin, r.retryMax))
 			failureStarted := time.Now()
 			if recordErr := r.queue.RecordPublishFailure(ctx, message.MessageID, "NATS_PUBLISH_FAILED", next); recordErr != nil {
+				r.deferLocally(message.MessageID, next)
 				r.logger.ErrorContext(ctx, "outbox retry scheduling failed", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "failed", "reason", "STORE_FAILURE")
 				failures = append(failures, fmt.Errorf("record publish failure: %w", recordErr))
 			} else {
+				r.clearLocalRetry(message.MessageID)
 				r.logger.InfoContext(ctx, "outbox retry scheduled", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "success")
 				failures = append(failures, errors.New("NATS publish failed; message remains pending"))
 			}
@@ -99,13 +125,59 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 		r.logger.InfoContext(ctx, "JetStream publish acknowledged", publishAttrs...)
 		markStarted := time.Now()
 		if err := r.queue.MarkPublished(ctx, message.MessageID, r.now().UTC()); err != nil {
+			if message.HazardID != "" {
+				blockedHazards[message.HazardID] = struct{}{}
+			}
 			r.logger.ErrorContext(ctx, "outbox acknowledgement persistence failed", "operation", "outbox_mark_published", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(markStarted).Milliseconds(), "status", "failed", "reason", "STORE_FAILURE")
 			failures = append(failures, fmt.Errorf("mark outbox message published: %w", err))
+			next := r.now().UTC().Add(retryDelay(message.Attempts+1, r.retryMin, r.retryMax))
+			failureStarted := time.Now()
+			if recordErr := r.queue.RecordPublishFailure(ctx, message.MessageID, "ACK_PERSIST_FAILED", next); recordErr != nil {
+				r.deferLocally(message.MessageID, next)
+				r.logger.ErrorContext(ctx, "outbox retry scheduling failed after acknowledgement error", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "failed", "reason", "STORE_FAILURE")
+				failures = append(failures, fmt.Errorf("schedule retry after acknowledgement persistence failure: %w", recordErr))
+			} else {
+				r.clearLocalRetry(message.MessageID)
+				r.logger.InfoContext(ctx, "outbox retry scheduled after acknowledgement error", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "success")
+			}
 		} else {
+			r.clearLocalRetry(message.MessageID)
 			r.logger.InfoContext(ctx, "outbox publish acknowledgement persisted", "operation", "outbox_mark_published", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(markStarted).Milliseconds(), "status", "success")
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func (r *Relay) isLocallyDeferred(messageID string, now time.Time) bool {
+	if messageID == "" {
+		return false
+	}
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	next, ok := r.localRetryAt[messageID]
+	if !ok {
+		return false
+	}
+	if !now.Before(next) {
+		delete(r.localRetryAt, messageID)
+		return false
+	}
+	return true
+}
+
+func (r *Relay) deferLocally(messageID string, next time.Time) {
+	if messageID == "" {
+		return
+	}
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	r.localRetryAt[messageID] = next
+}
+
+func (r *Relay) clearLocalRetry(messageID string) {
+	r.retryMu.Lock()
+	defer r.retryMu.Unlock()
+	delete(r.localRetryAt, messageID)
 }
 
 func (r *Relay) Run(ctx context.Context) error {

@@ -255,6 +255,21 @@ func mapWarning(fields map[string]json.RawMessage) (map[string]any, Severity, er
 	return result, threat, nil
 }
 
+// ValidateTsunamiWarning validates the required structure and fields of a source warning.
+func ValidateTsunamiWarning(warningJSON []byte) error {
+	fields, err := decodeObject(warningJSON)
+	if err != nil {
+		return fmt.Errorf("decode tsunami warning: %w", err)
+	}
+	if _, err := requiredString(fields, "related_event_id"); err != nil {
+		return fmt.Errorf("invalid tsunami related_event_id: %w", err)
+	}
+	if _, _, err := mapWarning(fields); err != nil {
+		return err
+	}
+	return nil
+}
+
 func mapAlertLevel(value string) (Severity, error) {
 	switch value {
 	case "Normal":

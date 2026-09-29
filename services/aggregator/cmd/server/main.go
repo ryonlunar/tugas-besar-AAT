@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -89,7 +90,7 @@ func run(logger *slog.Logger) error {
 
 	publisher, err := broker.NewJetStreamPublisher(broker.JetStreamConfig{
 		URL: cfg.natsURL, Token: cfg.natsToken, Stream: cfg.natsStream,
-		Subjects: []string{cfg.natsSubjectBMKG, cfg.natsSubjectPVMBG}, StreamSubjects: []string{cfg.natsSubjectFilter},
+		Subjects: []string{store.SubjectBMKG, store.SubjectPVMBG}, StreamSubjects: []string{store.SubjectFilter},
 		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second,
 	})
 	if err != nil {
@@ -97,6 +98,9 @@ func run(logger *slog.Logger) error {
 	}
 	defer publisher.Close()
 	relay := outbox.New(repository, publisher, cfg.outboxBatch, cfg.outboxPoll, cfg.outboxRetryMin, cfg.outboxRetryMax)
+	if err := relay.SetPublishTimeout(cfg.natsPublishTimeout); err != nil {
+		return fmt.Errorf("configure NATS publish timeout: %w", err)
+	}
 	relay.SetLogger(logger)
 	pollerService := poller.New(repository,
 		poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout}, cfg.maxResponseBytes),
@@ -106,13 +110,18 @@ func run(logger *slog.Logger) error {
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	go func() {
-		if err := pollerService.Run(ctx, cfg.pollInterval); err != nil && ctx.Err() == nil {
-			logger.Error("source polling stopped", "reason", "POLL_LOOP_FAILURE")
-		}
+	waitForWorkers := startBackgroundTasks(
+		func() {
+			if err := pollerService.Run(ctx, cfg.pollInterval); err != nil && ctx.Err() == nil {
+				logger.Error("source polling stopped", "reason", "POLL_LOOP_FAILURE")
+			}
+		},
+		func() { _ = relay.Run(ctx) },
+	)
+	defer func() {
+		stop()
+		waitForWorkers()
 	}()
-	go func() { _ = relay.Run(ctx) }()
 
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
@@ -137,6 +146,18 @@ func run(logger *slog.Logger) error {
 		}
 		return fmt.Errorf("listen Aggregator: %w", err)
 	}
+}
+
+func startBackgroundTasks(tasks ...func()) func() {
+	var wg sync.WaitGroup
+	wg.Add(len(tasks))
+	for _, task := range tasks {
+		go func(task func()) {
+			defer wg.Done()
+			task()
+		}(task)
+	}
+	return func() { wg.Wait() }
 }
 
 func probeReadiness(client *http.Client, baseURL string) error {
@@ -172,22 +193,22 @@ func openDB(dsn string, maxConns int) (*sql.DB, error) {
 }
 
 type config struct {
-	listenAddr                                                                           string
-	bmkgURL, pvmbgURL, bmkgKey, pvmbgToken, internalKey                                  string
-	databaseURL                                                                          string
-	readConns, bmkgWriteConns, pvmbgWriteConns, relayConns                               int
-	dbReadTimeout, dbWriteTimeout                                                        time.Duration
-	pollInterval, bmkgTimeout, pvmbgTimeout, staleAfter                                  time.Duration
-	maxResponseBytes                                                                     int64
-	maxInflight                                                                          int
-	readHeaderTimeout, idleTimeout, writeTimeout                                         time.Duration
-	natsURL, natsToken, natsStream, natsSubjectFilter, natsSubjectBMKG, natsSubjectPVMBG string
-	natsMaxAge, natsDuplicateWindow                                                      time.Duration
-	natsMaxBytes, natsMaxMsgs                                                            int64
-	natsMaxMsgSize                                                                       int
-	outboxPoll, outboxRetryMin, outboxRetryMax                                           time.Duration
-	outboxBatch                                                                          int
-	outboxMaxPending                                                                     int64
+	listenAddr                                             string
+	bmkgURL, pvmbgURL, bmkgKey, pvmbgToken, internalKey    string
+	databaseURL                                            string
+	readConns, bmkgWriteConns, pvmbgWriteConns, relayConns int
+	dbReadTimeout, dbWriteTimeout                          time.Duration
+	pollInterval, bmkgTimeout, pvmbgTimeout, staleAfter    time.Duration
+	maxResponseBytes                                       int64
+	maxInflight                                            int
+	readHeaderTimeout, idleTimeout, writeTimeout           time.Duration
+	natsURL, natsToken, natsStream                         string
+	natsMaxAge, natsDuplicateWindow, natsPublishTimeout    time.Duration
+	natsMaxBytes, natsMaxMsgs                              int64
+	natsMaxMsgSize                                         int
+	outboxPoll, outboxRetryMin, outboxRetryMax             time.Duration
+	outboxBatch                                            int
+	outboxMaxPending                                       int64
 }
 
 func loadConfig() (config, error) {
@@ -274,11 +295,14 @@ func loadConfig() (config, error) {
 	c.natsURL = env("NATS_URL", "nats://nats:4222")
 	c.natsToken = os.Getenv("NATS_TOKEN")
 	c.natsStream = env("NATS_STREAM_NAME", "HAZARD_EVENTS")
-	c.natsSubjectFilter = env("NATS_SUBJECT_FILTER", "hazard.events.v1.*")
-	c.natsSubjectBMKG = env("NATS_SUBJECT_BMKG", "hazard.events.v1.BMKG")
-	c.natsSubjectPVMBG = env("NATS_SUBJECT_PVMBG", "hazard.events.v1.PVMBG")
 	if c.natsToken == "" {
 		return config{}, errors.New("NATS_TOKEN must be set")
+	}
+	if c.natsPublishTimeout, err = envDuration("NATS_PUBLISH_TIMEOUT", "2s"); err != nil {
+		return config{}, err
+	}
+	if c.natsPublishTimeout <= 0 {
+		return config{}, errors.New("NATS_PUBLISH_TIMEOUT must be positive")
 	}
 	if c.natsMaxAge, err = envDuration("NATS_MAX_AGE", "24h"); err != nil {
 		return config{}, err

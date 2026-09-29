@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"regexp"
 	"sync"
 	"time"
@@ -26,7 +25,7 @@ type PVMBGSource interface {
 type Repository interface {
 	FindHazardID(context.Context, mapper.Source, string) (id string, found bool, err error)
 	PendingOutboxCount(context.Context) (int64, error)
-	ApplyCycle(context.Context, mapper.Source, []mapper.HazardEvent, string, bool, string, time.Time) error
+	ApplyCycle(context.Context, mapper.Source, []mapper.HazardEvent, string, bool, string, time.Time, time.Time) error
 }
 
 type Poller struct {
@@ -93,43 +92,52 @@ func (p *Poller) PollBMKG(ctx context.Context) error {
 	sourceCtx := withCorrelationID(ctx, correlationID)
 	events, warnings, fetchErr := p.bmkg.Fetch(sourceCtx)
 	if fetchErr != nil {
-		if saveErr := p.repository.ApplyCycle(ctx, mapper.SourceBMKG, nil, correlationID, false, "SOURCE_FETCH_FAILED", attemptAt); saveErr != nil {
+		failureAt := p.now().UTC()
+		if saveErr := p.repository.ApplyCycle(ctx, mapper.SourceBMKG, nil, correlationID, false, "SOURCE_FETCH_FAILED", attemptAt, failureAt); saveErr != nil {
 			return errors.Join(fetchErr, fmt.Errorf("persist BMKG failure state: %w", saveErr))
 		}
 		return fetchErr
 	}
+	acceptedAt := p.now().UTC()
 	invalid := 0
 	warningsByEvent := make(map[string][][]byte)
-	for _, raw := range warnings {
+	for index, raw := range warnings {
 		id, err := rawStringField(raw, "related_event_id")
 		if err != nil {
 			invalid++
+			p.logRejectedRecord(mapper.SourceBMKG, correlationID, "tsunami_warning", index, "", "related_event_id", "INVALID_RECORD")
+			continue
+		}
+		if err := mapper.ValidateTsunamiWarning(raw); err != nil {
+			invalid++
+			p.logRejectedRecord(mapper.SourceBMKG, correlationID, "tsunami_warning", index, id, "", "INVALID_RECORD")
 			continue
 		}
 		warningsByEvent[id] = append(warningsByEvent[id], raw)
 	}
 	mapped := make([]mapper.HazardEvent, 0, len(events))
 	oversized := 0
-	for _, raw := range events {
+	for index, raw := range events {
 		refID, err := rawStringField(raw, "event_id")
 		if err != nil {
 			invalid++
+			p.logRejectedRecord(mapper.SourceBMKG, correlationID, "seismic_event", index, "", "event_id", "INVALID_RECORD")
 			continue
 		}
 		hazardID, err := p.hazardID(ctx, mapper.SourceBMKG, refID)
 		if err != nil {
 			return err
 		}
-		entity, err := p.mapper.MapSeismic(raw, warningsByEvent[refID], hazardID, attemptAt)
+		entity, err := p.mapper.MapSeismic(raw, warningsByEvent[refID], hazardID, acceptedAt)
 		if err != nil {
 			invalid++
-			p.logger.Warn("source record rejected", "source", mapper.SourceBMKG, "source_ref_id", refID, "reason", "INVALID_RECORD")
+			p.logRejectedRecord(mapper.SourceBMKG, correlationID, "seismic_event", index, refID, "", "INVALID_RECORD")
 			continue
 		}
-		fits, err := eventFitsEnvelope(entity, correlationID, attemptAt, p.maxEnvelopeBytes)
+		fits, err := eventFitsEnvelope(entity, correlationID, acceptedAt, p.maxEnvelopeBytes)
 		if err != nil || !fits {
 			oversized++
-			p.logger.Warn("source record rejected", "source", mapper.SourceBMKG, "source_ref_id", refID, "reason", "EVENT_TOO_LARGE")
+			p.logRejectedRecord(mapper.SourceBMKG, correlationID, "seismic_event", index, refID, "", "EVENT_TOO_LARGE")
 			continue
 		}
 		mapped = append(mapped, entity)
@@ -142,7 +150,7 @@ func (p *Poller) PollBMKG(ctx context.Context) error {
 		code = "EVENT_TOO_LARGE"
 	}
 	success := invalid == 0 && oversized == 0
-	if err := p.repository.ApplyCycle(ctx, mapper.SourceBMKG, mapped, correlationID, success, code, attemptAt); err != nil {
+	if err := p.repository.ApplyCycle(ctx, mapper.SourceBMKG, mapped, correlationID, success, code, attemptAt, acceptedAt); err != nil {
 		if errors.Is(err, store.ErrOutboxCapacity) {
 			p.logger.Warn("source ingestion paused", "source", mapper.SourceBMKG, "limit", p.outboxLimit, "reason", "OUTBOX_CAPACITY")
 		}
@@ -167,33 +175,36 @@ func (p *Poller) PollPVMBG(ctx context.Context) error {
 	sourceCtx := withCorrelationID(ctx, correlationID)
 	reports, fetchErr := p.pvmbg.Fetch(sourceCtx)
 	if fetchErr != nil {
-		if saveErr := p.repository.ApplyCycle(ctx, mapper.SourcePVMBG, nil, correlationID, false, "SOURCE_FETCH_FAILED", attemptAt); saveErr != nil {
+		failureAt := p.now().UTC()
+		if saveErr := p.repository.ApplyCycle(ctx, mapper.SourcePVMBG, nil, correlationID, false, "SOURCE_FETCH_FAILED", attemptAt, failureAt); saveErr != nil {
 			return errors.Join(fetchErr, fmt.Errorf("persist PVMBG failure state: %w", saveErr))
 		}
 		return fetchErr
 	}
+	acceptedAt := p.now().UTC()
 	mapped := make([]mapper.HazardEvent, 0, len(reports))
 	invalid, oversized := 0, 0
-	for _, raw := range reports {
+	for index, raw := range reports {
 		refID, err := rawStringField(raw, "report_id")
 		if err != nil {
 			invalid++
+			p.logRejectedRecord(mapper.SourcePVMBG, correlationID, "volcanic_report", index, "", "report_id", "INVALID_RECORD")
 			continue
 		}
 		hazardID, err := p.hazardID(ctx, mapper.SourcePVMBG, refID)
 		if err != nil {
 			return err
 		}
-		entity, err := p.mapper.MapVolcanic(raw, hazardID, attemptAt)
+		entity, err := p.mapper.MapVolcanic(raw, hazardID, acceptedAt)
 		if err != nil {
 			invalid++
-			p.logger.Warn("source record rejected", "source", mapper.SourcePVMBG, "source_ref_id", refID, "reason", "INVALID_RECORD")
+			p.logRejectedRecord(mapper.SourcePVMBG, correlationID, "volcanic_report", index, refID, "", "INVALID_RECORD")
 			continue
 		}
-		fits, err := eventFitsEnvelope(entity, correlationID, attemptAt, p.maxEnvelopeBytes)
+		fits, err := eventFitsEnvelope(entity, correlationID, acceptedAt, p.maxEnvelopeBytes)
 		if err != nil || !fits {
 			oversized++
-			p.logger.Warn("source record rejected", "source", mapper.SourcePVMBG, "source_ref_id", refID, "reason", "EVENT_TOO_LARGE")
+			p.logRejectedRecord(mapper.SourcePVMBG, correlationID, "volcanic_report", index, refID, "", "EVENT_TOO_LARGE")
 			continue
 		}
 		mapped = append(mapped, entity)
@@ -206,13 +217,24 @@ func (p *Poller) PollPVMBG(ctx context.Context) error {
 		code = "EVENT_TOO_LARGE"
 	}
 	success := invalid == 0 && oversized == 0
-	if err := p.repository.ApplyCycle(ctx, mapper.SourcePVMBG, mapped, correlationID, success, code, attemptAt); err != nil {
+	if err := p.repository.ApplyCycle(ctx, mapper.SourcePVMBG, mapped, correlationID, success, code, attemptAt, acceptedAt); err != nil {
 		if errors.Is(err, store.ErrOutboxCapacity) {
 			p.logger.Warn("source ingestion paused", "source", mapper.SourcePVMBG, "limit", p.outboxLimit, "reason", "OUTBOX_CAPACITY")
 		}
 		return fmt.Errorf("persist PVMBG snapshot: %w", err)
 	}
 	return nil
+}
+
+func (p *Poller) logRejectedRecord(source mapper.Source, correlationID, kind string, index int, sourceRefID, field, reason string) {
+	attrs := []any{"source", source, "correlation_id", correlationID, "record_kind", kind, "record_index", index, "reason", reason}
+	if sourceRefID != "" {
+		attrs = append(attrs, "source_ref_id", sourceRefID)
+	}
+	if field != "" {
+		attrs = append(attrs, "field", field)
+	}
+	p.logger.Warn("source record rejected", attrs...)
 }
 
 func eventFitsEnvelope(event mapper.HazardEvent, correlationID string, at time.Time, maxBytes int) (bool, error) {
@@ -268,8 +290,18 @@ func (p *Poller) runLoop(ctx context.Context, wg *sync.WaitGroup, source string,
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		if err := poll(ctx); err != nil && ctx.Err() == nil {
 			p.logger.Warn("source poll failed", "source", source, "reason", "POLL_FAILED")
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		select {
+		case <-ticker.C:
+		default:
 		}
 		select {
 		case <-ctx.Done():
@@ -306,17 +338,4 @@ func newUUID() (string, error) {
 
 func newCorrelationID() (string, error) {
 	return newUUID()
-}
-
-func validateSourceIDs(events [][]byte, field string) error {
-	for i, raw := range events {
-		if _, err := rawStringField(raw, field); err != nil {
-			return fmt.Errorf("record %d has invalid %s", i, field)
-		}
-	}
-	return nil
-}
-
-func requestTimeoutClient(timeout time.Duration) *http.Client {
-	return &http.Client{Timeout: timeout}
 }
