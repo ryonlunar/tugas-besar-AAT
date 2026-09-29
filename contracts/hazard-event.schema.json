@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.aat.invalid/hazard-event.schema.json",
+  "title": "HazardEvent M1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hazard_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source": {
+      "enum": [
+        "BMKG",
+        "PVMBG"
+      ]
+    },
+    "source_ref_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "hazard_type": {
+      "enum": [
+        "SEISMIC",
+        "VOLCANIC"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "NORMAL",
+        "WASPADA",
+        "SIAGA",
+        "AWAS"
+      ]
+    },
+    "area_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "latitude": {
+      "type": "number",
+      "minimum": -90,
+      "maximum": 90
+    },
+    "longitude": {
+      "type": "number",
+      "minimum": -180,
+      "maximum": 180
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ingested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "attributes": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "hazard_id",
+    "source",
+    "source_ref_id",
+    "hazard_type",
+    "severity",
+    "area_name",
+    "latitude",
+    "longitude",
+    "occurred_at",
+    "ingested_at",
+    "attributes"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "BMKG"
+          }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "hazard_type": {
+            "const": "SEISMIC"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "hazard_type": {
+            "const": "VOLCANIC"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.aat.invalid/hazard-envelope.schema.json",
+  "title": "HazardEnvelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "event_type": {
+      "enum": [
+        "hazard.created",
+        "hazard.updated"
+      ]
+    },
+    "message_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]*$"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "aggregator"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "data": {
+      "$ref": "hazard-event.schema.json"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "revision": {"const": 1}
+        },
+        "required": ["revision"]
+      },
+      "then": {
+        "properties": {
+          "event_type": {"const": "hazard.created"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "revision": {"minimum": 2}
+        },
+        "required": ["revision"]
+      },
+      "then": {
+        "properties": {
+          "event_type": {"const": "hazard.updated"}
+        }
+      }
+    }
+  ],
+  "required": [
+    "schema_version",
+    "event_type",
+    "message_id",
+    "correlation_id",
+    "published_at",
+    "producer",
+    "revision",
+    "data"
+  ]
+}

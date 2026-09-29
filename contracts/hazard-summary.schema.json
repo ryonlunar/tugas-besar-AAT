@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.aat.invalid/hazard-summary.schema.json",
+  "title": "HazardSummary M1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hazard_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source": {
+      "enum": [
+        "BMKG",
+        "PVMBG"
+      ]
+    },
+    "hazard_type": {
+      "enum": [
+        "SEISMIC",
+        "VOLCANIC"
+      ]
+    },
+    "severity": {
+      "enum": [
+        "NORMAL",
+        "WASPADA",
+        "SIAGA",
+        "AWAS"
+      ]
+    },
+    "area_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ingested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "hazard_id",
+    "source",
+    "hazard_type",
+    "severity",
+    "area_name",
+    "occurred_at",
+    "ingested_at"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "BMKG"
+          }
+        },
+        "required": ["source"]
+      },
+      "then": {
+        "properties": {
+          "hazard_type": {
+            "const": "SEISMIC"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "hazard_type": {
+            "const": "VOLCANIC"
+          }
+        }
+      }
+    }
+  ]
+}

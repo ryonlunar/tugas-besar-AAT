@@ -1,0 +1,9 @@
+{
+  "hazard_id": "31b67234-7363-4fba-9c20-d7f2b6d91450",
+  "source": "BMKG",
+  "hazard_type": "SEISMIC",
+  "severity": "WASPADA",
+  "area_name": "Wilayah Simulasi Tamriel",
+  "occurred_at": "2026-09-25T13:59:50Z",
+  "ingested_at": "2026-09-25T14:00:00Z"
+}

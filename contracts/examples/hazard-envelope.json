@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "event_type": "hazard.created",
+  "message_id": "31b67234-7363-4fba-9c20-d7f2b6d91450:1",
+  "correlation_id": "demo-poll-001",
+  "published_at": "2026-09-25T14:00:00Z",
+  "producer": "aggregator",
+  "revision": 1,
+  "data": {
+    "hazard_id": "31b67234-7363-4fba-9c20-d7f2b6d91450",
+    "source": "BMKG",
+    "source_ref_id": "demo-seismic-001",
+    "hazard_type": "SEISMIC",
+    "severity": "WASPADA",
+    "area_name": "Wilayah Simulasi Tamriel",
+    "latitude": -6.0,
+    "longitude": 107.0,
+    "occurred_at": "2026-09-25T13:59:50Z",
+    "ingested_at": "2026-09-25T14:00:00Z",
+    "attributes": {
+      "magnitude": 5.5,
+      "depth_km": 10.0,
+      "potential_tsunami": false
+    }
+  }
+}
