@@ -1,0 +1,117 @@
+{
+  "note": "Retrieved source register and short evidence excerpts. PDFs supplied by user; page references in decisions.md. Excerpts are not full source coverage.",
+  "sources": [
+    {
+      "id": 1,
+      "url": "https://go.dev/blog/pipelines",
+      "title": "Go Concurrency Patterns: Pipelines and cancellation - The Go Programming Language",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "Goroutines are not garbage collected; they must exit on their own."
+    },
+    {
+      "id": 2,
+      "url": "https://www.postgresql.org/docs/16/datatype-json.html",
+      "title": "PostgreSQL: Documentation: 16: 8.14. JSON Types",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "`jsonb` does not preserve white space, does not preserve the order of object keys, and does not keep duplicate object keys. If duplicate keys are specified in the input, only the last value is kept."
+    },
+    {
+      "id": 3,
+      "url": "https://docs.nats.io/nats-concepts/jetstream/consumers",
+      "title": "Pull consumers in depth | NATS Documentation",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "The `shipping` consumer delivers the next message to a worker when the worker asks. That ask is a **pull**. The page that created the consumer treated a pull as a single \"give me one message.\""
+    },
+    {
+      "id": 5,
+      "url": "https://microservices.io/patterns/data/transactional-outbox.html",
+      "title": "Pattern: Transactional outbox",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "The Message relay might publish a message more than once. It might, for example, crash after publishing a message but before recording the fact that it has done so. When it restarts, it will then publish the message again. As a result, a message consumer must be idempotent, perhaps by tracking the IDs of the messages that it has already"
+    },
+    {
+      "id": 8,
+      "url": "https://docs.nats.io/running-a-nats-service/nats_admin/monitoring",
+      "title": "Monitoring endpoints | NATS Documentation",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "It's off until you turn it on: set `http_port: 8222` in the node's config, or pass `-m 8222` on the command line. `8222` is the conventional choice, but the port is whatever you set. It speaks plain HTTP, and it answers only when you ask; nothing is pushed. You send a `GET`, the server returns a JSON snapshot of its"
+    },
+    {
+      "id": 9,
+      "url": "https://docs.docker.com/compose/how-tos/networking",
+      "title": "Networking in Compose | Docker Docs",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "Each service can specify what networks to connect to with the service-level `networks` key, which is a list of names referencing entries under the top-level `networks` key."
+    },
+    {
+      "id": 10,
+      "url": "https://docs.nats.io/learn/jetstream/retention-policies",
+      "title": "Retention policies | NATS Documentation",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "Messages stay until a limit is reached: `MaxMsgs`, `MaxBytes`, or `MaxAge`, whichever comes first. Consumers reading and acking messages has no effect on what the stream keeps. The stream is a log, and the log holds everything inside its limits."
+    },
+    {
+      "id": 13,
+      "url": "https://www.rfc-editor.org/rfc/rfc9700.txt",
+      "title": "",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "*Refresh token rotation:* the authorization server issues a new refresh token with every access token refresh response. The previous refresh token is invalidated, but information about the relationship is retained by the authorization server. If a refresh token is compromised and subsequently used by both the attacker and the legitimate client, one of them will pres"
+    },
+    {
+      "id": 14,
+      "url": "https://pkg.go.dev/context",
+      "title": "context package - context - Go Packages",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "A Context may be canceled to indicate that work done on its behalf should stop. A Context with a deadline is canceled after the deadline passes. When a Context is canceled, all Contexts derived from it are also canceled."
+    },
+    {
+      "id": 15,
+      "url": "https://pkg.go.dev/encoding/json",
+      "title": "json package - encoding/json - Go Packages",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "DisallowUnknownFields causes the Decoder to return an error when the destination is a struct and the input contains object keys which do not match any non-ignored, exported fields in the destination."
+    },
+    {
+      "id": 16,
+      "url": "https://docs.nats.io/learn/jetstream/publishing",
+      "title": "Publishing | NATS Documentation",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "A `PubAck` confirms that the server stored the message. It does not confirm that any consumer has received it. Storage and delivery are separate."
+    },
+    {
+      "id": 18,
+      "url": "https://docs.nats.io/reference/jetstream/api/stream/create",
+      "title": "Create Stream | NATS Documentation",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "`new`Reject new messages while the stream sits at its limit."
+    },
+    {
+      "id": 19,
+      "source_type": "user-supplied-pdf-not-in-repository",
+      "title": "IF4031 - Tugas Besar - M1.pdf",
+      "accessed": "2026-09-25",
+      "sha256": "93dc3f98489688327398d6a97292c3cdce4c162bb2eed33653765065a3e98c07"
+    },
+    {
+      "id": 20,
+      "source_type": "user-supplied-pdf-not-in-repository",
+      "title": "IF4031 - Tugas Besar - Dokumen Terpusat.pdf",
+      "accessed": "2026-09-25",
+      "sha256": "eb4eadfae31f1e667b890cbc079fc87114c86154fff78a3f05d9d984f17f2739"
+    },
+    {
+      "id": 21,
+      "url": "https://pkg.go.dev/cmd/go",
+      "title": "go command - cmd/go - Go Packages",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "Code in or below a directory named \"internal\" is importable only by code that shares the same import path above the internal directory. Here's an example directory layout of a module example.com/m:"
+    },
+    {
+      "id": 22,
+      "url": "https://www.rfc-editor.org/rfc/rfc8725.txt",
+      "title": "",
+      "accessed": "2026-09-25",
+      "evidence_excerpt": "Libraries MUST enable the caller to specify a supported set of algorithms and MUST NOT use any other algorithms when performing cryptographic operations. The library MUST ensure that the \"alg\" or \"enc\" header specifies the same algorithm that is used for the cryptographic operation. Moreover, each key MUST be used with exactly one algorithm, and this MUST be checked when"
+    }
+  ]
+}

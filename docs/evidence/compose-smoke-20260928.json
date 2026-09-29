@@ -36,6 +36,11 @@
     },
     "store_and_event_networks_internal": true
   },
+  "provenance": {
+    "tested_commit": null,
+    "image_digests": null,
+    "note": "Not recorded during the original 2026-09-28 run; do not infer the tested commit from the later commit that archived this evidence."
+  },
   "limitations": [
     "Synthetic mock fixtures and test-only credentials; no production credentials used.",
     "No Auth/Client API or dashboard/notifier consumers in this partial Compose stack.",

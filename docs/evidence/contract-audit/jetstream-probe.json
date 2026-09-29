@@ -1,0 +1,31 @@
+{
+  "kind": "broker-config-probe-with-synthetic-fixture-not-P5-application-test",
+  "project": "aat-broker-contract-31a83c07",
+  "transport": "docker-exec nc loopback; no host port",
+  "checks": [
+    {
+      "check": "native-stream-config-accepted",
+      "pass": true
+    },
+    {
+      "check": "native-consumer-config-accepted:dashboard-v1",
+      "pass": true
+    },
+    {
+      "check": "native-consumer-config-accepted:notifier-v1",
+      "pass": true
+    },
+    {
+      "check": "sample-envelope-JetStream-PubAck",
+      "pass": true
+    },
+    {
+      "check": "broker-delivery-to-independent-durable:dashboard-v1",
+      "pass": true
+    },
+    {
+      "check": "broker-delivery-to-independent-durable:notifier-v1",
+      "pass": true
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "kind": "dependency-smoke-not-M1-acceptance",
+  "project": "aat-contract-audit-86894e40",
+  "host_ports_published": false,
+  "checks": [
+    {
+      "check": "postgres-and-nats-compose-health",
+      "pass": true
+    },
+    {
+      "check": "postgres-native-readiness",
+      "pass": true
+    },
+    {
+      "check": "nats-http-health-with-jetstream-enabled",
+      "pass": true
+    },
+    {
+      "check": "postgres-select-1",
+      "pass": true
+    },
+    {
+      "check": "nats-rejects-unauthenticated-connection",
+      "pass": true
+    },
+    {
+      "check": "isolated-project-cleanup",
+      "pass": true
+    }
+  ]
+}

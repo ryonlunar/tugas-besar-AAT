@@ -1,0 +1,66 @@
+%% Contract-v1 full target architecture; owner labels reflect the active worktree.
+%% Bimo/Refki application services are boundary scaffolds here, not runnable images.
+%%{init: {"flowchart": {"htmlLabels": true, "nodeSpacing": 55, "rankSpacing": 90, "curve": "linear"}}}%%
+flowchart LR
+    clients["<b>API clients</b><br/>Media · Field team · BNPB"]
+
+    subgraph compose["Local Docker Compose · contract-v1 target"]
+        direction LR
+
+        subgraph apiNet["api-net"]
+            direction TB
+            auth["<b>Auth</b><br/>Bimo · :8084<br/>owner implementation pending"]
+            authDB[("Private SQLite<br/>auth-data volume")]
+            clientAPI["<b>Client API</b><br/>Bimo · :8080<br/>owner implementation pending"]
+        end
+
+        subgraph sourceNet["source-net"]
+            direction TB
+            bmkg["<b>BMKG mock</b><br/>Hazim · :8081<br/>synthetic seismic + warnings"]
+            pvmbg["<b>PVMBG mock</b><br/>Hazim · :8082<br/>synthetic volcanic reports"]
+        end
+
+        aggregator["<b>Aggregator</b><br/>Hazim · :8083<br/>poll → map → validate<br/>internal read API + transactional outbox<br/>networks: source · api · store · event"]
+
+        subgraph storeNet["store-net · internal"]
+            postgres[("<b>PostgreSQL</b> · :5432<br/>Canonical Store<br/>latest · versions · source state · outbox")]
+        end
+
+        subgraph eventNet["event-net · internal"]
+            direction TB
+            nats["<b>NATS JetStream</b> · :4222<br/>HAZARD_EVENTS · no host port"]
+            dashboard["<b>Dashboard consumer</b><br/>Refki · :8085 · pending<br/>durable dashboard-v1<br/>commit inbox + revision-aware snapshot → ACK"]
+            dashboardDB[("Private SQLite<br/>dashboard-data volume")]
+            notifier["<b>Notifier consumer</b><br/>Refki · :8086 · pending<br/>durable notifier-v1<br/>commit simulated receipt → ACK"]
+            notifierDB[("Private SQLite<br/>notifier-data volume")]
+        end
+    end
+
+    clients -->|"login / refresh"| auth
+    clients -->|"Bearer JWT · list/detail"| clientAPI
+    auth -->|"private volume"| authDB
+    clientAPI -->|"HTTP · X-Internal-Key"| aggregator
+    aggregator -->|"poll HTTP · X-BMKG-Key"| bmkg
+    aggregator -->|"poll HTTP · Bearer token"| pvmbg
+    aggregator -->|"SQL transaction: hazard + version + outbox"| postgres
+    aggregator -->|"outbox relay · Nats-Msg-Id · PubAck"| nats
+    nats -->|"durable dashboard-v1"| dashboard
+    dashboard -->|"private volume"| dashboardDB
+    nats -->|"durable notifier-v1"| notifier
+    notifier -->|"private volume"| notifierDB
+
+    classDef hazim fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#15351B;
+    classDef pending fill:#FFF6DF,stroke:#A66A00,stroke-width:2px,color:#402900;
+    classDef infra fill:#EEF2F7,stroke:#52657A,stroke-width:2px,color:#172433;
+    classDef actor fill:#F5F0FF,stroke:#7054A3,stroke-width:2px,color:#291B42;
+
+    class bmkg,pvmbg,aggregator hazim;
+    class auth,clientAPI,dashboard,notifier pending;
+    class authDB,postgres,nats,dashboardDB,notifierDB infra;
+    class clients actor;
+
+    style compose fill:#FFFFFF,stroke:#334155,stroke-width:2px
+    style apiNet fill:#F8FAFC,stroke:#64748B,stroke-dasharray:5 4
+    style sourceNet fill:#F8FAFC,stroke:#64748B,stroke-dasharray:5 4
+    style storeNet fill:#F8FAFC,stroke:#64748B,stroke-dasharray:5 4
+    style eventNet fill:#F8FAFC,stroke:#64748B,stroke-dasharray:5 4

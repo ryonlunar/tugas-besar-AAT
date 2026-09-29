@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-09-25T23:27:57.618153+07:00",
+  "kind": "contract-and-dependencies-not-P1-P5-tests",
+  "project": "aat-resume-audit-44848bc3",
+  "compose_no_host_ports": true,
+  "compose_empty_secrets_rejected": true,
+  "dependency_checks": [
+    "postgres-and-nats-healthy",
+    "postgres-select-1",
+    "nats-jetstream-health",
+    "isolated-containers-and-volumes-removed"
+  ],
+  "source_excerpt_ids_verified": [
+    1,
+    2,
+    3,
+    5,
+    8,
+    9,
+    10,
+    13,
+    14,
+    15,
+    16,
+    18,
+    21,
+    22
+  ],
+  "citations_strict": [
+    "contract",
+    "decisions"
+  ]
+}

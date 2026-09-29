@@ -22,3 +22,9 @@ vendor/
 docs/evidence/private/
 # Reviewed, redacted JSON/log evidence is deliberately trackable.
 coverage.out
+
+# Project documents
+/docs/contract.md
+/docs/decisions.md
+/docs/testing-plan.md
+/docs/verification.md

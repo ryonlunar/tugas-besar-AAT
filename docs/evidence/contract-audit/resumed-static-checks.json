@@ -1,0 +1,135 @@
+{
+  "kind": "static-contract-audit-not-application-tests",
+  "checked_at": "2026-09-25T23:27:08.326915+07:00",
+  "passed": 32,
+  "checks": [
+    {
+      "check": "schema:hazard-event.schema.json",
+      "pass": true
+    },
+    {
+      "check": "schema:hazard-summary.schema.json",
+      "pass": true
+    },
+    {
+      "check": "schema:hazard-envelope.schema.json",
+      "pass": true
+    },
+    {
+      "check": "fixture:seismic-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "fixture:volcanic-v1-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "fixture:volcanic-v2-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "fixture:media-summary.json",
+      "pass": true
+    },
+    {
+      "check": "fixture:hazard-envelope.json",
+      "pass": true
+    },
+    {
+      "check": "reject:source",
+      "pass": true
+    },
+    {
+      "check": "reject:hazard_type",
+      "pass": true
+    },
+    {
+      "check": "reject:severity",
+      "pass": true
+    },
+    {
+      "check": "reject:occurred_at",
+      "pass": true
+    },
+    {
+      "check": "reject:latitude",
+      "pass": true
+    },
+    {
+      "check": "reject:event_id",
+      "pass": true
+    },
+    {
+      "check": "reject:raw_payload",
+      "pass": true
+    },
+    {
+      "check": "required:hazard_id",
+      "pass": true
+    },
+    {
+      "check": "required:source",
+      "pass": true
+    },
+    {
+      "check": "required:source_ref_id",
+      "pass": true
+    },
+    {
+      "check": "required:hazard_type",
+      "pass": true
+    },
+    {
+      "check": "required:severity",
+      "pass": true
+    },
+    {
+      "check": "required:area_name",
+      "pass": true
+    },
+    {
+      "check": "required:latitude",
+      "pass": true
+    },
+    {
+      "check": "required:longitude",
+      "pass": true
+    },
+    {
+      "check": "required:occurred_at",
+      "pass": true
+    },
+    {
+      "check": "required:ingested_at",
+      "pass": true
+    },
+    {
+      "check": "required:attributes",
+      "pass": true
+    },
+    {
+      "check": "summary-rejects:attributes",
+      "pass": true
+    },
+    {
+      "check": "summary-rejects:latitude",
+      "pass": true
+    },
+    {
+      "check": "summary-rejects:longitude",
+      "pass": true
+    },
+    {
+      "check": "summary-rejects:source_ref_id",
+      "pass": true
+    },
+    {
+      "check": "all-16-decisions-have-foundation-reason-tradeoff-evidence",
+      "pass": true
+    },
+    {
+      "check": "env-ports-timeout-ttl-no-duplicate-keys",
+      "pass": true
+    }
+  ]
+}

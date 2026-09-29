@@ -1,0 +1,139 @@
+{
+  "kind": "contract-static-checks-not-application-tests",
+  "checks": [
+    {
+      "check": "schema-definition:hazard-event.schema.json",
+      "pass": true
+    },
+    {
+      "check": "schema-definition:hazard-summary.schema.json",
+      "pass": true
+    },
+    {
+      "check": "schema-definition:hazard-envelope.schema.json",
+      "pass": true
+    },
+    {
+      "check": "positive:seismic-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "positive:volcanic-v1-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "positive:volcanic-v2-hazard.json",
+      "pass": true
+    },
+    {
+      "check": "positive:media-summary.json",
+      "pass": true
+    },
+    {
+      "check": "positive:hazard-envelope.json",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:source",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:hazard_type",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:severity",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:occurred_at",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:latitude",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:event_id",
+      "pass": true
+    },
+    {
+      "check": "negative-canonical:raw_payload",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:hazard_id",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:source",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:source_ref_id",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:hazard_type",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:severity",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:area_name",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:latitude",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:longitude",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:occurred_at",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:ingested_at",
+      "pass": true
+    },
+    {
+      "check": "negative-missing:attributes",
+      "pass": true
+    },
+    {
+      "check": "negative-media-leak:source_ref_id",
+      "pass": true
+    },
+    {
+      "check": "negative-media-leak:latitude",
+      "pass": true
+    },
+    {
+      "check": "negative-media-leak:longitude",
+      "pass": true
+    },
+    {
+      "check": "negative-media-leak:attributes",
+      "pass": true
+    },
+    {
+      "check": "env/schema/ownership/16-decisions-consistency",
+      "pass": true
+    },
+    {
+      "check": "compose-resolves-and-isolates-storage-no-host-ports",
+      "pass": true
+    },
+    {
+      "check": "compose-rejects-empty-secrets",
+      "pass": true
+    }
+  ],
+  "passed": 33,
+  "date_time_validation": "Explicit RFC3339 checker enabled; bare jsonschema installation lacked its optional date-time checker."
+}
