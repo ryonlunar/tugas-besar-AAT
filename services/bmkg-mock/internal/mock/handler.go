@@ -24,7 +24,7 @@ func NewBMKGHandler(cfg BMKGConfig, catalog *BMKGCatalog, sleep SleepFunc) http.
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/health":
+		case "/health", "/ready":
 			if r.Method != http.MethodGet {
 				methodNotAllowed(w, http.MethodGet)
 				return

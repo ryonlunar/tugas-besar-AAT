@@ -167,6 +167,20 @@ func TestBMKGHealthIsPublicAndUnknownQueryIsRejected(t *testing.T) {
 	}
 }
 
+func TestBMKGReadinessIsPublicAndMethodChecked(t *testing.T) {
+	h := NewBMKGHandler(BMKGConfig{APIKey: "test-key"}, testBMKGCatalog(t), noSleep)
+	ready := httptest.NewRecorder()
+	h.ServeHTTP(ready, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if ready.Code != http.StatusOK || ready.Body.String() != "{\"status\":\"ok\"}\n" {
+		t.Fatalf("readiness=%d %q", ready.Code, ready.Body.String())
+	}
+	wrongMethod := httptest.NewRecorder()
+	h.ServeHTTP(wrongMethod, httptest.NewRequest(http.MethodPost, "/ready", nil))
+	if wrongMethod.Code != http.StatusMethodNotAllowed || wrongMethod.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("readiness method guard=%d Allow=%q", wrongMethod.Code, wrongMethod.Header().Get("Allow"))
+	}
+}
+
 func TestBMKGCatalogAddsOneGeneratedRecord(t *testing.T) {
 	c := testBMKGCatalog(t)
 	before, _ := c.Snapshot()

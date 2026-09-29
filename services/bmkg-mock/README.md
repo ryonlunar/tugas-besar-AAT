@@ -5,7 +5,7 @@ Pemilik: Hazim. Mock BMKG ini sudah dapat dijalankan sebagai service HTTP mandir
 ## Implementasi
 
 - `GET /seismic-events?since=<RFC3339>` dan `GET /tsunami-warnings?since=<RFC3339>` memakai header `X-BMKG-Key`.
-- `GET /health` tanpa autentikasi.
+- `GET /health` untuk liveness dan `GET /ready` untuk readiness; keduanya tanpa autentikasi.
 - Credential diperiksa sebelum delay tetap (default 100 ms). Timestamp `since` inklusif; parameter tak dikenal atau timestamp invalid ditolak.
 - Fixture JSON memuat 20 gempa sintetis; sebagian memiliki warning terkait. `MOCK_SEED_COUNT` (min. 20, default 20, max. 1000) dapat menambah seed simulasi; waktu relatif terhadap startup. ID memuat run ID acak. Satu event baru ditambahkan setiap `MOCK_EVENT_INTERVAL` (default 10 detik). Katalog mempertahankan fixture dan paling banyak 1000 event terbaru yang dihasilkan, sehingga snapshot penuh tetap terbatas.
 - Katalog aman untuk request bersamaan. Warning memakai waktu publikasi internal untuk filter `since`; waktu tersebut tidak muncul pada respons.
@@ -22,6 +22,7 @@ Port default `8081`. Untuk mencoba:
 curl -H 'X-BMKG-Key: local-demo-key' 'http://localhost:8081/seismic-events'
 curl -H 'X-BMKG-Key: local-demo-key' 'http://localhost:8081/tsunami-warnings'
 curl 'http://localhost:8081/health'
+curl 'http://localhost:8081/ready'
 ```
 
 `BMKG_API_KEY` wajib; `BMKG_DELAY_MS` hanya boleh 50–150 ms. Gunakan key contoh hanya untuk simulasi lokal.
