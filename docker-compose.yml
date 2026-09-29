@@ -1,0 +1,163 @@
+# Hazim-owned source mocks and Aggregator are wired here for local integration.
+# The remaining Auth/Client API and consumer services are added by their owners.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aat}
+      POSTGRES_USER: ${POSTGRES_USER:-aat_aggregator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a locally generated POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [store-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222", "--auth", "${NATS_TOKEN:?Set a separate locally generated NATS_TOKEN}"]
+    volumes:
+      - nats-data:/data
+    networks: [event-net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://127.0.0.1:8222/healthz?js-enabled-only=true' >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  bmkg-mock:
+    build:
+      context: .
+      dockerfile: services/bmkg-mock/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    environment:
+      BMKG_API_KEY: ${BMKG_API_KEY:?Set a locally generated BMKG_API_KEY}
+      BMKG_MOCK_HTTP_PORT: ${BMKG_MOCK_HTTP_PORT:-8081}
+      BMKG_DELAY_MS: ${BMKG_DELAY_MS:-100}
+      MOCK_EVENT_INTERVAL: ${MOCK_EVENT_INTERVAL:-10s}
+      MOCK_SEED_COUNT: ${MOCK_SEED_COUNT:-20}
+    ports:
+      - "127.0.0.1:${BMKG_MOCK_HTTP_PORT:-8081}:${BMKG_MOCK_HTTP_PORT:-8081}"
+    healthcheck:
+      test: ["CMD", "/bmkg-mock", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 5s
+    networks: [source-net]
+
+  pvmbg-mock:
+    build:
+      context: .
+      dockerfile: services/pvmbg-mock/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    environment:
+      PVMBG_TOKEN: ${PVMBG_TOKEN:?Set a locally generated PVMBG_TOKEN}
+      PVMBG_MOCK_HTTP_PORT: ${PVMBG_MOCK_HTTP_PORT:-8082}
+      PVMBG_DELAY_MIN_MS: ${PVMBG_DELAY_MIN_MS:-500}
+      PVMBG_DELAY_MAX_MS: ${PVMBG_DELAY_MAX_MS:-3000}
+      MOCK_EVENT_INTERVAL: ${MOCK_EVENT_INTERVAL:-10s}
+      MOCK_SEED_COUNT: ${MOCK_SEED_COUNT:-20}
+      PVMBG_SCHEMA_VERSION: ${PVMBG_SCHEMA_VERSION:-1}
+      PVMBG_OUTAGE_ENABLED: ${PVMBG_OUTAGE_ENABLED:-false}
+    ports:
+      - "127.0.0.1:${PVMBG_MOCK_HTTP_PORT:-8082}:${PVMBG_MOCK_HTTP_PORT:-8082}"
+    healthcheck:
+      test: ["CMD", "/pvmbg-mock", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 5s
+    networks: [source-net]
+
+  aggregator:
+    build:
+      context: .
+      dockerfile: services/aggregator/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      bmkg-mock:
+        condition: service_healthy
+      pvmbg-mock:
+        condition: service_healthy
+    environment:
+      AGGREGATOR_HTTP_PORT: ${AGGREGATOR_HTTP_PORT:-8083}
+      AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:?Set a separate locally generated AGGREGATOR_API_KEY}
+      AGGREGATOR_MAX_INFLIGHT: ${AGGREGATOR_MAX_INFLIGHT:-128}
+      BMKG_BASE_URL: ${BMKG_BASE_URL:-http://bmkg-mock:8081}
+      BMKG_API_KEY: ${BMKG_API_KEY:?Set a locally generated BMKG_API_KEY}
+      PVMBG_BASE_URL: ${PVMBG_BASE_URL:-http://pvmbg-mock:8082}
+      PVMBG_TOKEN: ${PVMBG_TOKEN:?Set a locally generated PVMBG_TOKEN}
+      SOURCE_POLL_INTERVAL: ${SOURCE_POLL_INTERVAL:-5s}
+      BMKG_REQUEST_TIMEOUT: ${BMKG_REQUEST_TIMEOUT:-1s}
+      PVMBG_REQUEST_TIMEOUT: ${PVMBG_REQUEST_TIMEOUT:-4s}
+      SOURCE_RESPONSE_MAX_BYTES: ${SOURCE_RESPONSE_MAX_BYTES:-1048576}
+      SOURCE_STALE_AFTER: ${SOURCE_STALE_AFTER:-15s}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-aat}
+      POSTGRES_USER: ${POSTGRES_USER:-aat_aggregator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a locally generated POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      DB_READ_MAX_CONNS: ${DB_READ_MAX_CONNS:-10}
+      DB_BMKG_WRITE_MAX_CONNS: ${DB_BMKG_WRITE_MAX_CONNS:-2}
+      DB_PVMBG_WRITE_MAX_CONNS: ${DB_PVMBG_WRITE_MAX_CONNS:-2}
+      DB_RELAY_MAX_CONNS: ${DB_RELAY_MAX_CONNS:-2}
+      DB_READ_TIMEOUT: ${DB_READ_TIMEOUT:-200ms}
+      DB_WRITE_TIMEOUT: ${DB_WRITE_TIMEOUT:-2s}
+      HTTP_READ_HEADER_TIMEOUT: ${HTTP_READ_HEADER_TIMEOUT:-2s}
+      HTTP_IDLE_TIMEOUT: ${HTTP_IDLE_TIMEOUT:-30s}
+      HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-5s}
+      NATS_URL: nats://nats:4222
+      NATS_TOKEN: ${NATS_TOKEN:?Set a separate locally generated NATS_TOKEN}
+      NATS_STREAM_NAME: ${NATS_STREAM_NAME:-HAZARD_EVENTS}
+      NATS_SUBJECT_FILTER: ${NATS_SUBJECT_FILTER:-hazard.events.v1.*}
+      NATS_SUBJECT_BMKG: ${NATS_SUBJECT_BMKG:-hazard.events.v1.BMKG}
+      NATS_SUBJECT_PVMBG: ${NATS_SUBJECT_PVMBG:-hazard.events.v1.PVMBG}
+      NATS_MAX_AGE: ${NATS_MAX_AGE:-24h}
+      NATS_MAX_BYTES: ${NATS_MAX_BYTES:-268435456}
+      NATS_MAX_MSGS: ${NATS_MAX_MSGS:-100000}
+      NATS_MAX_MSG_SIZE: ${NATS_MAX_MSG_SIZE:-65536}
+      NATS_DUPLICATE_WINDOW: ${NATS_DUPLICATE_WINDOW:-2m}
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-500ms}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-20}
+      OUTBOX_MAX_PENDING: ${OUTBOX_MAX_PENDING:-10000}
+      OUTBOX_RETRY_MIN: ${OUTBOX_RETRY_MIN:-1s}
+      OUTBOX_RETRY_MAX: ${OUTBOX_RETRY_MAX:-30s}
+    ports:
+      - "127.0.0.1:${AGGREGATOR_HTTP_PORT:-8083}:${AGGREGATOR_HTTP_PORT:-8083}"
+    healthcheck:
+      test: ["CMD", "/aggregator", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+    networks: [source-net, api-net, store-net, event-net]
+
+networks:
+  # Source and API services need normal routing; these networks are not published directly.
+  source-net: {}
+  api-net: {}
+  store-net:
+    internal: true
+  event-net:
+    internal: true
+
+volumes:
+  postgres-data:
+  nats-data:

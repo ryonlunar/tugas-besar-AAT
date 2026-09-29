@@ -1,0 +1,45 @@
+{
+  "verified_at": "2026-09-28T05:30:56+07:00",
+  "compose_project": "aat-hazim-smoke-20260928",
+  "docker": {
+    "client": "29.8.1",
+    "server": "29.8.0",
+    "compose": "v5.5.1"
+  },
+  "services": {
+    "postgres": "running/healthy; no host port published",
+    "nats": "running/healthy; no host port published",
+    "bmkg-mock": "running/healthy; 127.0.0.1:8081",
+    "pvmbg-mock": "running/healthy; 127.0.0.1:8082",
+    "aggregator": "running/healthy; 127.0.0.1:8083"
+  },
+  "checks": {
+    "docker_compose_config": "pass",
+    "compose_build_and_wait": "pass",
+    "bmkg_health_http": 200,
+    "pvmbg_health_http": 200,
+    "aggregator_ready_http": 200,
+    "unauthenticated_internal_api_http": 401,
+    "authenticated_internal_api": {
+      "BMKG": {"page_size": 100, "source_status": "fresh"},
+      "PVMBG": {"page_size": 100, "source_status": "fresh"}
+    },
+    "pvmbg_live_schema_toggle": {
+      "versions": [1, 2, 1],
+      "confidence_level_visible_in_aggregator_attributes_for_v2": true,
+      "report_id_stable": true,
+      "container_id_unchanged": true
+    },
+    "jetstream": {
+      "stream": "HAZARD_EVENTS",
+      "messages_observed_at_verification": 498
+    },
+    "store_and_event_networks_internal": true
+  },
+  "limitations": [
+    "Synthetic mock fixtures and test-only credentials; no production credentials used.",
+    "No Auth/Client API or dashboard/notifier consumers in this partial Compose stack.",
+    "Message count is a point-in-time observation; it does not prove all outbox rows are acknowledged.",
+    "This smoke is not a substitute for the complete P1-P5 acceptance matrix, sustained-load test, or crash/restart recovery tests."
+  ]
+}
