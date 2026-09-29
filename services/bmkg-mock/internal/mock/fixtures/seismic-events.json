@@ -1,0 +1,202 @@
+[
+  {
+    "id": "seed-001",
+    "magnitude": 4.2,
+    "depth_km": 7.0,
+    "epicenter_lat": -9.8,
+    "epicenter_lon": 105.25,
+    "region_name": "Wilayah Simulasi 01",
+    "potential_tsunami": false,
+    "age_seconds": 2280
+  },
+  {
+    "id": "seed-002",
+    "magnitude": 4.9,
+    "depth_km": 9.0,
+    "epicenter_lat": -9.6,
+    "epicenter_lon": 105.5,
+    "region_name": "Wilayah Simulasi 02",
+    "potential_tsunami": false,
+    "age_seconds": 2160
+  },
+  {
+    "id": "seed-003",
+    "magnitude": 5.0,
+    "depth_km": 11.0,
+    "epicenter_lat": -9.4,
+    "epicenter_lon": 105.75,
+    "region_name": "Wilayah Simulasi 03",
+    "potential_tsunami": false,
+    "age_seconds": 2040
+  },
+  {
+    "id": "seed-004",
+    "magnitude": 5.7,
+    "depth_km": 13.0,
+    "epicenter_lat": -9.2,
+    "epicenter_lon": 106.0,
+    "region_name": "Wilayah Simulasi 04",
+    "potential_tsunami": false,
+    "age_seconds": 1920
+  },
+  {
+    "id": "seed-005",
+    "magnitude": 6.49,
+    "depth_km": 15.0,
+    "epicenter_lat": -9.0,
+    "epicenter_lon": 106.25,
+    "region_name": "Wilayah Simulasi 05",
+    "potential_tsunami": false,
+    "age_seconds": 1800
+  },
+  {
+    "id": "seed-006",
+    "magnitude": 6.5,
+    "depth_km": 17.0,
+    "epicenter_lat": -8.8,
+    "epicenter_lon": 106.5,
+    "region_name": "Wilayah Simulasi 06",
+    "potential_tsunami": true,
+    "age_seconds": 1680
+  },
+  {
+    "id": "seed-007",
+    "magnitude": 7.1,
+    "depth_km": 19.0,
+    "epicenter_lat": -8.6,
+    "epicenter_lon": 106.75,
+    "region_name": "Wilayah Simulasi 07",
+    "potential_tsunami": false,
+    "age_seconds": 1560
+  },
+  {
+    "id": "seed-008",
+    "magnitude": 4.4,
+    "depth_km": 21.0,
+    "epicenter_lat": -8.4,
+    "epicenter_lon": 107.0,
+    "region_name": "Wilayah Simulasi 08",
+    "potential_tsunami": false,
+    "age_seconds": 1440
+  },
+  {
+    "id": "seed-009",
+    "magnitude": 5.3,
+    "depth_km": 23.0,
+    "epicenter_lat": -8.2,
+    "epicenter_lon": 107.25,
+    "region_name": "Wilayah Simulasi 09",
+    "potential_tsunami": false,
+    "age_seconds": 1320
+  },
+  {
+    "id": "seed-010",
+    "magnitude": 5.9,
+    "depth_km": 25.0,
+    "epicenter_lat": -8.0,
+    "epicenter_lon": 107.5,
+    "region_name": "Wilayah Simulasi 10",
+    "potential_tsunami": false,
+    "age_seconds": 1200
+  },
+  {
+    "id": "seed-011",
+    "magnitude": 6.2,
+    "depth_km": 27.0,
+    "epicenter_lat": -7.8,
+    "epicenter_lon": 107.75,
+    "region_name": "Wilayah Simulasi 11",
+    "potential_tsunami": false,
+    "age_seconds": 1080
+  },
+  {
+    "id": "seed-012",
+    "magnitude": 4.8,
+    "depth_km": 29.0,
+    "epicenter_lat": -7.6,
+    "epicenter_lon": 108.0,
+    "region_name": "Wilayah Simulasi 12",
+    "potential_tsunami": false,
+    "age_seconds": 960
+  },
+  {
+    "id": "seed-013",
+    "magnitude": 5.1,
+    "depth_km": 31.0,
+    "epicenter_lat": -7.4,
+    "epicenter_lon": 108.25,
+    "region_name": "Wilayah Simulasi 13",
+    "potential_tsunami": false,
+    "age_seconds": 840
+  },
+  {
+    "id": "seed-014",
+    "magnitude": 6.7,
+    "depth_km": 33.0,
+    "epicenter_lat": -7.2,
+    "epicenter_lon": 108.5,
+    "region_name": "Wilayah Simulasi 14",
+    "potential_tsunami": true,
+    "age_seconds": 720
+  },
+  {
+    "id": "seed-015",
+    "magnitude": 4.6,
+    "depth_km": 35.0,
+    "epicenter_lat": -7.0,
+    "epicenter_lon": 108.75,
+    "region_name": "Wilayah Simulasi 15",
+    "potential_tsunami": false,
+    "age_seconds": 600
+  },
+  {
+    "id": "seed-016",
+    "magnitude": 5.6,
+    "depth_km": 37.0,
+    "epicenter_lat": -6.8,
+    "epicenter_lon": 109.0,
+    "region_name": "Wilayah Simulasi 16",
+    "potential_tsunami": false,
+    "age_seconds": 480
+  },
+  {
+    "id": "seed-017",
+    "magnitude": 6.4,
+    "depth_km": 39.0,
+    "epicenter_lat": -6.6,
+    "epicenter_lon": 109.25,
+    "region_name": "Wilayah Simulasi 17",
+    "potential_tsunami": false,
+    "age_seconds": 360
+  },
+  {
+    "id": "seed-018",
+    "magnitude": 5.0,
+    "depth_km": 41.0,
+    "epicenter_lat": -6.4,
+    "epicenter_lon": 109.5,
+    "region_name": "Wilayah Simulasi 18",
+    "potential_tsunami": false,
+    "age_seconds": 240
+  },
+  {
+    "id": "seed-019",
+    "magnitude": 4.3,
+    "depth_km": 43.0,
+    "epicenter_lat": -6.2,
+    "epicenter_lon": 109.75,
+    "region_name": "Wilayah Simulasi 19",
+    "potential_tsunami": false,
+    "age_seconds": 120
+  },
+  {
+    "id": "seed-020",
+    "magnitude": 5.8,
+    "depth_km": 45.0,
+    "epicenter_lat": -6.0,
+    "epicenter_lon": 110.0,
+    "region_name": "Wilayah Simulasi 20",
+    "potential_tsunami": false,
+    "age_seconds": 0
+  }
+]

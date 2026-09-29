@@ -1,0 +1,21 @@
+[
+  {
+    "id": "seed-warning-006",
+    "event_index": 6,
+    "threat_level": "Siaga",
+    "affected_zones": [
+      "Zona Simulasi Barat"
+    ],
+    "arrival_delay_minutes": 35
+  },
+  {
+    "id": "seed-warning-014",
+    "event_index": 14,
+    "threat_level": "Awas",
+    "affected_zones": [
+      "Zona Simulasi Selatan",
+      "Zona Simulasi Pesisir"
+    ],
+    "arrival_delay_minutes": 50
+  }
+]

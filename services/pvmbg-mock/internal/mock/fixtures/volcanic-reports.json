@@ -1,0 +1,182 @@
+[
+  {
+    "id": "seed-001",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Normal",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 125.0,
+    "age_seconds": 3420,
+    "confidence_level": 0.58
+  },
+  {
+    "id": "seed-002",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 250.0,
+    "age_seconds": 3240,
+    "confidence_level": 0.66
+  },
+  {
+    "id": "seed-003",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 375.0,
+    "age_seconds": 3060,
+    "confidence_level": 0.74
+  },
+  {
+    "id": "seed-004",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Awas",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 500.0,
+    "age_seconds": 2880,
+    "confidence_level": 0.82
+  },
+  {
+    "id": "seed-005",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Normal",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 625.0,
+    "age_seconds": 2700,
+    "confidence_level": 0.9
+  },
+  {
+    "id": "seed-006",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 750.0,
+    "age_seconds": 2520,
+    "confidence_level": 0.5
+  },
+  {
+    "id": "seed-007",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 875.0,
+    "age_seconds": 2340,
+    "confidence_level": 0.58
+  },
+  {
+    "id": "seed-008",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Awas",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 0.0,
+    "age_seconds": 2160,
+    "confidence_level": 0.66
+  },
+  {
+    "id": "seed-009",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Normal",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 125.0,
+    "age_seconds": 1980,
+    "confidence_level": 0.74
+  },
+  {
+    "id": "seed-010",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 250.0,
+    "age_seconds": 1800,
+    "confidence_level": 0.82
+  },
+  {
+    "id": "seed-011",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 375.0,
+    "age_seconds": 1620,
+    "confidence_level": 0.9
+  },
+  {
+    "id": "seed-012",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Awas",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 500.0,
+    "age_seconds": 1440,
+    "confidence_level": 0.5
+  },
+  {
+    "id": "seed-013",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Normal",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 625.0,
+    "age_seconds": 1260,
+    "confidence_level": 0.58
+  },
+  {
+    "id": "seed-014",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 750.0,
+    "age_seconds": 1080,
+    "confidence_level": 0.66
+  },
+  {
+    "id": "seed-015",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 875.0,
+    "age_seconds": 900,
+    "confidence_level": 0.74
+  },
+  {
+    "id": "seed-016",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Awas",
+    "eruption_count_24h": 1,
+    "ash_column_height_m": 0.0,
+    "age_seconds": 720,
+    "confidence_level": 0.82
+  },
+  {
+    "id": "seed-017",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Normal",
+    "eruption_count_24h": 2,
+    "ash_column_height_m": 125.0,
+    "age_seconds": 540,
+    "confidence_level": 0.9
+  },
+  {
+    "id": "seed-018",
+    "volcano_id": "sim-tamriel-north-crag",
+    "alert_level": "Waspada",
+    "eruption_count_24h": 3,
+    "ash_column_height_m": 250.0,
+    "age_seconds": 360,
+    "confidence_level": 0.5
+  },
+  {
+    "id": "seed-019",
+    "volcano_id": "sim-tamriel-red-mountain",
+    "alert_level": "Siaga",
+    "eruption_count_24h": 4,
+    "ash_column_height_m": 375.0,
+    "age_seconds": 180,
+    "confidence_level": 0.58
+  },
+  {
+    "id": "seed-020",
+    "volcano_id": "sim-tamriel-ash-peak",
+    "alert_level": "Awas",
+    "eruption_count_24h": 0,
+    "ash_column_height_m": 500.0,
+    "age_seconds": 0,
+    "confidence_level": 0.66
+  }
+]
