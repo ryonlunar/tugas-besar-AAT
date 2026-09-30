@@ -141,6 +141,109 @@ services:
       start_period: 10s
     networks: [source-net, api-net, store-net, event-net]
 
+  dashboard-consumer:
+    build:
+      context: .
+      dockerfile: services/dashboard-consumer/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      DASHBOARD_HTTP_PORT: ${DASHBOARD_HTTP_PORT:-8085}
+      DASHBOARD_STATE_PATH: /data/dashboard.db
+      CONSUMER_DEMO_KEY: ${CONSUMER_DEMO_KEY:?Set a locally generated CONSUMER_DEMO_KEY}
+      NATS_URL: nats://nats:4222
+      NATS_TOKEN: ${NATS_TOKEN:?Set a separate locally generated NATS_TOKEN}
+      NATS_STREAM_NAME: ${NATS_STREAM_NAME:-HAZARD_EVENTS}
+      NATS_DASHBOARD_DURABLE: ${NATS_DASHBOARD_DURABLE:-dashboard-v1}
+      NATS_ACK_WAIT: ${NATS_ACK_WAIT:-30s}
+      NATS_MAX_ACK_PENDING: ${NATS_MAX_ACK_PENDING:-64}
+      NATS_MAX_DELIVER: ${NATS_MAX_DELIVER:--1}
+      NATS_FETCH_BATCH: ${NATS_FETCH_BATCH:-10}
+      NATS_FETCH_EXPIRES: ${NATS_FETCH_EXPIRES:-2s}
+      CONSUMER_NAK_DELAY: ${CONSUMER_NAK_DELAY:-5s}
+    volumes:
+      - dashboard-data:/data
+    healthcheck:
+      test: ["CMD", "/dashboard-consumer", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 15s
+    networks: [event-net]
+
+  notifier-consumer:
+    build:
+      context: .
+      dockerfile: services/notifier-consumer/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      NOTIFIER_HTTP_PORT: ${NOTIFIER_HTTP_PORT:-8086}
+      NOTIFIER_STATE_PATH: /data/notifier.db
+      CONSUMER_DEMO_KEY: ${CONSUMER_DEMO_KEY:?Set a locally generated CONSUMER_DEMO_KEY}
+      NATS_URL: nats://nats:4222
+      NATS_TOKEN: ${NATS_TOKEN:?Set a separate locally generated NATS_TOKEN}
+      NATS_STREAM_NAME: ${NATS_STREAM_NAME:-HAZARD_EVENTS}
+      NATS_NOTIFIER_DURABLE: ${NATS_NOTIFIER_DURABLE:-notifier-v1}
+      NATS_ACK_WAIT: ${NATS_ACK_WAIT:-30s}
+      NATS_MAX_ACK_PENDING: ${NATS_MAX_ACK_PENDING:-64}
+      NATS_MAX_DELIVER: ${NATS_MAX_DELIVER:--1}
+      NATS_FETCH_BATCH: ${NATS_FETCH_BATCH:-10}
+      NATS_FETCH_EXPIRES: ${NATS_FETCH_EXPIRES:-2s}
+      CONSUMER_NAK_DELAY: ${CONSUMER_NAK_DELAY:-5s}
+    volumes:
+      - notifier-data:/data
+    healthcheck:
+      test: ["CMD", "/notifier-consumer", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 15s
+    networks: [event-net]
+
+  third-consumer:
+    profiles: [demo]
+    build:
+      context: .
+      dockerfile: services/notifier-consumer/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+    environment:
+      NOTIFIER_HTTP_PORT: 8087
+      NOTIFIER_STATE_PATH: /data/third-consumer.db
+      CONSUMER_DEMO_KEY: ${CONSUMER_DEMO_KEY:?Set a locally generated CONSUMER_DEMO_KEY}
+      NATS_URL: nats://nats:4222
+      NATS_TOKEN: ${NATS_TOKEN:?Set a separate locally generated NATS_TOKEN}
+      NATS_STREAM_NAME: ${NATS_STREAM_NAME:-HAZARD_EVENTS}
+      NATS_NOTIFIER_DURABLE: third-consumer-v1
+      NATS_ACK_WAIT: ${NATS_ACK_WAIT:-30s}
+      NATS_MAX_ACK_PENDING: ${NATS_MAX_ACK_PENDING:-64}
+      NATS_MAX_DELIVER: ${NATS_MAX_DELIVER:--1}
+      NATS_FETCH_BATCH: ${NATS_FETCH_BATCH:-10}
+      NATS_FETCH_EXPIRES: ${NATS_FETCH_EXPIRES:-2s}
+      CONSUMER_NAK_DELAY: ${CONSUMER_NAK_DELAY:-5s}
+    volumes:
+      - third-consumer-data:/data
+    healthcheck:
+      test: ["CMD", "/notifier-consumer", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 15s
+    networks: [event-net]
+
 networks:
   # Source and API services need normal routing; these networks are not published directly.
   source-net: {}
@@ -153,3 +256,6 @@ networks:
 volumes:
   postgres-data:
   nats-data:
+  dashboard-data:
+  notifier-data:
+  third-consumer-data:
