@@ -167,12 +167,7 @@ services:
       HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-5s}
     volumes:
       - auth-data:/data
-      - type: bind
-        source: ${JWT_PRIVATE_KEY_PATH:-./.secrets/jwt-private.pem}
-        target: /run/secrets/jwt-private.pem
-        read_only: true
-        bind:
-          create_host_path: false
+      - jwt-private:/run/secrets:ro
     ports:
       - "127.0.0.1:${AUTH_HTTP_PORT:-8084}:${AUTH_HTTP_PORT:-8084}"
     healthcheck:
@@ -206,12 +201,7 @@ services:
       HTTP_IDLE_TIMEOUT: ${HTTP_IDLE_TIMEOUT:-30s}
       HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-5s}
     volumes:
-      - type: bind
-        source: ${JWT_PUBLIC_KEY_PATH:-./.secrets/jwt-public.pem}
-        target: /run/secrets/jwt-public.pem
-        read_only: true
-        bind:
-          create_host_path: false
+      - jwt-public:/run/secrets:ro
     ports:
       - "127.0.0.1:${API_HTTP_PORT:-8080}:${API_HTTP_PORT:-8080}"
     healthcheck:
@@ -336,6 +326,8 @@ networks:
 
 volumes:
   auth-data:
+  jwt-private:
+  jwt-public:
   postgres-data:
   nats-data:
   dashboard-data:
