@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -47,6 +48,43 @@ func TestMediaGetsSummaryAndCannotRequestFull(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Code != 403 {
 		t.Fatalf("media full status = %d", res.Code)
+	}
+}
+
+func TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		status       int
+		header, want string
+	}{
+		{429, "7", "7"},
+		{503, "Fri, 02 Oct 2026 12:00:00 GMT", "Fri, 02 Oct 2026 12:00:00 GMT"},
+		{400, "7", ""},
+	} {
+		t.Run(fmt.Sprint(tc.status), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", tc.header)
+				w.Header().Set("X-Internal-Debug", "private")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"error":{"code":"test"}}`))
+			}))
+			defer upstream.Close()
+			h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "key", Now: func() time.Time { return now }})
+			req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+			req.Header.Set("Authorization", "Bearer "+signed(t, key, "field-team", "hazards:summary hazards:raw", now))
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != tc.status || res.Header().Get("Retry-After") != tc.want {
+				t.Fatalf("status=%d Retry-After=%q", res.Code, res.Header().Get("Retry-After"))
+			}
+			if res.Header().Get("X-Internal-Debug") != "" {
+				t.Fatal("unrelated upstream header forwarded")
+			}
+		})
 	}
 }
 

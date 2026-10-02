@@ -248,6 +248,11 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, scope, path stri
 		return
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+			if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
+				w.Header().Set("Retry-After", retryAfter)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = w.Write(body)
