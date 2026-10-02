@@ -1,0 +1,23 @@
+{
+  "completed_at": "2026-10-02T10:46:04.666185+00:00",
+  "commit": "cc9eb4f44de722832ef3e0e735c83da095678390",
+  "k6_version": "2.3.0",
+  "profile": {
+    "bmkg_vus": 30,
+    "pvmbg_vus": 30,
+    "duration_seconds": 90,
+    "pvmbg_delay_ms": 3000,
+    "page_limit": 50,
+    "view": "full",
+    "identity": "field-team",
+    "access_ttl_seconds": 60
+  },
+  "observed_pvmbg_delay_ms": 3003.79,
+  "k6_exit": 0,
+  "tcp_collector_exit": 0,
+  "commands": [
+    "k6 run --quiet --summary-export docs/evidence/p2-local-20261002/k6-summary.json scripts/load/hazards.js",
+    "python3 scripts/load/capture-tcp-connections.py --api-url http://127.0.0.1:8080 --seconds 95 --output docs/evidence/p2-local-20261002/tcp.json"
+  ],
+  "capture_started_at": "2026-10-02T10:44:29.545458+00:00"
+}

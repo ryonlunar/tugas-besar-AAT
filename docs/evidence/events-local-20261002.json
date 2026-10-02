@@ -1,0 +1,46 @@
+{
+  "started_at": "2026-10-02T10:54:19.370439+00:00",
+  "commit": "62cddea5baf749fd42f2889dd02f0159785f3757",
+  "scenario": "events",
+  "results": [
+    {
+      "check": "one consumer down",
+      "notifier_before": 9829,
+      "notifier_after": 9833,
+      "api_statuses": [
+        200,
+        200,
+        200
+      ],
+      "stopped_seconds": 17.24,
+      "target_stream_sequence": 9833
+    },
+    {
+      "check": "dashboard catches up to stopped-period target",
+      "target": 9833,
+      "dashboard_after": 9833,
+      "target_stream_sequence": 9833,
+      "dashboard_ack_floor": 9833
+    },
+    {
+      "check": "consumer rebuild while API remains available",
+      "api_requests": 8,
+      "api_statuses": [
+        200
+      ],
+      "other_container_ids_unchanged": true
+    },
+    {
+      "check": "new third durable without producer changes",
+      "durable": "third-consumer-trial-1790938486039389568",
+      "inbox_count": 9835,
+      "target_stream_sequence": 9835,
+      "third_ack_floor": 9835,
+      "producer_container_unchanged": true
+    },
+    {
+      "check": "temporary durable removed and default third consumer restored"
+    }
+  ],
+  "passed": true
+}
