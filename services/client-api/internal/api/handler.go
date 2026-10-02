@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -52,7 +53,12 @@ func NewHandler(cfg Config) *Handler {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	h := &Handler{cfg: cfg, client: &http.Client{Timeout: cfg.Timeout}, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Reuse connections across concurrent reads; reserve one for readiness probes.
+	transport.MaxIdleConnsPerHost = cfg.MaxInflight + 1
+	transport.MaxIdleConns = cfg.MaxInflight + 1
+	transport.MaxConnsPerHost = cfg.MaxInflight + 1
+	h := &Handler{cfg: cfg, client: &http.Client{Timeout: cfg.Timeout, Transport: transport}, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
 	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	h.mux.HandleFunc("GET /ready", h.ready)
 	h.mux.Handle("GET /v1/hazards", h.admit(http.HandlerFunc(h.list)))
@@ -223,6 +229,11 @@ func mentionsRaw(value string) bool {
 }
 func hasRaw(scope string) bool { return strings.Contains(" "+scope+" ", " hazards:raw ") }
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, scope, path string) {
+	started := time.Now()
+	upstreamStatus := 0
+	defer func() {
+		slog.Info("Aggregator read complete", "service", "client-api", "operation", "aggregator_read", "correlation_id", corrID(r), "duration_ms", time.Since(started).Milliseconds(), "status", upstreamStatus)
+	}()
 	ctx, cancel := context.WithTimeout(r.Context(), h.cfg.Timeout)
 	defer cancel()
 	target := strings.TrimRight(h.cfg.AggregatorURL, "/") + path
@@ -238,9 +249,17 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, scope, path stri
 	req.Header.Set("X-Correlation-ID", corrID(r))
 	resp, err := h.client.Do(req)
 	if err != nil {
+		reason := "UPSTREAM_REQUEST_FAILED"
+		if errors.Is(err, context.DeadlineExceeded) {
+			reason = "UPSTREAM_TIMEOUT"
+		} else if errors.Is(err, syscall.EADDRNOTAVAIL) {
+			reason = "LOCAL_PORTS_EXHAUSTED"
+		}
+		slog.Warn("Aggregator read failed", "correlation_id", corrID(r), "reason", reason)
 		writeError(w, 503, "DEPENDENCY_UNAVAILABLE", "Aggregator is unavailable", corrID(r))
 		return
 	}
+	upstreamStatus = resp.StatusCode
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
 	if err != nil || len(body) > 1024*1024 {

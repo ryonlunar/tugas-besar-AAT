@@ -4,9 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,6 +51,54 @@ func TestMediaGetsSummaryAndCannotRequestFull(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Code != 403 {
 		t.Fatalf("media full status = %d", res.Code)
+	}
+}
+
+func TestConcurrentReadsReuseUpstreamConnections(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const readers = 8
+	var opened, arrived atomic.Int64
+	firstWave := make(chan struct{})
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if arrived.Add(1) == readers {
+			close(firstWave)
+		}
+		<-firstWave
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	upstream.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	upstream.Start()
+	defer upstream.Close()
+	now := time.Now()
+	h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "key", MaxInflight: readers, Now: func() time.Time { return now }})
+	defer h.client.CloseIdleConnections()
+	token := signed(t, key, "field-team", "hazards:summary hazards:raw", now)
+	for wave := 0; wave < 2; wave++ {
+		var workers sync.WaitGroup
+		for worker := 0; worker < readers; worker++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				res := httptest.NewRecorder()
+				h.ServeHTTP(res, req)
+				if res.Code != 200 {
+					t.Errorf("read status=%d", res.Code)
+				}
+			}()
+		}
+		workers.Wait()
+	}
+	if opened.Load() != readers {
+		t.Fatalf("opened %d connections for two waves of %d reads", opened.Load(), readers)
 	}
 }
 
