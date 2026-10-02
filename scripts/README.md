@@ -2,7 +2,7 @@
 
 ## Setup kunci dan trial integrasi
 
-Isi `.env` dengan secret lokal yang berbeda untuk setiap domain/client. Buat pasangan RSA sekali, lalu muat ke volume terpisah. Key tidak masuk build context atau Git:
+Isi `.env`, termasuk `COMPOSE_PROJECT_NAME`, dengan secret lokal yang berbeda untuk setiap domain/client. Buat pasangan RSA sekali, lalu muat ke volume terpisah. Volume key dikelola oleh setup, tetap ada saat Compose dihapus, dan tidak masuk build context atau Git:
 
 ```bash
 mkdir -p .secrets

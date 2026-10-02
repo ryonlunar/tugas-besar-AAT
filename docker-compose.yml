@@ -327,7 +327,11 @@ networks:
 volumes:
   auth-data:
   jwt-private:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME}_jwt-private
   jwt-public:
+    external: true
+    name: ${COMPOSE_PROJECT_NAME:?Set COMPOSE_PROJECT_NAME}_jwt-public
   postgres-data:
   nats-data:
   dashboard-data:
