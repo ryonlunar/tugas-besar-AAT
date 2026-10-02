@@ -12,7 +12,7 @@ Start-Job { .\scripts\load\capture-tcp-connections.ps1 -Seconds 95 -OutputPath d
 k6 run -e FIELD_TEAM_CLIENT_SECRET=$env:FIELD_TEAM_CLIENT_SECRET --summary-export docs\evidence\p2-01\k6-summary.json .\scripts\load\hazards.js
 ```
 
-Set `AUTH_URL` atau `API_URL` bila port loopback berbeda. Ringkasan memisahkan attempts, success, controlled 429, dan unexpected error; threshold BMKG p95 adalah <300 ms. Script TCP mengukur koneksi established ke remote port API pada steady state, jadi bukti bukan hanya jumlah VU. Credential tidak ditulis ke script atau evidence.
+Set `AUTH_URL` atau `API_URL` bila port loopback berbeda. Ringkasan memisahkan attempts, success, controlled 429, dan unexpected error; setiap trend menampilkan p50/p95/p99, sedangkan threshold BMKG p95 adalah <300 ms. Script TCP mengukur koneksi established ke remote port API pada steady state, jadi bukti bukan hanya jumlah VU. Credential tidak ditulis ke script atau evidence.
 
 Script smoke yang tersedia:
 

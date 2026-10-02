@@ -8,6 +8,9 @@ const clientSecret = __ENV.FIELD_TEAM_CLIENT_SECRET;
 if (!clientSecret) throw new Error('FIELD_TEAM_CLIENT_SECRET must be set in the k6 environment');
 
 export const options = {
+	// Written into the k6 summary JSON for the required p50/p95/p99 reporting.
+	// `p(50)` is used rather than the default `med` label to make the report explicit.
+	summaryTrendStats: ['min', 'max', 'avg', 'p(50)', 'p(95)', 'p(99)'],
   scenarios: {
     bmkg_readers: { executor: 'constant-vus', exec: 'bmkgReaders', vus: 30, duration: '90s', gracefulStop: '5s' },
     pvmbg_readers: { executor: 'constant-vus', exec: 'pvmbgReaders', vus: 30, duration: '90s', gracefulStop: '5s' },
