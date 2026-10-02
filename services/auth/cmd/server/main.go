@@ -125,8 +125,8 @@ func loadConfig() (config, error) {
 	if c.maxInflight, err = intEnv("AUTH_MAX_INFLIGHT", 16, 1, 10000); err != nil {
 		return c, err
 	}
-	if c.accessTTL != 60*time.Second || c.refreshTTL <= 0 {
-		return c, errors.New("ACCESS_TOKEN_TTL must be 60s and refresh TTL positive")
+	if c.accessTTL <= 0 || c.refreshTTL <= 0 {
+		return c, errors.New("token TTL values must be positive")
 	}
 	return c, nil
 }
