@@ -81,6 +81,10 @@ class Trials:
         binary = "/dashboard-consumer" if service == "dashboard-consumer" else "/notifier-consumer"
         return json.loads(compose("exec", "-T", service, binary, "inspect"))
 
+    def broker_consumers(self):
+        broker = json.loads(compose("exec", "-T", "nats", "wget", "-qO-", "http://127.0.0.1:8222/jsz?streams=true&consumers=true"))
+        return {consumer["name"]: consumer for account in broker.get("account_details", []) for stream in account.get("stream_detail", []) for consumer in stream.get("consumer_detail", [])}
+
     def smoke(self):
         identities = ["media", "field-team", "bnpb-internal"]
         secrets = [self.env[key] for key in ["MEDIA_CLIENT_SECRET", "FIELD_TEAM_CLIENT_SECRET", "BNPB_INTERNAL_CLIENT_SECRET"]]
@@ -164,13 +168,19 @@ class Trials:
         started = time.monotonic()
         try:
             compose("stop", "dashboard-consumer")
+            statuses = []
+            for _ in range(3):
+                statuses.append(self.read(token)[0])
+                time.sleep(5)
+            assert all(status == 200 for status in statuses)
             target = eventually(lambda: (count if (count := self.inspect("notifier-consumer")["inbox_count"]) > before else None))
-            assert self.read(token)[0] == 200
-            self.record("one consumer down", notifier_before=before, notifier_after=target, api_status=200, stopped_seconds=round(time.monotonic() - started, 2))
+            checkpoint = self.broker_consumers()[self.env.get("NATS_NOTIFIER_DURABLE", "notifier-v1")]["ack_floor"]["stream_seq"]
+            self.record("one consumer down", notifier_before=before, notifier_after=target, api_statuses=statuses, stopped_seconds=round(time.monotonic() - started, 2), target_stream_sequence=checkpoint)
         finally:
             compose("start", "dashboard-consumer")
         after = eventually(lambda: (count if (count := self.inspect("dashboard-consumer")["inbox_count"]) >= target else None), timeout=60)
-        self.record("dashboard catches up to stopped-period target", target=target, dashboard_after=after)
+        acknowledged = eventually(lambda: (seq if (seq := self.broker_consumers()[self.env.get("NATS_DASHBOARD_DURABLE", "dashboard-v1")]["ack_floor"]["stream_seq"]) >= checkpoint else None))
+        self.record("dashboard catches up to stopped-period target", target=target, dashboard_after=after, target_stream_sequence=checkpoint, dashboard_ack_floor=acknowledged)
         unchanged = {service: compose("ps", "-q", service).strip() for service in ["aggregator", "client-api", "notifier-consumer"]}
         old = compose("ps", "-q", "dashboard-consumer").strip()
         token = self.login()["access_token"]
@@ -190,9 +200,7 @@ class Trials:
             override.flush()
             compose("-f", "docker-compose.yml", "-f", override.name, "--profile", "demo", "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "third-consumer")
         third = eventually(lambda: (result if (result := self.inspect("third-consumer"))["inbox_count"] > 0 else None))
-        broker = json.loads(compose("exec", "-T", "nats", "wget", "-qO-", "http://127.0.0.1:8222/jsz?streams=true&consumers=true"))
-        consumer_names = [consumer["name"] for account in broker.get("account_details", []) for stream in account.get("stream_detail", []) for consumer in stream.get("consumer_detail", [])]
-        assert durable in consumer_names, "new durable is not registered in JetStream"
+        assert durable in self.broker_consumers(), "new durable is not registered in JetStream"
         assert compose("ps", "-q", "aggregator").strip() == producer
         self.record("new third durable without producer changes", durable=durable, inbox_count=third["inbox_count"], producer_container_unchanged=True)
 
