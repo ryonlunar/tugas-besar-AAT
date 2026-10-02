@@ -141,6 +141,87 @@ services:
       start_period: 10s
     networks: [source-net, api-net, store-net, event-net]
 
+  auth:
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    environment:
+      AUTH_HTTP_PORT: ${AUTH_HTTP_PORT:-8084}
+      AUTH_STATE_PATH: /data/auth.db
+      JWT_PRIVATE_KEY_FILE: /run/secrets/jwt-private.pem
+      JWT_ISSUER: ${JWT_ISSUER:-aat-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-aat-client-api}
+      MEDIA_CLIENT_SECRET: ${MEDIA_CLIENT_SECRET:?Set a separate MEDIA_CLIENT_SECRET}
+      FIELD_TEAM_CLIENT_SECRET: ${FIELD_TEAM_CLIENT_SECRET:?Set a separate FIELD_TEAM_CLIENT_SECRET}
+      BNPB_INTERNAL_CLIENT_SECRET: ${BNPB_INTERNAL_CLIENT_SECRET:?Set a separate BNPB_INTERNAL_CLIENT_SECRET}
+      ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-60s}
+      REFRESH_TOKEN_TTL: ${REFRESH_TOKEN_TTL:-24h}
+      AUTH_MAX_INFLIGHT: ${AUTH_MAX_INFLIGHT:-16}
+      AUTH_BODY_MAX_BYTES: ${AUTH_BODY_MAX_BYTES:-8192}
+      AUTH_READ_TIMEOUT: ${AUTH_READ_TIMEOUT:-2s}
+      HTTP_READ_HEADER_TIMEOUT: ${HTTP_READ_HEADER_TIMEOUT:-2s}
+      HTTP_IDLE_TIMEOUT: ${HTTP_IDLE_TIMEOUT:-30s}
+      HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-5s}
+    volumes:
+      - auth-data:/data
+      - type: bind
+        source: ${JWT_PRIVATE_KEY_PATH:-./.secrets/jwt-private.pem}
+        target: /run/secrets/jwt-private.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${AUTH_HTTP_PORT:-8084}:${AUTH_HTTP_PORT:-8084}"
+    healthcheck:
+      test: ["CMD", "/auth", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 5s
+    networks: [api-net]
+
+  client-api:
+    build:
+      context: .
+      dockerfile: services/client-api/Dockerfile
+    init: true
+    read_only: true
+    restart: unless-stopped
+    depends_on:
+      aggregator:
+        condition: service_healthy
+    environment:
+      API_HTTP_PORT: ${API_HTTP_PORT:-8080}
+      JWT_PUBLIC_KEY_FILE: /run/secrets/jwt-public.pem
+      JWT_ISSUER: ${JWT_ISSUER:-aat-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-aat-client-api}
+      AGGREGATOR_BASE_URL: ${AGGREGATOR_BASE_URL:-http://aggregator:8083}
+      AGGREGATOR_API_KEY: ${AGGREGATOR_API_KEY:?Set a separate AGGREGATOR_API_KEY}
+      AGGREGATOR_REQUEST_TIMEOUT: ${AGGREGATOR_REQUEST_TIMEOUT:-1s}
+      API_MAX_INFLIGHT: ${API_MAX_INFLIGHT:-128}
+      HTTP_READ_HEADER_TIMEOUT: ${HTTP_READ_HEADER_TIMEOUT:-2s}
+      HTTP_IDLE_TIMEOUT: ${HTTP_IDLE_TIMEOUT:-30s}
+      HTTP_WRITE_TIMEOUT: ${HTTP_WRITE_TIMEOUT:-5s}
+    volumes:
+      - type: bind
+        source: ${JWT_PUBLIC_KEY_PATH:-./.secrets/jwt-public.pem}
+        target: /run/secrets/jwt-public.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "127.0.0.1:${API_HTTP_PORT:-8080}:${API_HTTP_PORT:-8080}"
+    healthcheck:
+      test: ["CMD", "/client-api", "healthcheck"]
+      interval: 5s
+      timeout: 2s
+      retries: 6
+      start_period: 10s
+    networks: [api-net]
+
   dashboard-consumer:
     build:
       context: .
@@ -254,6 +335,7 @@ networks:
     internal: true
 
 volumes:
+  auth-data:
   postgres-data:
   nats-data:
   dashboard-data:

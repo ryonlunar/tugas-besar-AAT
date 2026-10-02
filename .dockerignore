@@ -20,3 +20,7 @@
 !services/dashboard-consumer/**
 !services/notifier-consumer/
 !services/notifier-consumer/**
+!services/auth/
+!services/auth/**
+!services/client-api/
+!services/client-api/**
