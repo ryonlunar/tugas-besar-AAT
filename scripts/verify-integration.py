@@ -83,7 +83,19 @@ class Trials:
 
     def broker_consumers(self):
         broker = json.loads(compose("exec", "-T", "nats", "wget", "-qO-", "http://127.0.0.1:8222/jsz?streams=true&consumers=true"))
-        return {consumer["name"]: consumer for account in broker.get("account_details", []) for stream in account.get("stream_detail", []) for consumer in stream.get("consumer_detail", [])}
+        return {consumer["name"]: consumer for account in broker.get("account_details", []) for stream in account.get("stream_detail", []) if stream["name"] == self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS") for consumer in stream.get("consumer_detail", [])}
+
+    def remove_trial_consumer(self, durable):
+        assert durable.startswith("third-consumer-trial-"), "cleanup may only remove trial durables"
+        if durable not in self.broker_consumers():
+            return
+        reply = "_INBOX." + durable
+        connect = json.dumps({"auth_token": self.env["NATS_TOKEN"], "verbose": False, "pedantic": False})
+        subject = "$JS.API.CONSUMER.DELETE." + self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS") + "." + durable
+        # One local NATS API request via nc; credentials travel through stdin only.
+        frames = f"CONNECT {connect}\r\nSUB {reply} 1\r\nPUB {subject} {reply} 0\r\n\r\nPING\r\n".encode()
+        response = subprocess.check_output(["docker", "compose", "exec", "-T", "nats", "nc", "-w", "2", "127.0.0.1", "4222"], input=frames, timeout=10)
+        assert any(json.loads(line).get("success") is True for line in response.splitlines() if line.startswith(b"{")), "temporary durable cleanup failed"
 
     def smoke(self):
         identities = ["media", "field-team", "bnpb-internal"]
@@ -195,14 +207,21 @@ class Trials:
         self.record("consumer rebuild while API remains available", api_requests=len(statuses), api_statuses=sorted(set(statuses)), other_container_ids_unchanged=True)
         # A new durable proves subscription addition even if a prior demo durable exists.
         durable = "third-consumer-trial-" + str(time.time_ns())
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as override:
-            override.write("services:\n  third-consumer:\n    environment:\n      NATS_NOTIFIER_DURABLE: " + durable + "\n")
-            override.flush()
-            compose("-f", "docker-compose.yml", "-f", override.name, "--profile", "demo", "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "third-consumer")
-        third = eventually(lambda: (result if (result := self.inspect("third-consumer"))["inbox_count"] > 0 else None))
-        assert durable in self.broker_consumers(), "new durable is not registered in JetStream"
-        assert compose("ps", "-q", "aggregator").strip() == producer
-        self.record("new third durable without producer changes", durable=durable, inbox_count=third["inbox_count"], producer_container_unchanged=True)
+        checkpoint = self.broker_consumers()[self.env.get("NATS_NOTIFIER_DURABLE", "notifier-v1")]["ack_floor"]["stream_seq"]
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml") as override:
+                override.write("services:\n  third-consumer:\n    environment:\n      NATS_NOTIFIER_DURABLE: " + durable + "\n")
+                override.flush()
+                compose("-f", "docker-compose.yml", "-f", override.name, "--profile", "demo", "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "third-consumer")
+            acknowledged = eventually(lambda: (seq if (seq := self.broker_consumers()[durable]["ack_floor"]["stream_seq"]) >= checkpoint else None), timeout=60)
+            third = self.inspect("third-consumer")
+            assert third["inbox_count"] > 0
+            assert compose("ps", "-q", "aggregator").strip() == producer
+            self.record("new third durable without producer changes", durable=durable, inbox_count=third["inbox_count"], target_stream_sequence=checkpoint, third_ack_floor=acknowledged, producer_container_unchanged=True)
+        finally:
+            compose("--profile", "demo", "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "third-consumer")
+            self.remove_trial_consumer(durable)
+        self.record("temporary durable removed and default third consumer restored")
 
 
 def main():
