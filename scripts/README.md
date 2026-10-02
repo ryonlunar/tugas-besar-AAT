@@ -1,5 +1,21 @@
 # Script pengujian
 
+## Setup kunci dan trial integrasi
+
+Isi `.env` dengan secret lokal yang berbeda untuk setiap domain/client. Buat pasangan RSA sekali, lalu muat ke volume terpisah. Key tidak masuk build context atau Git:
+
+```bash
+mkdir -p .secrets
+chmod 700 .secrets
+(umask 077; openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .secrets/jwt-private.pem)
+openssl pkey -in .secrets/jwt-private.pem -pubout -out .secrets/jwt-public.pem
+python3 scripts/setup-jwt-keys.py
+docker compose up --build -d --wait
+python3 scripts/verify-integration.py --scenario all --output docs/evidence/integration-trial.json
+```
+
+Trial memakai Python 3, OpenSSL, dan Docker Compose. Jalankan dari root repo pada stack demo lokal: script mengubah kontrol PVMBG, menghentikan Auth/dashboard sementara, membangun ulang dashboard, dan menambah durable ketiga. Kontrol sumber dikembalikan; service yang dihentikan dinyalakan kembali. Pilihan `smoke`, `tokens`, dan `events` dapat dijalankan terpisah. Evidence berisi hasil/commit, tanpa token atau secret.
+
 ## Load test P2
 
 `load/hazards.js` memakai profil k6 P2: 30 VU BMKG dan 30 VU PVMBG selama 90 detik, HTTP keep-alive, field-team dengan full view/limit 50, serta refresh token sekitar detik ke-50. Worker hazard tidak memakai think time.
