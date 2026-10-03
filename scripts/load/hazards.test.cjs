@@ -8,27 +8,28 @@ const source = readFileSync(`${__dirname}/hazards.js`, 'utf8')
   .replace(/^import .*;\n/gm, '').replace(/^export /gm, '')
   + '\nglobalThis.readers = { BMKG: bmkgReaders, PVMBG: pvmbgReaders }; globalThis.settings = options;';
 
-function fixture({ authStatus = 200, hazardStatus = 200, malformedSession = false } = {}) {
+function fixture({ authStatus = 200, hazardStatus = 200, malformedSession = false, retryAfter } = {}) {
   const samples = {};
   let now = 0;
   let gets = 0;
+  const sleeps = [];
   class Metric {
     constructor(name) { this.name = name; samples[name] = []; }
     add(value, tags) { samples[this.name].push({ value, tags }); }
   }
   const context = {
     __ENV: { FIELD_TEAM_CLIENT_SECRET: 'test-only' },
-    Counter: Metric, Rate: Metric, Trend: Metric, sleep: () => {}, Date: { now: () => now },
+    Counter: Metric, Rate: Metric, Trend: Metric, sleep: seconds => { sleeps.push(seconds); }, Date: { now: () => now },
     http: {
       post: () => ({ status: typeof authStatus === 'function' ? authStatus(now) : authStatus,
-        timings: { duration: 30 }, json: () => malformedSession ? {} : { access_token: 'access', refresh_token: 'refresh', expires_in: 60 } }),
+        headers: { 'Retry-After': retryAfter }, timings: { duration: 30 }, json: () => malformedSession ? {} : { access_token: 'access', refresh_token: 'refresh', expires_in: 60 } }),
       get: () => { gets += 1; return { status: hazardStatus, timings: { duration: 10 } }; },
     },
   };
   vm.createContext(context);
   vm.runInContext(source, context);
   return { samples, settings: context.settings, read: (source = 'BMKG') => context.readers[source](),
-    setTime: value => { now = value; }, gets: () => gets,
+    sleeps, setTime: value => { now = value; }, gets: () => gets,
     count: name => samples[name].reduce((total, sample) => total + sample.value, 0) };
 }
 
@@ -91,3 +92,12 @@ test('malformed successful Auth response fails the workload explicitly', () => {
   assert.equal(f.count('auth_failures'), 1);
   assert.equal(f.gets(), 0);
 });
+
+ test('controlled Auth retries respect bounded Retry-After guidance', () => {
+  const f = fixture({ authStatus: 429, retryAfter: '1' });
+  assert.throws(() => f.read(), /auth/);
+  assert.deepEqual(f.sleeps, [1, 1, 1, 1]);
+  const bounded = fixture({ authStatus: 429, retryAfter: '3600' });
+  assert.throws(() => bounded.read(), /auth/);
+  assert.deepEqual(bounded.sleeps, [5, 5, 5, 5]);
+ });

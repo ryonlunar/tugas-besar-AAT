@@ -63,7 +63,8 @@ function requestSession(path, payload) {
     if (response.status === 429 && attempt < 4) {
       auth429.add(1);
       // Only bootstrap/refresh retries sleep; hazard workers have no think time.
-      sleep(0.1 * (attempt + 1));
+      const retryAfter = Number(response.headers && response.headers['Retry-After']);
+      sleep(Math.max(0.1 * (attempt + 1), Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 5) : 0));
       continue;
     }
     if (response.status === 429) auth429.add(1); else authUnexpected.add(1);
