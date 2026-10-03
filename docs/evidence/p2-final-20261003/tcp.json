@@ -1,0 +1,484 @@
+{
+  "api_url": "http://127.0.0.1:18080",
+  "resolved_addresses": [
+    "127.0.0.1"
+  ],
+  "sampling_interval_seconds": 1,
+  "samples": [
+    {
+      "timestamp": "2026-10-03T16:47:26.836017+00:00",
+      "elapsed_seconds": 0.003,
+      "established_connections_to_api": 0
+    },
+    {
+      "timestamp": "2026-10-03T16:47:27.850344+00:00",
+      "elapsed_seconds": 1.018,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:26.861212+00:00",
+      "elapsed_seconds": 2.023,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:27.867867+00:00",
+      "elapsed_seconds": 3.03,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:28.877840+00:00",
+      "elapsed_seconds": 4.04,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:29.885812+00:00",
+      "elapsed_seconds": 5.048,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:30.895128+00:00",
+      "elapsed_seconds": 6.057,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:31.907523+00:00",
+      "elapsed_seconds": 7.069,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:32.913732+00:00",
+      "elapsed_seconds": 8.076,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:33.922329+00:00",
+      "elapsed_seconds": 9.084,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:34.930895+00:00",
+      "elapsed_seconds": 10.093,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:35.939166+00:00",
+      "elapsed_seconds": 11.101,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:36.946036+00:00",
+      "elapsed_seconds": 12.108,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:37.955154+00:00",
+      "elapsed_seconds": 13.117,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:38.968664+00:00",
+      "elapsed_seconds": 14.131,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:39.976514+00:00",
+      "elapsed_seconds": 15.138,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:40.983376+00:00",
+      "elapsed_seconds": 16.145,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:41.993752+00:00",
+      "elapsed_seconds": 17.156,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:43.003833+00:00",
+      "elapsed_seconds": 18.166,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:44.013400+00:00",
+      "elapsed_seconds": 19.175,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:45.020564+00:00",
+      "elapsed_seconds": 20.183,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:46.026893+00:00",
+      "elapsed_seconds": 21.189,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:47.038542+00:00",
+      "elapsed_seconds": 22.2,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:48.047642+00:00",
+      "elapsed_seconds": 23.21,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:49.059600+00:00",
+      "elapsed_seconds": 24.222,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:50.071746+00:00",
+      "elapsed_seconds": 25.234,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:51.079439+00:00",
+      "elapsed_seconds": 26.241,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:52.088409+00:00",
+      "elapsed_seconds": 27.25,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:53.102854+00:00",
+      "elapsed_seconds": 28.265,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:54.117427+00:00",
+      "elapsed_seconds": 29.279,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:55.129027+00:00",
+      "elapsed_seconds": 30.291,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:56.140147+00:00",
+      "elapsed_seconds": 31.302,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:55.110050+00:00",
+      "elapsed_seconds": 32.313,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:56.122909+00:00",
+      "elapsed_seconds": 33.326,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:57.132220+00:00",
+      "elapsed_seconds": 34.335,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:58.139036+00:00",
+      "elapsed_seconds": 35.342,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:47:59.146607+00:00",
+      "elapsed_seconds": 36.349,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:00.154424+00:00",
+      "elapsed_seconds": 37.357,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:01.165852+00:00",
+      "elapsed_seconds": 38.369,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:02.176542+00:00",
+      "elapsed_seconds": 39.379,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:03.184860+00:00",
+      "elapsed_seconds": 40.388,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:04.194117+00:00",
+      "elapsed_seconds": 41.397,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:05.202016+00:00",
+      "elapsed_seconds": 42.405,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:06.213815+00:00",
+      "elapsed_seconds": 43.417,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:07.220624+00:00",
+      "elapsed_seconds": 44.423,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:08.229509+00:00",
+      "elapsed_seconds": 45.432,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:09.240291+00:00",
+      "elapsed_seconds": 46.443,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:10.261495+00:00",
+      "elapsed_seconds": 47.464,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:11.268433+00:00",
+      "elapsed_seconds": 48.471,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:12.277326+00:00",
+      "elapsed_seconds": 49.48,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:13.286357+00:00",
+      "elapsed_seconds": 50.489,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:14.296265+00:00",
+      "elapsed_seconds": 51.499,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:15.311875+00:00",
+      "elapsed_seconds": 52.515,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:16.326220+00:00",
+      "elapsed_seconds": 53.529,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:17.337303+00:00",
+      "elapsed_seconds": 54.54,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:18.350939+00:00",
+      "elapsed_seconds": 55.554,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:19.360498+00:00",
+      "elapsed_seconds": 56.563,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:20.368623+00:00",
+      "elapsed_seconds": 57.571,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:21.378863+00:00",
+      "elapsed_seconds": 58.582,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:22.386814+00:00",
+      "elapsed_seconds": 59.59,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:23.395669+00:00",
+      "elapsed_seconds": 60.599,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:23.626407+00:00",
+      "elapsed_seconds": 61.61,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:23.417313+00:00",
+      "elapsed_seconds": 62.62,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:24.424315+00:00",
+      "elapsed_seconds": 63.627,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:25.435608+00:00",
+      "elapsed_seconds": 64.638,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:26.443650+00:00",
+      "elapsed_seconds": 65.646,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:27.452933+00:00",
+      "elapsed_seconds": 66.655,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:28.463227+00:00",
+      "elapsed_seconds": 67.666,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:29.481590+00:00",
+      "elapsed_seconds": 68.684,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:30.494480+00:00",
+      "elapsed_seconds": 69.697,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:31.514459+00:00",
+      "elapsed_seconds": 70.717,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:32.523075+00:00",
+      "elapsed_seconds": 71.726,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:33.531899+00:00",
+      "elapsed_seconds": 72.734,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:34.539075+00:00",
+      "elapsed_seconds": 73.742,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:35.547689+00:00",
+      "elapsed_seconds": 74.75,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:36.556019+00:00",
+      "elapsed_seconds": 75.759,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:37.568600+00:00",
+      "elapsed_seconds": 76.771,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:38.578578+00:00",
+      "elapsed_seconds": 77.781,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:39.586889+00:00",
+      "elapsed_seconds": 78.789,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:40.597299+00:00",
+      "elapsed_seconds": 79.8,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:41.605930+00:00",
+      "elapsed_seconds": 80.808,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:42.614261+00:00",
+      "elapsed_seconds": 81.817,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:43.625652+00:00",
+      "elapsed_seconds": 82.828,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:44.635130+00:00",
+      "elapsed_seconds": 83.838,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:45.645696+00:00",
+      "elapsed_seconds": 84.848,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:46.653128+00:00",
+      "elapsed_seconds": 85.856,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:47.664571+00:00",
+      "elapsed_seconds": 86.867,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:48.672169+00:00",
+      "elapsed_seconds": 87.875,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:49.680865+00:00",
+      "elapsed_seconds": 88.883,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:50.692185+00:00",
+      "elapsed_seconds": 89.895,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:51.703504+00:00",
+      "elapsed_seconds": 90.906,
+      "established_connections_to_api": 60
+    },
+    {
+      "timestamp": "2026-10-03T16:48:50.640894+00:00",
+      "elapsed_seconds": 91.909,
+      "established_connections_to_api": 0
+    },
+    {
+      "timestamp": "2026-10-03T16:48:51.645633+00:00",
+      "elapsed_seconds": 92.914,
+      "established_connections_to_api": 0
+    },
+    {
+      "timestamp": "2026-10-03T16:48:52.652595+00:00",
+      "elapsed_seconds": 93.921,
+      "established_connections_to_api": 0
+    },
+    {
+      "timestamp": "2026-10-03T16:48:53.659376+00:00",
+      "elapsed_seconds": 94.928,
+      "established_connections_to_api": 0
+    }
+  ]
+}

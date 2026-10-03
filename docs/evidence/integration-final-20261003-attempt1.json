@@ -1,0 +1,40 @@
+{
+  "started_at": "2026-10-03T16:14:52.249935+00:00",
+  "commit": "5bd472b2af29a78fe5ae9b8078faebea76394226",
+  "scenario": "all",
+  "results": [
+    {
+      "check": "client access",
+      "identity": "media",
+      "status": 200,
+      "view": "summary",
+      "fields": 7
+    },
+    {
+      "check": "client access",
+      "identity": "field-team",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "client access",
+      "identity": "bnpb-internal",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "cross-source credentials rejected",
+      "unauthenticated_api_status": 401
+    },
+    {
+      "check": "live PVMBG outage",
+      "status": 200,
+      "freshness": "stale",
+      "records": 24
+    }
+  ],
+  "passed": false,
+  "failure": "AssertionError: "
+}

@@ -1,0 +1,308 @@
+{
+  "commit": "cda276a26841e7145acb71474d2769c270327826",
+  "broker_outage": {
+    "consumer_readiness_exit_codes": [
+      1,
+      1
+    ],
+    "cached_api_statuses": [
+      200,
+      200
+    ],
+    "before_stream_sequence": 448
+  },
+  "broker_recovery": {
+    "after_stream_sequence": 452,
+    "consumer_readiness_exit_codes": [
+      0,
+      0
+    ],
+    "other_services_not_restarted": true
+  },
+  "services": [
+    {
+      "service": "aggregator",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_api-net",
+        "aat-pr-verification_event-net",
+        "aat-pr-verification_source-net",
+        "aat-pr-verification_store-net"
+      ],
+      "volumes": []
+    },
+    {
+      "service": "auth",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_api-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_auth-data",
+          "destination": "/data",
+          "read_only": false
+        },
+        {
+          "name": "aat-pr-verification_jwt-private",
+          "destination": "/run/secrets",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "service": "bmkg-mock",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_source-net"
+      ],
+      "volumes": []
+    },
+    {
+      "service": "client-api",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_api-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_jwt-public",
+          "destination": "/run/secrets",
+          "read_only": true
+        }
+      ]
+    },
+    {
+      "service": "dashboard-consumer",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_event-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_dashboard-data",
+          "destination": "/data",
+          "read_only": false
+        }
+      ]
+    },
+    {
+      "service": "nats",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_event-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_nats-data",
+          "destination": "/data",
+          "read_only": false
+        }
+      ]
+    },
+    {
+      "service": "notifier-consumer",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_event-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_notifier-data",
+          "destination": "/data",
+          "read_only": false
+        }
+      ]
+    },
+    {
+      "service": "postgres",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_store-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_postgres-data",
+          "destination": "/var/lib/postgresql/data",
+          "read_only": false
+        }
+      ]
+    },
+    {
+      "service": "pvmbg-mock",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_source-net"
+      ],
+      "volumes": []
+    },
+    {
+      "service": "third-consumer",
+      "health": "healthy",
+      "networks": [
+        "aat-pr-verification_event-net"
+      ],
+      "volumes": [
+        {
+          "name": "aat-pr-verification_third-consumer-data",
+          "destination": "/data",
+          "read_only": false
+        }
+      ]
+    }
+  ],
+  "stream_state": {
+    "messages": 454,
+    "bytes": 387121,
+    "first_seq": 1,
+    "first_ts": "2026-10-03T16:14:18.212593234Z",
+    "last_seq": 454,
+    "last_ts": "2026-10-03T16:26:51.056608229Z",
+    "num_subjects": 2,
+    "consumer_count": 3
+  },
+  "durables": {
+    "dashboard-v1": {
+      "ack_floor": {
+        "consumer_seq": 454,
+        "stream_seq": 454,
+        "last_active": "2026-10-03T16:26:51.074455584Z"
+      },
+      "num_pending": 0,
+      "num_ack_pending": 0
+    },
+    "notifier-v1": {
+      "ack_floor": {
+        "consumer_seq": 454,
+        "stream_seq": 454,
+        "last_active": "2026-10-03T16:26:51.071473116Z"
+      },
+      "num_pending": 0,
+      "num_ack_pending": 0
+    },
+    "third-consumer-v1": {
+      "ack_floor": {
+        "consumer_seq": 454,
+        "stream_seq": 454,
+        "last_active": "2026-10-03T16:26:51.071474143Z"
+      },
+      "num_pending": 0,
+      "num_ack_pending": 0
+    }
+  },
+  "log_samples": {
+    "http": {
+      "client-api": {
+        "time": "2026-10-03T16:14:52.286622101Z",
+        "level": "INFO",
+        "msg": "request complete",
+        "service": "client-api",
+        "operation": "GET /v1/hazards",
+        "correlation_id": "m1-integration-trial",
+        "duration_ms": 6,
+        "status": 200
+      },
+      "aggregator": {
+        "time": "2026-10-03T16:14:52.286178421Z",
+        "level": "INFO",
+        "msg": "request complete",
+        "service": "aggregator",
+        "operation": "GET /internal/v1/hazards",
+        "correlation_id": "m1-integration-trial",
+        "duration_ms": 4,
+        "status": 200
+      }
+    },
+    "source_reads": [
+      {
+        "time": "2026-10-03T16:14:17.818823885Z",
+        "level": "INFO",
+        "msg": "source request complete",
+        "service": "aggregator",
+        "operation": "source_read",
+        "source": "BMKG",
+        "path": "/seismic-events",
+        "correlation_id": "9159090b-a1bb-48aa-bb6c-7bdc4690600f",
+        "duration_ms": 103,
+        "status": 200,
+        "outcome": "success"
+      },
+      {
+        "time": "2026-10-03T16:14:19.842514609Z",
+        "level": "INFO",
+        "msg": "source request complete",
+        "service": "aggregator",
+        "operation": "source_read",
+        "source": "PVMBG",
+        "path": "/volcanic-reports",
+        "correlation_id": "c29c087c-a888-4817-ab08-b5dff2e8afd0",
+        "duration_ms": 2127,
+        "status": 200,
+        "outcome": "success"
+      }
+    ],
+    "broker_acks": {
+      "dashboard-consumer": {
+        "producer": {
+          "time": "2026-10-03T16:26:51.056823701Z",
+          "level": "INFO",
+          "msg": "JetStream publish acknowledged",
+          "operation": "jetstream_publish",
+          "message_id": "63b47546-5e44-4d04-b988-9bb952300c73:1",
+          "subject": "hazard.events.v1.PVMBG",
+          "correlation_id": "23568cbb-eef1-4763-96b9-a33fe2f72730",
+          "duration_ms": 0,
+          "status": "success"
+        },
+        "consumer": {
+          "time": "2026-10-03T16:26:51.074660637Z",
+          "level": "INFO",
+          "msg": "broker request complete",
+          "service": "dashboard-consumer",
+          "operation": "ack",
+          "durable": "dashboard-v1",
+          "correlation_id": "23568cbb-eef1-4763-96b9-a33fe2f72730",
+          "duration_ms": 0,
+          "outcome": "success",
+          "message_id": "63b47546-5e44-4d04-b988-9bb952300c73:1"
+        }
+      },
+      "notifier-consumer": {
+        "producer": {
+          "time": "2026-10-03T16:26:51.056823701Z",
+          "level": "INFO",
+          "msg": "JetStream publish acknowledged",
+          "operation": "jetstream_publish",
+          "message_id": "63b47546-5e44-4d04-b988-9bb952300c73:1",
+          "subject": "hazard.events.v1.PVMBG",
+          "correlation_id": "23568cbb-eef1-4763-96b9-a33fe2f72730",
+          "duration_ms": 0,
+          "status": "success"
+        },
+        "consumer": {
+          "time": "2026-10-03T16:26:51.071781299Z",
+          "level": "INFO",
+          "msg": "broker request complete",
+          "service": "notifier-consumer",
+          "operation": "ack",
+          "durable": "notifier-v1",
+          "correlation_id": "23568cbb-eef1-4763-96b9-a33fe2f72730",
+          "duration_ms": 0,
+          "outcome": "success",
+          "message_id": "63b47546-5e44-4d04-b988-9bb952300c73:1"
+        }
+      }
+    }
+  },
+  "passed": true,
+  "clean_startup_passed": true,
+  "existing_demo_stack_unchanged": true,
+  "go_race_suite_passed": true,
+  "go_vet_passed": true,
+  "postgresql_integration_tests_passed": 4,
+  "jetstream_integration_tests_passed": 1,
+  "load_script_tests_passed": 8,
+  "started_at": "2026-10-03T16:26:26.769464+00:00",
+  "completed_at": "2026-10-03T16:26:55.920354+00:00",
+  "load_script_test_revision": "6c45e39"
+}

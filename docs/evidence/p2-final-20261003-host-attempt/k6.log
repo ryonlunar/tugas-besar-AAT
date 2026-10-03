@@ -1,0 +1,56 @@
+
+
+  █ THRESHOLDS
+
+    auth_failures
+    ✓ 'count==0' count=0
+
+    bmkg_success_duration
+    ✓ 'p(95)<300' p(95)=109.8ms
+
+    hazard_successes{source:BMKG}
+    ✓ 'count>0' count=47210
+
+    hazard_successes{source:PVMBG}
+    ✓ 'count>0' count=46767
+
+    hazard_unexpected_rate
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    CUSTOM
+    auth_attempts..................: 241    2.871043/s
+    auth_controlled_429............: 121    1.441478/s
+    auth_duration..................: min=1.3ms         max=1.17s    avg=108.12ms p(50)=28.46ms p(95)=413.43ms p(99)=567.45ms
+    auth_failures..................: 0      0/s
+    bmkg_duration..................: min=-1175069574ns max=263.89ms avg=55.43ms  p(50)=50.36ms p(95)=109.82ms p(99)=149.11ms
+    bmkg_success_duration..........: min=-1175069574ns max=263.89ms avg=55.42ms  p(50)=50.36ms p(95)=109.8ms  p(99)=148.84ms
+    hazard_attempts................: 93980  1119.587634/s
+    hazard_duration................: min=-1175069574ns max=287.6ms  avg=55.67ms  p(50)=50.63ms p(95)=110.38ms p(99)=150.24ms
+    hazard_iterations..............: 93980  1119.587634/s
+    hazard_success_duration........: min=-1175069574ns max=267.47ms avg=55.67ms  p(50)=50.63ms p(95)=110.38ms p(99)=150.09ms
+    hazard_successes...............: 93977  1119.551895/s
+      { source:BMKG }..............: 47210  562.414686/s
+      { source:PVMBG }.............: 46767  557.137209/s
+    hazard_unexpected..............: 3      0.035739/s
+    hazard_unexpected_rate.........: 0.00%  3 out of 93980
+    pvmbg_duration.................: min=-1171115524ns max=287.6ms  avg=55.92ms  p(50)=50.91ms p(95)=110.97ms p(99)=151.14ms
+    pvmbg_success_duration.........: min=-1171115524ns max=267.47ms avg=55.92ms  p(50)=50.91ms p(95)=110.96ms p(99)=151.1ms
+
+    HTTP
+    http_req_duration..............: min=-1175069574ns max=1.17s    avg=55.81ms  p(50)=50.63ms p(95)=110.69ms p(99)=152.05ms
+      { expected_response:true }...: min=-1175069574ns max=1.17s    avg=55.86ms  p(50)=50.66ms p(95)=110.7ms  p(99)=152.02ms
+    http_req_failed................: 0.13%  124 out of 94221
+    http_reqs......................: 94221  1122.458677/s
+
+    EXECUTION
+    iteration_duration.............: min=3.02ms        max=1.32s    avg=57.43ms  p(50)=51.16ms p(95)=111.71ms p(99)=153.78ms
+    iterations.....................: 93980  1119.587634/s
+    vus............................: 60     min=60           max=60
+    vus_max........................: 60     min=60           max=60
+
+    NETWORK
+    data_received..................: 2.0 GB 24 MB/s
+    data_sent......................: 65 MB  776 kB/s

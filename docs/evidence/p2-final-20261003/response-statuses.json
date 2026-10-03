@@ -1,0 +1,30 @@
+{
+  "method": "Client API request complete logs filtered by correlation_id m1-monotonic-load",
+  "counts": {
+    "200": 91226,
+    "401": 696,
+    "503": 12
+  },
+  "non_200_examples": {
+    "401": {
+      "time": "2026-10-03T16:47:26.580052967Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 0,
+      "status": 401
+    },
+    "503": {
+      "time": "2026-10-03T16:47:59.326143526Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 209,
+      "status": 503
+    }
+  }
+}
