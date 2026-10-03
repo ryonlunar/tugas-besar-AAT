@@ -30,13 +30,17 @@ type Sink interface {
 }
 
 type Runner struct {
-	Config Config
-	Sink   Sink
-	Logger *slog.Logger
-	ready  atomic.Bool
+	Config     Config
+	Sink       Sink
+	Logger     *slog.Logger
+	ready      atomic.Bool
+	connection atomic.Pointer[nats.Conn]
 }
 
-func (r *Runner) Ready() bool { return r.ready.Load() }
+func (r *Runner) Ready() bool {
+	conn := r.connection.Load()
+	return r.ready.Load() && conn != nil && conn.IsConnected()
+}
 
 func (r *Runner) Run(ctx context.Context) error {
 	if r.Sink == nil || r.Config.URL == "" || r.Config.Token == "" || r.Config.Stream == "" || r.Config.Durable == "" || r.Config.AckWait <= 0 || r.Config.FetchExpires <= 0 || r.Config.NAKDelay <= 0 || r.Config.MaxAckPending < 1 || r.Config.FetchBatch < 1 || r.Config.FetchBatch > r.Config.MaxAckPending || r.Config.MaxDeliver == 0 || r.Config.MaxDeliver < -1 {
@@ -64,19 +68,24 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) consume(ctx context.Context) error {
-	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second))
+	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect())
 	if err != nil {
 		return fmt.Errorf("connect NATS: %w", err)
 	}
-	defer conn.Close()
+	r.connection.Store(conn)
+	defer func() {
+		r.ready.Store(false)
+		r.connection.Store(nil)
+		conn.Close()
+	}()
 	js, err := conn.JetStream()
 	if err != nil {
 		return fmt.Errorf("open JetStream: %w", err)
 	}
-	if err := ensureConsumer(js, r.Config); err != nil {
+	if err := ensureConsumer(ctx, js, r.Config); err != nil {
 		return err
 	}
-	sub, err := js.PullSubscribe(SubjectFilter, r.Config.Durable, nats.Bind(r.Config.Stream, r.Config.Durable))
+	sub, err := js.PullSubscribe(SubjectFilter, r.Config.Durable, nats.Bind(r.Config.Stream, r.Config.Durable), nats.Context(ctx))
 	if err != nil {
 		return fmt.Errorf("bind durable: %w", err)
 	}
@@ -84,8 +93,10 @@ func (r *Runner) consume(ctx context.Context) error {
 	r.ready.Store(true)
 	r.Logger.Info("consumer ready", "durable", r.Config.Durable, "stream", r.Config.Stream)
 	for ctx.Err() == nil {
-		messages, err := sub.Fetch(r.Config.FetchBatch, nats.MaxWait(r.Config.FetchExpires))
-		if errors.Is(err, nats.ErrTimeout) {
+		fetchCtx, cancel := context.WithTimeout(ctx, r.Config.FetchExpires)
+		messages, err := sub.Fetch(r.Config.FetchBatch, nats.Context(fetchCtx))
+		cancel()
+		if errors.Is(err, nats.ErrTimeout) || (errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil) {
 			continue
 		}
 		if err != nil {
@@ -101,18 +112,18 @@ func (r *Runner) consume(ctx context.Context) error {
 	return nil
 }
 
-func ensureConsumer(js nats.JetStreamContext, cfg Config) error {
+func ensureConsumer(ctx context.Context, js nats.JetStreamContext, cfg Config) error {
 	desired := &nats.ConsumerConfig{Durable: cfg.Durable, FilterSubject: SubjectFilter, DeliverPolicy: nats.DeliverAllPolicy, AckPolicy: nats.AckExplicitPolicy, AckWait: cfg.AckWait, MaxAckPending: cfg.MaxAckPending, MaxDeliver: cfg.MaxDeliver, ReplayPolicy: nats.ReplayInstantPolicy}
-	info, err := js.ConsumerInfo(cfg.Stream, cfg.Durable)
+	info, err := js.ConsumerInfo(cfg.Stream, cfg.Durable, nats.Context(ctx))
 	if errors.Is(err, nats.ErrConsumerNotFound) {
-		_, err = js.AddConsumer(cfg.Stream, desired)
+		_, err = js.AddConsumer(cfg.Stream, desired, nats.Context(ctx))
 		return err
 	}
 	if err != nil {
 		return err
 	}
 	actual := info.Config
-	if actual.Durable != desired.Durable || actual.FilterSubject != desired.FilterSubject || actual.DeliverPolicy != desired.DeliverPolicy || actual.AckPolicy != desired.AckPolicy || actual.AckWait != desired.AckWait || actual.MaxAckPending != desired.MaxAckPending || actual.MaxDeliver != desired.MaxDeliver {
+	if actual.Durable != desired.Durable || actual.FilterSubject != desired.FilterSubject || actual.DeliverPolicy != desired.DeliverPolicy || actual.AckPolicy != desired.AckPolicy || actual.AckWait != desired.AckWait || actual.MaxAckPending != desired.MaxAckPending || actual.MaxDeliver != desired.MaxDeliver || actual.ReplayPolicy != desired.ReplayPolicy {
 		return ErrConsumerContractMismatch
 	}
 	return nil

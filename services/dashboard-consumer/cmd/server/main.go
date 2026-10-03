@@ -84,27 +84,8 @@ func run(port string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := &jetstreamconsumer.Runner{Config: config, Sink: state}
-	consumerDone := make(chan error, 1)
-	go func() { consumerDone <- runner.Run(ctx) }()
-	server := &http.Server{Addr: ":" + port, Handler: jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/snapshots"), ReadHeaderTimeout: 2 * time.Second, WriteTimeout: 3 * time.Second}
-	serverDone := make(chan error, 1)
-	go func() { serverDone <- server.ListenAndServe() }()
-	select {
-	case err := <-serverDone:
-		stop()
-		<-consumerDone
-		if !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-	case err := <-consumerDone:
-		if err != nil {
-			return err
-		}
-	case <-ctx.Done():
-	}
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return server.Shutdown(shutdownCtx)
+	server := &http.Server{Addr: ":" + port, Handler: jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/snapshots"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 3 * time.Second}
+	return jetstreamconsumer.Serve(ctx, runner.Run, server)
 }
 
 func getenv(key, fallback string) string {
