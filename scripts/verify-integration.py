@@ -81,9 +81,24 @@ class Trials:
         binary = "/dashboard-consumer" if service == "dashboard-consumer" else "/notifier-consumer"
         return json.loads(compose("exec", "-T", service, binary, "inspect"))
 
-    def broker_consumers(self):
+    def container_state(self, services=None):
+        identifiers = compose("ps", "-q", *(services or [])).split()
+        containers = json.loads(subprocess.check_output(["docker", "inspect", *identifiers], text=True))
+        return {c["Config"]["Labels"]["com.docker.compose.service"]: {
+            "id": c["Id"], "started_at": c["State"]["StartedAt"], "restart_count": c["RestartCount"]
+        } for c in containers}
+
+    def history(self, source, ref, revisions):
+        return json.loads(compose("exec", "-T", "aggregator", "/aggregator", "history-audit",
+                                  "--source", source, "--source-ref-id", ref, "--revisions", revisions))
+
+    def broker_stream(self):
         broker = json.loads(compose("exec", "-T", "nats", "wget", "-qO-", "http://127.0.0.1:8222/jsz?streams=true&consumers=true"))
-        return {consumer["name"]: consumer for account in broker.get("account_details", []) for stream in account.get("stream_detail", []) if stream["name"] == self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS") for consumer in stream.get("consumer_detail", [])}
+        return next(stream for account in broker.get("account_details", []) for stream in account.get("stream_detail", [])
+                    if stream["name"] == self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS"))
+
+    def broker_consumers(self):
+        return {consumer["name"]: consumer for consumer in self.broker_stream().get("consumer_detail", [])}
 
     def remove_trial_consumer(self, durable):
         assert durable.startswith("third-consumer-trial-"), "cleanup may only remove trial durables"
@@ -132,17 +147,51 @@ class Trials:
         finally:
             self.admin("outage", {"enabled": False})
         eventually(lambda: self.read(token, "?source=PVMBG&view=full&limit=50")[1]["meta"]["sources"]["PVMBG"]["status"] == "fresh")
-        producer = compose("ps", "-q", "aggregator").strip()
+        before = self.container_state()
         try:
+            self.admin("schema-version", {"version": 1})
+            status, baseline, _ = request(self.pvmbg + "/volcanic-reports", token=self.env["PVMBG_TOKEN"])
+            assert status == 200 and all("confidence_level" not in r for r in baseline)
+            known = {r["report_id"] for r in baseline}
+            # Select a newly generated v1 record so revisions 1/2 also work on repeated trials.
+            def new_report():
+                status, reports, _ = request(self.pvmbg + "/volcanic-reports", token=self.env["PVMBG_TOKEN"])
+                return next((r for r in reports if r["report_id"] not in known and "confidence_level" not in r), None) if status == 200 else None
+            raw = eventually(new_report)
+            ref = raw["report_id"]
+            def v1_history():
+                audit = self.history("PVMBG", ref, "1")
+                return audit if "confidence_level" not in audit["versions"][0]["data"]["attributes"] else None
+            v1 = eventually(v1_history)
+            canonical = v1["versions"][0]["data"]
+            assert canonical["source_ref_id"] == ref and canonical["severity"] == raw["alert_level"].upper()
+            assert canonical["occurred_at"] == raw["reported_at"]
+            for field in ["volcano_id", "eruption_count_24h", "ash_column_height_m"]:
+                assert canonical["attributes"][field] == raw[field]
+            self.record("PVMBG v1 mapping", source_record=raw, canonical_record=canonical)
             self.admin("schema-version", {"version": 2})
-            def changed():
-                status, body, _ = self.read(token, "?source=PVMBG&view=full&limit=50")
-                return status == 200 and any("confidence_level" in row["attributes"] for row in body["data"])
-            eventually(changed)
-            assert compose("ps", "-q", "aggregator").strip() == producer
-            self.record("schema v2 stored without Aggregator restart", new_attribute="confidence_level")
+            def both_versions():
+                audit = self.history("PVMBG", ref, "1,2")
+                return audit if "confidence_level" in audit["versions"][1]["data"]["attributes"] else None
+            v2 = eventually(both_versions)
+            assert v2["hazard_id"] == v1["hazard_id"]
+            assert v2["migrations"] and v2["migrations"] == v1["migrations"]
+            assert self.container_state(list(before)) == before
+            self.record("schema v1/v2 coexist without migration or service restart", audit=v2,
+                        before=before, after=self.container_state(list(before)))
         finally:
             self.admin("schema-version", {"version": int(self.env.get("PVMBG_SCHEMA_VERSION", "1"))})
+        status, raw_events, _ = request(bmkg + "/seismic-events", headers={"X-BMKG-Key": self.env["BMKG_API_KEY"]})
+        assert status == 200 and len(raw_events) >= 20
+        raw = next(r for r in raw_events if not r["potential_tsunami"])
+        mapped = eventually(lambda: self.history("BMKG", raw["event_id"], "1"))["versions"][0]["data"]
+        expected = "NORMAL" if raw["magnitude"] < 5 else "WASPADA" if raw["magnitude"] < 6.5 else "SIAGA"
+        assert mapped["severity"] == expected and mapped["source_ref_id"] == raw["event_id"]
+        for canonical_field, source_field in [("area_name", "region_name"), ("latitude", "epicenter_lat"), ("longitude", "epicenter_lon"), ("occurred_at", "occurred_at")]:
+            assert mapped[canonical_field] == raw[source_field]
+        for field in ["magnitude", "depth_km", "potential_tsunami"]:
+            assert mapped["attributes"][field] == raw[field]
+        self.record("BMKG mapping", source_record=raw, canonical_record=mapped, seed_records=len(raw_events))
         for service in ["dashboard-consumer", "notifier-consumer"]:
             result = self.inspect(service)
             assert result["inbox_count"] > 0
@@ -176,7 +225,8 @@ class Trials:
     def events(self):
         token = self.login()["access_token"]
         before = self.inspect("notifier-consumer")["inbox_count"]
-        producer = compose("ps", "-q", "aggregator").strip()
+        producer = self.container_state(["aggregator"])
+        stream_before = self.broker_stream()["state"]["last_seq"]
         started = time.monotonic()
         try:
             compose("stop", "dashboard-consumer")
@@ -186,14 +236,17 @@ class Trials:
                 time.sleep(5)
             assert all(status == 200 for status in statuses)
             target = eventually(lambda: (count if (count := self.inspect("notifier-consumer")["inbox_count"]) > before else None))
-            checkpoint = self.broker_consumers()[self.env.get("NATS_NOTIFIER_DURABLE", "notifier-v1")]["ack_floor"]["stream_seq"]
-            self.record("one consumer down", notifier_before=before, notifier_after=target, api_statuses=statuses, stopped_seconds=round(time.monotonic() - started, 2), target_stream_sequence=checkpoint)
+            stream_after = self.broker_stream()["state"]["last_seq"]
+            assert stream_after > stream_before, "producer published no new events during downtime"
+            checkpoint = eventually(lambda: (seq if (seq := self.broker_consumers()[self.env.get("NATS_NOTIFIER_DURABLE", "notifier-v1")]["ack_floor"]["stream_seq"]) >= stream_after else None))
+            self.record("one consumer down", stream_before=stream_before, stream_after=stream_after, notifier_before=before, notifier_after=target, api_statuses=statuses, stopped_seconds=round(time.monotonic() - started, 2), target_stream_sequence=checkpoint)
         finally:
             compose("start", "dashboard-consumer")
         after = eventually(lambda: (count if (count := self.inspect("dashboard-consumer")["inbox_count"]) >= target else None), timeout=60)
         acknowledged = eventually(lambda: (seq if (seq := self.broker_consumers()[self.env.get("NATS_DASHBOARD_DURABLE", "dashboard-v1")]["ack_floor"]["stream_seq"]) >= checkpoint else None))
         self.record("dashboard catches up to stopped-period target", target=target, dashboard_after=after, target_stream_sequence=checkpoint, dashboard_ack_floor=acknowledged)
-        unchanged = {service: compose("ps", "-q", service).strip() for service in ["aggregator", "client-api", "notifier-consumer"]}
+        unchanged = self.container_state()
+        unchanged.pop("dashboard-consumer")
         old = compose("ps", "-q", "dashboard-consumer").strip()
         token = self.login()["access_token"]
         build = subprocess.Popen(["docker", "compose", "up", "-d", "--build", "--no-deps", "--force-recreate", "dashboard-consumer"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -203,8 +256,8 @@ class Trials:
             time.sleep(0.2)
         assert build.returncode == 0 and statuses and all(status == 200 for status in statuses)
         assert compose("ps", "-q", "dashboard-consumer").strip() != old
-        assert all(compose("ps", "-q", service).strip() == identifier for service, identifier in unchanged.items())
-        self.record("consumer rebuild while API remains available", api_requests=len(statuses), api_statuses=sorted(set(statuses)), other_container_ids_unchanged=True)
+        assert self.container_state(list(unchanged)) == unchanged
+        self.record("consumer rebuild while API remains available", api_requests=len(statuses), api_statuses=sorted(set(statuses)), other_containers_before=unchanged, other_containers_after=self.container_state(list(unchanged)))
         # A new durable proves subscription addition even if a prior demo durable exists.
         durable = "third-consumer-trial-" + str(time.time_ns())
         checkpoint = self.broker_consumers()[self.env.get("NATS_NOTIFIER_DURABLE", "notifier-v1")]["ack_floor"]["stream_seq"]
@@ -216,7 +269,7 @@ class Trials:
             acknowledged = eventually(lambda: (seq if (seq := self.broker_consumers()[durable]["ack_floor"]["stream_seq"]) >= checkpoint else None), timeout=60)
             third = self.inspect("third-consumer")
             assert third["inbox_count"] > 0
-            assert compose("ps", "-q", "aggregator").strip() == producer
+            assert self.container_state(["aggregator"]) == producer
             self.record("new third durable without producer changes", durable=durable, inbox_count=third["inbox_count"], target_stream_sequence=checkpoint, third_ack_floor=acknowledged, producer_container_unchanged=True)
         finally:
             compose("--profile", "demo", "up", "-d", "--no-deps", "--wait", "--wait-timeout", "120", "third-consumer")
