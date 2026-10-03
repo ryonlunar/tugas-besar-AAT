@@ -7,20 +7,24 @@ Isi `.env`, termasuk `COMPOSE_PROJECT_NAME`, dengan secret lokal yang berbeda un
 ```bash
 mkdir -p .secrets
 chmod 700 .secrets
-(umask 077; openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .secrets/jwt-private.pem)
-openssl pkey -in .secrets/jwt-private.pem -pubout -out .secrets/jwt-public.pem
+if [ ! -e .secrets/jwt-private.pem ] && [ ! -e .secrets/jwt-public.pem ]; then
+  (umask 077; openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out .secrets/jwt-private.pem)
+  openssl pkey -in .secrets/jwt-private.pem -pubout -out .secrets/jwt-public.pem
+fi
 python3 scripts/setup-jwt-keys.py
 docker compose up --build -d --wait
 python3 scripts/verify-integration.py --scenario all --output docs/evidence/integration-trial.json
 ```
 
-Trial memakai Python 3, OpenSSL, dan Docker Compose. Jalankan dari root repo pada stack demo lokal: script mengubah kontrol PVMBG, menghentikan Auth/dashboard sementara, membangun ulang dashboard, dan menambah durable ketiga. Kontrol sumber dikembalikan; service yang dihentikan dinyalakan kembali. Pilihan `smoke`, `tokens`, dan `events` dapat dijalankan terpisah. Evidence berisi hasil/commit, tanpa token atau secret.
+Jika pasangan key sudah ada, jalankan hanya `setup-jwt-keys.py` tanpa membuat pasangan baru.
+
+Trial memakai Python 3, OpenSSL, dan Docker Compose. Jalankan dari root repo pada stack demo lokal: script mengubah kontrol PVMBG, menghentikan Auth/dashboard sementara, membangun ulang dashboard, dan menambah durable ketiga. Kontrol sumber dikembalikan; service yang dihentikan dinyalakan kembali. Pilihan `smoke`, `tokens`, dan `events` dapat dijalankan terpisah. Evidence berisi hasil/commit, tanpa token atau secret. Trial schema menyimpan contoh pemetaan, riwayat v1/v2, ledger migrasi, dan waktu mulai container. Trial consumer mencatat sequence publish dan ACK.
 
 ## Load test P2
 
 `load/hazards.js` memakai profil k6 P2: 30 VU BMKG dan 30 VU PVMBG selama 90 detik, HTTP keep-alive, field-team dengan full view/limit 50, serta refresh token sekitar detik ke-50. Worker hazard tidak memakai think time.
 
-Setelah Compose lengkap telah warm dan delay PVMBG disetel 3000 ms, buat folder evidence redacted lalu jalankan dari PowerShell:
+Setelah sumber berstatus fresh, set delay PVMBG menjadi 3000 ms melalui `POST /admin/delay` dengan Bearer token PVMBG dan body `{"min_ms":3000,"max_ms":3000}`. Catat latency `/volcanic-reports`, tunggu satu siklus polling, lalu jalankan dari PowerShell:
 
 ```powershell
 $env:FIELD_TEAM_CLIENT_SECRET = '<secret-lokal>'
@@ -55,4 +59,4 @@ Script smoke yang tersedia:
 
 - `bash scripts/smoke-source-mocks.sh` membangun dan menjalankan dua mock pada port lokal sementara; memeriksa seed BMKG, penolakan tanpa credential, toggle schema PVMBG v1/v2 dengan ID stabil, dan outage 503. Script memakai fixture/credential sintetis dan membersihkan prosesnya saat keluar.
 
-Script ini tidak menguji Aggregator, Canonical Store, JetStream, Auth/API, consumer, atau acceptance P1–P5 secara penuh. Hasil yang benar-benar dijalankan dan batasnya dicatat di [verification.md](../docs/verification.md); jangan menyebut smoke mock sebagai E2E seluruh aplikasi.
+Script ini tidak menguji Aggregator, Canonical Store, JetStream, Auth/API, consumer, atau acceptance P1–P5 secara penuh. Hasil trial integrasi dan load test ada di [docs/evidence](../docs/evidence/).

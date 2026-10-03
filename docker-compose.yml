@@ -1,5 +1,4 @@
-# Hazim-owned source mocks and Aggregator are wired here for local integration.
-# The remaining Auth/Client API and consumer services are added by their owners.
+# M1 services; third-consumer is enabled through the demo profile.
 services:
   postgres:
     image: postgres:16-alpine

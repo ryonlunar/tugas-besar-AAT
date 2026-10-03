@@ -1,17 +1,16 @@
-%% Contract-v1 full target architecture; owner labels reflect the active worktree.
-%% Bimo/Refki application services are boundary scaffolds here, not runnable images.
+%% M1 runtime architecture.
 %%{init: {"flowchart": {"htmlLabels": true, "nodeSpacing": 55, "rankSpacing": 90, "curve": "linear"}}}%%
 flowchart LR
     clients["<b>API clients</b><br/>Media · Field team · BNPB"]
 
-    subgraph compose["Local Docker Compose · contract-v1 target"]
+    subgraph compose["Local Docker Compose"]
         direction LR
 
         subgraph apiNet["api-net"]
             direction TB
-            auth["<b>Auth</b><br/>Bimo · :8084<br/>owner implementation pending"]
+            auth["<b>Auth</b><br/>Bimo · :8084"]
             authDB[("Private SQLite<br/>auth-data volume")]
-            clientAPI["<b>Client API</b><br/>Bimo · :8080<br/>owner implementation pending"]
+            clientAPI["<b>Client API</b><br/>Bimo · :8080"]
         end
 
         subgraph sourceNet["source-net"]
@@ -29,9 +28,9 @@ flowchart LR
         subgraph eventNet["event-net · internal"]
             direction TB
             nats["<b>NATS JetStream</b> · :4222<br/>HAZARD_EVENTS · no host port"]
-            dashboard["<b>Dashboard consumer</b><br/>Refki · :8085 · pending<br/>durable dashboard-v1<br/>commit inbox + revision-aware snapshot → ACK"]
+            dashboard["<b>Dashboard consumer</b><br/>Refki · :8085<br/>durable dashboard-v1<br/>commit inbox + revision-aware snapshot → ACK"]
             dashboardDB[("Private SQLite<br/>dashboard-data volume")]
-            notifier["<b>Notifier consumer</b><br/>Refki · :8086 · pending<br/>durable notifier-v1<br/>commit simulated receipt → ACK"]
+            notifier["<b>Notifier consumer</b><br/>Refki · :8086<br/>durable notifier-v1<br/>commit simulated receipt → ACK"]
             notifierDB[("Private SQLite<br/>notifier-data volume")]
         end
     end
@@ -50,12 +49,12 @@ flowchart LR
     notifier -->|"private volume"| notifierDB
 
     classDef hazim fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#15351B;
-    classDef pending fill:#FFF6DF,stroke:#A66A00,stroke-width:2px,color:#402900;
+    classDef application fill:#FFF6DF,stroke:#A66A00,stroke-width:2px,color:#402900;
     classDef infra fill:#EEF2F7,stroke:#52657A,stroke-width:2px,color:#172433;
     classDef actor fill:#F5F0FF,stroke:#7054A3,stroke-width:2px,color:#291B42;
 
     class bmkg,pvmbg,aggregator hazim;
-    class auth,clientAPI,dashboard,notifier pending;
+    class auth,clientAPI,dashboard,notifier application;
     class authDB,postgres,nats,dashboardDB,notifierDB infra;
     class clients actor;
 
