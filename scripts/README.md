@@ -53,6 +53,14 @@ test "$load_exit" -eq 0 && test "$tcp_exit" -eq 0
 
 `hazard_iterations` mencatat workload yang diminta; `hazard_attempts` hanya request yang dikirim setelah token tersedia. Kegagalan login/refresh menggagalkan threshold. Kedua sumber wajib memiliki request sukses; semua-429 bukan hasil lulus. Trend `*_duration` mencatat seluruh respons, sedangkan `*_success_duration` hanya 2xx. Threshold BMKG memakai `bmkg_success_duration`; `auth_duration` terpisah. Laporkan throughput, error noncontrolled, dan jumlah 429. Periksa sampel TCP selama steady state: minimal 50 koneksi selama minimal 60 detik, bukan hanya 60 VU.
 
+Jika export memuat durasi negatif, pengukuran tidak valid. Alternatif dengan timer monotonic dan profil yang sama:
+
+```bash
+python3 scripts/load/hazards-monotonic.py --output docs/evidence/p2-01/monotonic-summary.json
+```
+
+Jalankan collector TCP bersamaan seperti di atas. Alternatif ini memakai 30 worker per sumber selama 90 detik, HTTP keep-alive, sesi Field Team terpisah, dan refresh sebelum expiry. Latency mencakup request hingga seluruh body diterima, termasuk setup koneksi; percentile memakai nearest rank.
+
 Regression script: `node scripts/load/hazards.test.cjs`.
 
 Script smoke yang tersedia:
