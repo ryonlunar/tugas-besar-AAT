@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -77,7 +78,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Correlation-ID", correlationID)
 	ctx := context.WithValue(r.Context(), requestContextKey{}, correlationID)
-	h.mux.ServeHTTP(w, r.WithContext(ctx))
+	started := time.Now()
+	response := &statusWriter{ResponseWriter: w}
+	h.mux.ServeHTTP(response, r.WithContext(ctx))
+	slog.Info("request complete", "service", "aggregator", "operation", r.Method+" "+r.URL.Path, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", response.status)
 }
 
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
@@ -283,4 +287,23 @@ func writeErrorWithMeta(w http.ResponseWriter, status int, code, message, corr s
 		body["meta"] = meta
 	}
 	writeJSON(w, status, body)
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+		w.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (w *statusWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
 }

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -198,4 +201,41 @@ func signedWith(t *testing.T, key *rsa.PrivateKey, issuer, sub, scope string, no
 		t.Fatal(err)
 	}
 	return token
+}
+
+func TestReadinessForwardsAndLogsCorrelationWithoutCredentials(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Correlation-ID") != "ready-42" {
+			t.Error("readiness correlation not forwarded")
+		}
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+	handler := NewHandler(Config{AggregatorURL: upstream.URL, AggregatorKey: "private-key"})
+	defer handler.client.CloseIdleConnections()
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	request.Header.Set("X-Correlation-ID", "ready-42")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("readiness status: %d", response.Code)
+	}
+	decoder := json.NewDecoder(&logs)
+	found := false
+	for decoder.More() {
+		var entry map[string]any
+		if err := decoder.Decode(&entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry["operation"] == "aggregator_ready" {
+			found = entry["correlation_id"] == "ready-42" && entry["status"] == float64(200) && entry["duration_ms"] != nil
+		}
+	}
+	if !found {
+		t.Fatal("correlated readiness timing not logged")
+	}
 }

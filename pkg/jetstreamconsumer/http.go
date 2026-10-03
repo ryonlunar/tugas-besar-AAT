@@ -2,11 +2,19 @@ package jetstreamconsumer
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
+
+var correlationPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 
 type Inspector interface {
 	Ping(context.Context) error
@@ -41,7 +49,48 @@ func Handler(runner *Runner, state Inspector, demoKey, inspectPath string) http.
 		}
 		respond(w, http.StatusOK, data)
 	})
-	return mux
+	logger := runner.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.Header.Get("X-Correlation-ID"))
+		if !correlationPattern.MatchString(id) {
+			id = newCorrelationID()
+		}
+		w.Header().Set("X-Correlation-ID", id)
+		started := time.Now()
+		response := &statusWriter{ResponseWriter: w}
+		mux.ServeHTTP(response, r)
+		logger.Info("request complete", "operation", r.Method+" "+r.URL.Path, "correlation_id", id, "duration_ms", time.Since(started).Milliseconds(), "status", response.status)
+	})
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+		w.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (w *statusWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func newCorrelationID() string {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(value[:])
 }
 
 func respond(w http.ResponseWriter, status int, data any) {

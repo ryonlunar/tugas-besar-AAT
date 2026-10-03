@@ -106,16 +106,23 @@ func (h *Handler) admit(next http.Handler) http.Handler {
 	})
 }
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	status := 0
+	defer func() {
+		slog.Info("Aggregator readiness complete", "service", "client-api", "operation", "aggregator_ready", "correlation_id", corrID(r), "duration_ms", time.Since(started).Milliseconds(), "status", status)
+	}()
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, strings.TrimRight(h.cfg.AggregatorURL, "/")+"/ready", nil)
 	if err != nil {
 		writeError(w, 503, "DEPENDENCY_UNAVAILABLE", "Aggregator is not ready", corrID(r))
 		return
 	}
+	req.Header.Set("X-Correlation-ID", corrID(r))
 	resp, err := h.client.Do(req)
 	if err != nil {
 		writeError(w, 503, "DEPENDENCY_UNAVAILABLE", "Aggregator is not ready", corrID(r))
 		return
 	}
+	status = resp.StatusCode
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		writeError(w, 503, "DEPENDENCY_UNAVAILABLE", "Aggregator is not ready", corrID(r))

@@ -2,12 +2,14 @@ package jetstreamconsumer
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -147,5 +149,31 @@ func serveIdleBroker(conn net.Conn, cfg Config, fetching chan<- net.Conn) {
 				}
 			}
 		}
+	}
+}
+
+func TestUnconfirmedACKKeepsEventCorrelationAndMessageID(t *testing.T) {
+	raw, err := os.ReadFile("../../contracts/examples/hazard-envelope.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := contracts.ParseEnvelope(raw, "hazard.events.v1.BMKG", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	runner := &Runner{Config: Config{Durable: "test-consumer"}, Sink: sinkStub{}, Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
+	// An unbound message cannot confirm an ACK, even after its side effect commits.
+	runner.process(context.Background(), &nats.Msg{Subject: "hazard.events.v1.BMKG", Data: raw})
+	decoder := json.NewDecoder(&logs)
+	var committed, ack map[string]any
+	if err := decoder.Decode(&committed); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if committed["msg"] != "message committed" || ack["operation"] != "ack" || ack["outcome"] != "failed" || ack["duration_ms"] == nil || ack["correlation_id"] != envelope.CorrelationID || ack["message_id"] != envelope.MessageID {
+		t.Fatalf("unconfirmed ACK lost its event context: %+v", ack)
 	}
 }

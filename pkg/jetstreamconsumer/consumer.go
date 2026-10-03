@@ -68,7 +68,11 @@ func (r *Runner) Run(ctx context.Context) error {
 }
 
 func (r *Runner) consume(ctx context.Context) error {
+	correlationID := newCorrelationID()
+	started := time.Now()
+	// Run owns reconnect and durable binding so readiness follows both together.
 	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect())
+	r.logCall("connect", correlationID, started, err)
 	if err != nil {
 		return fmt.Errorf("connect NATS: %w", err)
 	}
@@ -82,10 +86,12 @@ func (r *Runner) consume(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open JetStream: %w", err)
 	}
-	if err := ensureConsumer(ctx, js, r.Config); err != nil {
+	if err := r.ensureConsumer(ctx, js, correlationID); err != nil {
 		return err
 	}
+	started = time.Now()
 	sub, err := js.PullSubscribe(SubjectFilter, r.Config.Durable, nats.Bind(r.Config.Stream, r.Config.Durable), nats.Context(ctx))
+	r.logCall("bind", correlationID, started, err)
 	if err != nil {
 		return fmt.Errorf("bind durable: %w", err)
 	}
@@ -94,8 +100,15 @@ func (r *Runner) consume(ctx context.Context) error {
 	r.Logger.Info("consumer ready", "durable", r.Config.Durable, "stream", r.Config.Stream)
 	for ctx.Err() == nil {
 		fetchCtx, cancel := context.WithTimeout(ctx, r.Config.FetchExpires)
+		started = time.Now()
 		messages, err := sub.Fetch(r.Config.FetchBatch, nats.Context(fetchCtx))
 		cancel()
+		idle := errors.Is(err, nats.ErrTimeout) || (errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil)
+		if idle {
+			r.logCall("fetch_idle", correlationID, started, nil)
+		} else {
+			r.logCall("fetch", correlationID, started, err, "messages", len(messages))
+		}
 		if errors.Is(err, nats.ErrTimeout) || (errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil) {
 			continue
 		}
@@ -112,11 +125,16 @@ func (r *Runner) consume(ctx context.Context) error {
 	return nil
 }
 
-func ensureConsumer(ctx context.Context, js nats.JetStreamContext, cfg Config) error {
+func (r *Runner) ensureConsumer(ctx context.Context, js nats.JetStreamContext, correlationID string) error {
+	cfg := r.Config
 	desired := &nats.ConsumerConfig{Durable: cfg.Durable, FilterSubject: SubjectFilter, DeliverPolicy: nats.DeliverAllPolicy, AckPolicy: nats.AckExplicitPolicy, AckWait: cfg.AckWait, MaxAckPending: cfg.MaxAckPending, MaxDeliver: cfg.MaxDeliver, ReplayPolicy: nats.ReplayInstantPolicy}
+	started := time.Now()
 	info, err := js.ConsumerInfo(cfg.Stream, cfg.Durable, nats.Context(ctx))
+	r.logCall("consumer_info", correlationID, started, err)
 	if errors.Is(err, nats.ErrConsumerNotFound) {
+		started = time.Now()
 		_, err = js.AddConsumer(cfg.Stream, desired, nats.Context(ctx))
+		r.logCall("consumer_create", correlationID, started, err)
 		return err
 	}
 	if err != nil {
@@ -136,37 +154,55 @@ func (r *Runner) process(ctx context.Context, message *nats.Msg) {
 	}
 	headerID := message.Header.Get(nats.MsgIdHdr)
 	envelope, err := contracts.ParseEnvelope(message.Data, message.Subject, headerID)
+	correlationID := "unavailable"
+	messageID := "unavailable"
+	if err == nil {
+		correlationID, messageID = envelope.CorrelationID, envelope.MessageID
+	}
 	if err != nil {
 		// Validation errors are poison messages; the quarantine write must be durable
 		// before ACK so a crash cannot silently drop the message.
 		err = r.Sink.Quarantine(ctx, message.Data, message.Subject, "INVALID_ENVELOPE", delivery)
 		if err == nil {
 			r.Logger.Warn("message quarantined", "durable", r.Config.Durable, "subject", message.Subject, "delivery", delivery)
-			r.ack(message)
+			r.ack(ctx, message, correlationID, messageID)
 		} else {
-			r.nak(message, "QUARANTINE_WRITE_FAILED")
+			r.nak(message, correlationID, messageID, "QUARANTINE_WRITE_FAILED")
 		}
 		return
 	}
 	if err := r.Sink.Apply(ctx, envelope, message.Subject, delivery); err != nil {
-		r.nak(message, "SIDE_EFFECT_FAILED")
+		r.nak(message, correlationID, messageID, "SIDE_EFFECT_FAILED")
 		return
 	}
 	r.Logger.Info("message committed", "durable", r.Config.Durable, "message_id", envelope.MessageID, "correlation_id", envelope.CorrelationID, "revision", envelope.Revision, "delivery", delivery)
-	r.ack(message)
+	r.ack(ctx, message, correlationID, messageID)
 }
 
-func (r *Runner) ack(message *nats.Msg) {
-	if err := message.AckSync(nats.AckWait(2 * time.Second)); err != nil {
-		r.Logger.Warn("message ACK unconfirmed", "durable", r.Config.Durable)
-	}
+func (r *Runner) ack(ctx context.Context, message *nats.Msg, correlationID, messageID string) {
+	ackCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	started := time.Now()
+	err := message.AckSync(nats.Context(ackCtx))
+	r.logCall("ack", correlationID, started, err, "message_id", messageID)
 }
 
-func (r *Runner) nak(message *nats.Msg, reason string) {
-	r.Logger.Error("message not committed", "durable", r.Config.Durable, "reason", reason)
-	if err := message.NakWithDelay(r.Config.NAKDelay); err != nil {
-		r.Logger.Warn("message NAK unconfirmed", "durable", r.Config.Durable)
+func (r *Runner) nak(message *nats.Msg, correlationID, messageID, reason string) {
+	r.Logger.Error("message not committed", "durable", r.Config.Durable, "reason", reason, "correlation_id", correlationID, "message_id", messageID)
+	started := time.Now()
+	err := message.NakWithDelay(r.Config.NAKDelay)
+	// NAK is a publish without a broker confirmation; success means sent locally.
+	r.logCall("nak", correlationID, started, err, "message_id", messageID)
+}
+
+func (r *Runner) logCall(operation, correlationID string, started time.Time, err error, details ...any) {
+	outcome := "success"
+	level := slog.LevelInfo
+	if err != nil {
+		outcome, level = "failed", slog.LevelWarn
 	}
+	attrs := []any{"operation", operation, "durable", r.Config.Durable, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "outcome", outcome}
+	r.Logger.Log(context.Background(), level, "broker request complete", append(attrs, details...)...)
 }
 
 func disconnectReason(err error) string {
