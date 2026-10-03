@@ -58,7 +58,10 @@ func NewHandler(cfg Config) *Handler {
 	transport.MaxIdleConnsPerHost = cfg.MaxInflight + 1
 	transport.MaxIdleConns = cfg.MaxInflight + 1
 	transport.MaxConnsPerHost = cfg.MaxInflight + 1
-	h := &Handler{cfg: cfg, client: &http.Client{Timeout: cfg.Timeout, Transport: transport}, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
+	client := &http.Client{Timeout: cfg.Timeout, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+		return errors.New("Aggregator redirects are not allowed")
+	}}
+	h := &Handler{cfg: cfg, client: client, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
 	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	h.mux.HandleFunc("GET /ready", h.ready)
 	h.mux.Handle("GET /v1/hazards", h.admit(http.HandlerFunc(h.list)))

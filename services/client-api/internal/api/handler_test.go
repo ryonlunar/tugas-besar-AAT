@@ -102,6 +102,33 @@ func TestConcurrentReadsReuseUpstreamConnections(t *testing.T) {
 	}
 }
 
+func TestProxyDoesNotSendInternalCredentialAcrossRedirect(t *testing.T) {
+	var redirected atomic.Int64
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Add(1)
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	defer destination.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "test-internal-key", Now: func() time.Time { return now }})
+	defer h.client.CloseIdleConnections()
+	req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+	req.Header.Set("Authorization", "Bearer "+signed(t, key, "field-team", "hazards:summary hazards:raw", now))
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, req)
+	if response.Code != http.StatusServiceUnavailable || redirected.Load() != 0 {
+		t.Fatalf("status=%d redirected requests=%d", response.Code, redirected.Load())
+	}
+}
+
 func TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
