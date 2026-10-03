@@ -165,7 +165,7 @@ class Trials:
             v1 = eventually(v1_history)
             canonical = v1["versions"][0]["data"]
             assert canonical["source_ref_id"] == ref and canonical["severity"] == raw["alert_level"].upper()
-            assert canonical["occurred_at"] == raw["reported_at"]
+            assert datetime.fromisoformat(canonical["occurred_at"]) == datetime.fromisoformat(raw["reported_at"]), "PVMBG timestamp differs at microsecond precision"
             for field in ["volcano_id", "eruption_count_24h", "ash_column_height_m"]:
                 assert canonical["attributes"][field] == raw[field]
             self.record("PVMBG v1 mapping", source_record=raw, canonical_record=canonical)
@@ -187,8 +187,9 @@ class Trials:
         mapped = eventually(lambda: self.history("BMKG", raw["event_id"], "1"))["versions"][0]["data"]
         expected = "NORMAL" if raw["magnitude"] < 5 else "WASPADA" if raw["magnitude"] < 6.5 else "SIAGA"
         assert mapped["severity"] == expected and mapped["source_ref_id"] == raw["event_id"]
-        for canonical_field, source_field in [("area_name", "region_name"), ("latitude", "epicenter_lat"), ("longitude", "epicenter_lon"), ("occurred_at", "occurred_at")]:
+        for canonical_field, source_field in [("area_name", "region_name"), ("latitude", "epicenter_lat"), ("longitude", "epicenter_lon")]:
             assert mapped[canonical_field] == raw[source_field]
+        assert datetime.fromisoformat(mapped["occurred_at"]) == datetime.fromisoformat(raw["occurred_at"]), "BMKG timestamp differs at microsecond precision"
         for field in ["magnitude", "depth_km", "potential_tsunami"]:
             assert mapped["attributes"][field] == raw[field]
         self.record("BMKG mapping", source_record=raw, canonical_record=mapped, seed_records=len(raw_events))
