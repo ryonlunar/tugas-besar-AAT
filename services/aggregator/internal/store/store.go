@@ -566,3 +566,29 @@ func newUUID() (string, error) {
 	encoded := hex.EncodeToString(value[:])
 	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
 }
+
+// MigrationStatus is read by the owner's audit command for schema evolution trials.
+type MigrationStatus struct {
+	Version   string    `json:"version"`
+	Checksum  string    `json:"checksum"`
+	AppliedAt time.Time `json:"applied_at"`
+}
+
+func (s *Store) MigrationStatus(ctx context.Context) ([]MigrationStatus, error) {
+	ctx, cancel := s.readContext(ctx)
+	defer cancel()
+	rows, err := s.readDB.QueryContext(ctx, `SELECT version,checksum,applied_at FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]MigrationStatus, 0)
+	for rows.Next() {
+		var migration MigrationStatus
+		if err := rows.Scan(&migration.Version, &migration.Checksum, &migration.AppliedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, migration)
+	}
+	return result, rows.Err()
+}
