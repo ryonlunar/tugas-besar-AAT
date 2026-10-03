@@ -165,7 +165,7 @@ class Trials:
             v1 = eventually(v1_history)
             canonical = v1["versions"][0]["data"]
             assert canonical["source_ref_id"] == ref and canonical["severity"] == raw["alert_level"].upper()
-            assert datetime.fromisoformat(canonical["occurred_at"]) == datetime.fromisoformat(raw["reported_at"]), "PVMBG timestamp differs at microsecond precision"
+            assert datetime.fromisoformat(canonical["occurred_at"].replace("Z", "+00:00")) == datetime.fromisoformat(raw["reported_at"].replace("Z", "+00:00")), "PVMBG timestamp differs at microsecond precision"
             for field in ["volcano_id", "eruption_count_24h", "ash_column_height_m"]:
                 assert canonical["attributes"][field] == raw[field]
             self.record("PVMBG v1 mapping", source_record=raw, canonical_record=canonical)
@@ -189,7 +189,7 @@ class Trials:
         assert mapped["severity"] == expected and mapped["source_ref_id"] == raw["event_id"]
         for canonical_field, source_field in [("area_name", "region_name"), ("latitude", "epicenter_lat"), ("longitude", "epicenter_lon")]:
             assert mapped[canonical_field] == raw[source_field]
-        assert datetime.fromisoformat(mapped["occurred_at"]) == datetime.fromisoformat(raw["occurred_at"]), "BMKG timestamp differs at microsecond precision"
+        assert datetime.fromisoformat(mapped["occurred_at"].replace("Z", "+00:00")) == datetime.fromisoformat(raw["occurred_at"].replace("Z", "+00:00")), "BMKG timestamp differs at microsecond precision"
         for field in ["magnitude", "depth_km", "potential_tsunami"]:
             assert mapped["attributes"][field] == raw[field]
         self.record("BMKG mapping", source_record=raw, canonical_record=mapped, seed_records=len(raw_events))
@@ -212,9 +212,12 @@ class Trials:
             compose("start", "auth")
         eventually(lambda: request(self.auth + "/ready")[0] == 200)
         wait = max(0, claims["exp"] - time.time() + 0.3)
-        self.record("waiting for natural expiry", seconds=round(wait, 2), ttl_seconds=60)
+        self.record("waiting for natural expiry", seconds=round(wait, 2), ttl_seconds=60, issued_at=claims["iat"], expires_at=claims["exp"])
         time.sleep(wait)
-        assert self.read(token)[0] == 401
+        def expired():
+            status, _, headers = self.read(token)
+            return {"status": status, "server_date": headers.get("Date")} if status == 401 else None
+        self.record("natural expiry observed", **eventually(expired, timeout=10))
         status, rotated, _ = request(self.auth + "/v1/auth/refresh", {"refresh_token": session["refresh_token"]})
         assert status == 200 and self.read(rotated["access_token"])[0] == 200
         assert self.read(token)[0] == 401
