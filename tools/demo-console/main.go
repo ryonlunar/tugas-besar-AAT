@@ -38,7 +38,7 @@ func main() {
 		log.Fatal("run the demo console inside WSL so trial cancellation can restore services")
 	}
 	repo := flag.String("repo", ".", "application repository")
-	envFile := flag.String("env-file", "", "literal local .env profile")
+	envFile := flag.String("env-file", os.Getenv("AAT_DEMO_ENV_FILE"), "literal local .env profile")
 	evidence := flag.String("evidence-dir", "", "private run directory")
 	specDir := flag.String("spec-dir", "", "directory containing the supplied course PDFs")
 	listen := flag.String("listen", "127.0.0.1:8099", "loopback address")
@@ -56,9 +56,9 @@ func main() {
 		log.Fatal(err)
 	}
 	c := &console{cfg: cfg, runner: newRunner(cfg), token: hex.EncodeToString(key), port: port, client: &http.Client{Timeout: 6 * time.Second}}
-	server := &http.Server{Addr: *listen, Handler: c.handler(), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	server := &http.Server{Addr: *listen, Handler: c.handler(), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
 		<-ctx.Done()
 		c.runner.cancelActive()
@@ -78,15 +78,17 @@ func (c *console) handler() http.Handler {
 	mux.HandleFunc("GET /api/bootstrap", func(w http.ResponseWriter, r *http.Request) {
 		profile := c.runner.maskedProfile()
 		revision, _ := c.runner.capture(r.Context(), "git", "rev-parse", "--short", "HEAD")
-		respond(w, 200, map[string]any{"token": c.token, "repo": c.cfg.repo, "project": c.cfg.project, "revision": strings.TrimSpace(string(revision)), "profile": profile, "actions": actionList, "evidence_dir": c.cfg.evidence})
+		respond(w, 200, map[string]any{"token": c.token, "repo": c.cfg.repo, "env_file": c.cfg.envFile, "project": c.cfg.project, "revision": strings.TrimSpace(string(revision)), "profile": profile, "actions": actionList, "evidence_dir": c.cfg.evidence})
 	})
 	mux.HandleFunc("GET /api/status", c.status)
 	mux.HandleFunc("GET /api/inspect/{kind}", c.inspect)
 	mux.HandleFunc("GET /api/logs/{service}", c.logs)
 	mux.HandleFunc("GET /api/historical", c.historical)
 	mux.HandleFunc("POST /api/runs", c.startRun)
+	mux.HandleFunc("POST /api/commands/preview", c.previewCommand)
 	mux.HandleFunc("GET /api/runs", c.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", c.getRun)
+	mux.HandleFunc("GET /api/runs/{id}/stream", c.streamRun)
 	mux.HandleFunc("POST /api/runs/{id}/cancel", c.cancelRun)
 	mux.HandleFunc("GET /api/runs/{id}/{file}", c.runFile)
 	mux.HandleFunc("GET /api/spec/{name}", func(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +112,7 @@ func (c *console) handler() http.Handler {
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; object-src 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; object-src 'none'")
 		w.Header().Set("Cache-Control", "no-store")
 		if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
 			http.Error(w, "invalid origin", 403)

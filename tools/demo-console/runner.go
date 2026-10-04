@@ -23,6 +23,7 @@ import (
 type runRecord struct {
 	ID         string            `json:"id"`
 	Action     string            `json:"action"`
+	Command    string            `json:"command,omitempty"`
 	Title      string            `json:"title"`
 	Status     string            `json:"status"`
 	Started    time.Time         `json:"started"`
@@ -36,6 +37,7 @@ type runRecord struct {
 	Error      string            `json:"error,omitempty"`
 	Lines      []string          `json:"lines,omitempty"`
 	Result     any               `json:"result,omitempty"`
+	HasResult  bool              `json:"has_result"`
 }
 
 type task struct {
@@ -48,6 +50,7 @@ type task struct {
 	runner      *runner
 	log         *os.File
 	startedMono time.Time
+	logCapped   bool
 }
 
 type runner struct {
@@ -59,6 +62,7 @@ type runner struct {
 }
 
 var runIDPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}-[a-f0-9]{12}$`)
+var refreshPattern = regexp.MustCompile(`("refresh_token"\s*:\s*")[^"]+`)
 var jwtPattern = regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
 
 func newRunner(cfg config) *runner {
@@ -85,6 +89,7 @@ func (r *runner) redact(value string) string {
 	for _, secret := range r.secrets {
 		value = strings.ReplaceAll(value, secret, "[redacted]")
 	}
+	value = refreshPattern.ReplaceAllString(value, `${1}[redacted refresh token]`)
 	return jwtPattern.ReplaceAllString(value, "[redacted JWT]")
 }
 
@@ -153,12 +158,11 @@ func (r *runner) start(action action, params map[string]string, execute func(*ta
 	go func() {
 		defer close(t.done)
 		defer cancel()
-		t.line("Started: " + action.Title)
+		t.line("# " + action.Title)
 		result, err := execute(t)
-		if result == nil {
-			result = map[string]any{"completed": err == nil}
+		if result != nil {
+			err = errors.Join(err, r.writeJSON(filepath.Join(dir, "result.json"), result))
 		}
-		err = errors.Join(err, r.writeJSON(filepath.Join(dir, "result.json"), result))
 		resultData, _ := os.ReadFile(filepath.Join(dir, "result.json"))
 		finished := time.Now().UTC()
 		t.mu.Lock()
@@ -166,6 +170,7 @@ func (r *runner) start(action action, params map[string]string, execute func(*ta
 		t.record.ElapsedMS = time.Since(t.startedMono).Milliseconds()
 		if json.Valid(resultData) {
 			t.record.Result = json.RawMessage(resultData)
+			t.record.HasResult = true
 		}
 		t.record.Status = "passed"
 		if err != nil {
@@ -179,6 +184,9 @@ func (r *runner) start(action action, params map[string]string, execute func(*ta
 			}
 		}
 		t.mu.Unlock()
+		if err != nil {
+			t.line("Error: " + err.Error())
+		}
 		t.line("Finished: " + t.snapshot().Status)
 		if err := t.persist(); err != nil {
 			t.line("Could not save run metadata: " + err.Error())
@@ -195,12 +203,15 @@ func (t *task) line(value string) {
 	value = t.runner.redact(value)
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.record.Lines = append(t.record.Lines, time.Now().Format("15:04:05")+"  "+value)
+	t.record.Lines = append(t.record.Lines, value)
 	if len(t.record.Lines) > 400 {
 		t.record.Lines = t.record.Lines[len(t.record.Lines)-400:]
 	}
 	if info, err := t.log.Stat(); err == nil && info.Size() < 4<<20 {
 		_, _ = fmt.Fprintln(t.log, t.record.Lines[len(t.record.Lines)-1])
+	} else if err == nil && !t.logCapped {
+		_, _ = fmt.Fprintln(t.log, "[Output log reached 4 MiB; further output is omitted.]")
+		t.logCapped = true
 	}
 }
 func (t *task) snapshot() runRecord {
@@ -220,16 +231,16 @@ func (t *task) persist() error {
 	return t.runner.writeJSON(filepath.Join(t.dir, "run.json"), v)
 }
 
-func (r *runner) writeJSON(path string, value any) error {
+func (r *runner) redactedJSON(value any) ([]byte, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var decoded any
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	if err := decoder.Decode(&decoded); err != nil {
-		return err
+		return nil, err
 	}
 	var scrub func(any) any
 	scrub = func(v any) any {
@@ -255,9 +266,17 @@ func (r *runner) writeJSON(path string, value any) error {
 	}
 	data, err = json.MarshalIndent(scrub(decoded), "", "  ")
 	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func (r *runner) writeJSON(path string, value any) error {
+	data, err := r.redactedJSON(value)
+	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path+".tmp", append(data, '\n'), 0600); err != nil {
+	if err := os.WriteFile(path+".tmp", data, 0600); err != nil {
 		return err
 	}
 	return os.Rename(path+".tmp", path)
@@ -311,7 +330,7 @@ func (w *outputWriter) flush() {
 }
 
 func (t *task) exec(ctx context.Context, program string, args ...string) error {
-	t.line("$ " + program + " " + strings.Join(args, " "))
+	t.line(formatCommand(program, args))
 	cmd := t.runner.command(ctx, program, args...)
 	prepareProcess(cmd)
 	out, stderr := &outputWriter{task: t}, &outputWriter{task: t}
@@ -349,27 +368,38 @@ func (r *runner) wait(ctx context.Context) {
 }
 
 func (c *console) startRun(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Action     string            `json:"action"`
-		Parameters map[string]string `json:"parameters"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		fail(w, 400, errors.New("invalid action request"))
-		return
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		fail(w, 400, errors.New("expected one action request"))
-		return
-	}
-	a, err := validateAction(input.Action, input.Parameters)
+	input, a, err := readCommand(w, r)
 	if err != nil {
 		fail(w, 400, err)
 		return
 	}
-	t, err := c.runner.start(a, input.Parameters, func(t *task) (any, error) { return c.execute(t, a.ID, input.Parameters) })
+	if strings.TrimSpace(input.Script) == "" || strings.ContainsRune(input.Script, '\x00') || len(input.Script) > 32768 {
+		fail(w, 400, errors.New("enter a command of at most 32 KiB"))
+		return
+	}
+	plan := commandPlan{script: input.Script}
+	if a.ID != "custom" {
+		original, err := c.commandPlan(input.Action, input.Parameters)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		if original.script == input.Script {
+			plan = original
+		} else {
+			a = action{ID: "custom", Title: "Edited: " + a.Title}
+			input.Parameters = nil
+		}
+	}
+	t, err := c.runner.start(a, input.Parameters, func(t *task) (any, error) {
+		t.mu.Lock()
+		t.record.Command = plan.script
+		t.mu.Unlock()
+		if err := t.persist(); err != nil {
+			return nil, err
+		}
+		return c.executeCommand(t, plan)
+	})
 	if err != nil {
 		fail(w, 409, err)
 		return
@@ -419,6 +449,7 @@ func (c *console) getRun(w http.ResponseWriter, r *http.Request) {
 	result, _ := os.ReadFile(filepath.Join(c.cfg.evidence, id, "result.json"))
 	if json.Valid(result) {
 		v.Result = json.RawMessage(result)
+		v.HasResult = true
 	}
 	respond(w, 200, v)
 }
@@ -438,6 +469,8 @@ func (c *console) listRuns(w http.ResponseWriter, r *http.Request) {
 		data, err := os.ReadFile(filepath.Join(c.cfg.evidence, entries[i].Name(), "run.json"))
 		var v runRecord
 		if err == nil && json.Unmarshal(data, &v) == nil {
+			_, resultErr := os.Stat(filepath.Join(c.cfg.evidence, entries[i].Name(), "result.json"))
+			v.HasResult = resultErr == nil
 			result = append(result, savedRunState(v, active))
 		}
 	}
@@ -463,3 +496,15 @@ func (c *console) runFile(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ io.Writer = (*outputWriter)(nil)
+var shellWord = regexp.MustCompile(`^[A-Za-z0-9_./:@%+,=-]+$`)
+
+// Quote for a readable, copyable command display. Execution still uses argv.
+func formatCommand(program string, args []string) string {
+	words := append([]string{program}, args...)
+	for i, word := range words {
+		if !shellWord.MatchString(word) {
+			words[i] = "'" + strings.ReplaceAll(word, "'", "'\"'\"'") + "'"
+		}
+	}
+	return "$ " + strings.Join(words, " ")
+}

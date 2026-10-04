@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,7 +21,7 @@ type config struct {
 }
 
 var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
-var secretPattern = regexp.MustCompile(`(?i)secret|password|token|api_key|demo_key|private_key`)
+var secretPattern = regexp.MustCompile(`(?i)secret|password|(^|_)token$|(^|_)api_key$|(^|_)demo_key$|(^|_)private_key$|^authorization$`)
 
 func loadConfig(repo, envFile, evidence, specDir string) (config, error) {
 	c := config{values: make(map[string]string)}
@@ -115,6 +117,11 @@ func (c config) value(key, fallback string) string {
 	return fallback
 }
 
+func (c config) fingerprint() string {
+	data, _ := json.Marshal(c.values)
+	return fmt.Sprintf("%x", sha256.Sum256(data))
+}
+
 func (c config) processEnv() []string {
 	values := make(map[string]string)
 	for _, item := range os.Environ() {
@@ -150,5 +157,9 @@ func (c config) endpoint(key, fallback string) string {
 }
 
 func (c config) compose(args ...string) []string {
-	return append([]string{"compose", "--project-name", c.project, "--env-file", c.envFile, "-f", filepath.Join(c.repo, "docker-compose.yml")}, args...)
+	envFile := c.envFile
+	if relative, err := filepath.Rel(c.repo, envFile); err == nil && filepath.IsLocal(relative) {
+		envFile = relative
+	}
+	return append([]string{"compose", "--project-name", c.project, "--env-file", envFile, "-f", "docker-compose.yml"}, args...)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,7 +126,6 @@ func (c *console) logs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *console) inspect(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	kind := r.PathValue("kind")
 	if kind == "api" || kind == "mapping" {
 		c.runner.mu.Lock()
@@ -136,27 +136,64 @@ func (c *console) inspect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	value, err := c.inspection(r.Context(), kind, r.URL.Query())
+	if err != nil {
+		fail(w, 503, err)
+		return
+	}
+	data, err := c.runner.redactedJSON(value)
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	respond(w, 200, map[string]string{"json": string(data)})
+}
+
+func (c *console) inspection(ctx context.Context, kind string, query url.Values) (any, error) {
 	var value any
 	var err error
 	switch kind {
+	case "containers":
+		value, err = c.containers(ctx)
+	case "profile":
+		value = c.runner.maskedProfile()
+	case "tracked-config":
+		value, err = c.trackedConfig(ctx)
+	case "config":
+		service := query.Get("service")
+		if !validService(service) {
+			return nil, errors.New("unknown service")
+		}
+		var data []byte
+		data, err = c.runner.capture(ctx, "docker", c.cfg.compose("--profile", "demo", "config", "--format", "json")...)
+		if err == nil {
+			var configuration struct {
+				Services map[string]struct {
+					Environment map[string]any
+					Networks    json.RawMessage
+				}
+			}
+			err = json.Unmarshal(data, &configuration)
+			selected := configuration.Services[service]
+			value = map[string]any{"service": service, "environment": selected.Environment, "networks": selected.Networks}
+		}
+
 	case "mapping":
-		value, err = c.mapping(ctx, r.URL.Query().Get("source"), r.URL.Query().Get("ref"))
+		value, err = c.mapping(ctx, query.Get("source"), query.Get("ref"))
 	case "api":
-		identity := r.URL.Query().Get("identity")
+		identity := query.Get("identity")
 		if identity == "" {
 			identity = "field-team"
 		}
 		if identity != "field-team" && identity != "media" && identity != "bnpb-internal" {
-			fail(w, 400, errors.New("invalid identity"))
-			return
+			return nil, errors.New("invalid identity")
 		}
-		source := r.URL.Query().Get("source")
+		source := query.Get("source")
 		if source == "" {
 			source = "BMKG"
 		}
 		if source != "BMKG" && source != "PVMBG" {
-			fail(w, 400, errors.New("invalid source"))
-			return
+			return nil, errors.New("invalid source")
 		}
 		var token string
 		token, err = c.login(ctx, identity)
@@ -171,18 +208,16 @@ func (c *console) inspect(w http.ResponseWriter, r *http.Request) {
 			value = map[string]any{"status": status, "identity": identity, "response": json.RawMessage(data)}
 		}
 	case "history":
-		source, ref := r.URL.Query().Get("source"), r.URL.Query().Get("ref")
+		source, ref := query.Get("source"), query.Get("ref")
 		if (source != "BMKG" && source != "PVMBG") || !refPattern.MatchString(ref) {
-			fail(w, 400, errors.New("choose a source and enter its source_ref_id"))
-			return
+			return nil, errors.New("choose a source and enter its source_ref_id")
 		}
-		revisions := r.URL.Query().Get("revisions")
+		revisions := query.Get("revisions")
 		if revisions == "" {
 			revisions = "1,2"
 		}
 		if revisions != "1" && revisions != "1,2" {
-			fail(w, 400, errors.New("choose revision 1 or 1,2"))
-			return
+			return nil, errors.New("choose revision 1 or 1,2")
 		}
 		var data []byte
 		data, err = c.runner.capture(ctx, "docker", c.cfg.compose("exec", "-T", "aggregator", "/aggregator", "history-audit", "--source", source, "--source-ref-id", ref, "--revisions", revisions)...)
@@ -198,14 +233,13 @@ func (c *console) inspect(w http.ResponseWriter, r *http.Request) {
 	case "events":
 		value, err = c.eventState(ctx)
 	case "schema":
-		name := r.URL.Query().Get("name")
+		name := query.Get("name")
 		if name == "" {
 			name = "hazard-event"
 		}
 		file := map[string]string{"hazard-event": "hazard-event.schema.json", "hazard-envelope": "hazard-envelope.schema.json", "hazard-summary": "hazard-summary.schema.json"}[name]
 		if file == "" {
-			http.NotFound(w, r)
-			return
+			return nil, errors.New("unknown schema")
 		}
 		var data []byte
 		data, err = os.ReadFile(filepath.Join(c.cfg.repo, "contracts", file))
@@ -230,19 +264,9 @@ func (c *console) inspect(w http.ResponseWriter, r *http.Request) {
 		})
 		value = files
 	default:
-		http.NotFound(w, r)
-		return
+		return nil, errors.New("unknown inspection")
 	}
-	if err != nil {
-		fail(w, 503, err)
-		return
-	}
-	data, err := json.Marshal(value)
-	if err != nil {
-		fail(w, 500, err)
-		return
-	}
-	respond(w, 200, map[string]string{"json": c.runner.redact(prettyJSON(data))})
+	return value, err
 }
 
 func (c *console) mapping(ctx context.Context, source, pinned string) (any, error) {
@@ -299,7 +323,7 @@ func (c *console) mapping(ctx context.Context, source, pinned string) (any, erro
 			if mapped == ref {
 				data, _ := json.Marshal(records[i])
 				eventData, _ := json.Marshal(event)
-				return map[string]string{"source": prettyJSON(data), "canonical": prettyJSON(eventData), "source_ref_id": ref}, nil
+				return map[string]any{"source": json.RawMessage(data), "canonical": json.RawMessage(eventData), "source_ref_id": ref}, nil
 			}
 		}
 	}
