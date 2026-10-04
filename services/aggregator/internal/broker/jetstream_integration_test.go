@@ -91,3 +91,35 @@ func TestJetStreamPublisherCreatesContractStreamAndDeduplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestJetStreamMessageLimitIncludesHeaders(t *testing.T) {
+	url, token := os.Getenv("AAT_TEST_NATS_URL"), os.Getenv("AAT_TEST_NATS_TOKEN")
+	if url == "" || token == "" {
+		t.Skip("disposable NATS is required")
+	}
+	stream := "AAT_SIZE_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	subject := "aat.size." + stream
+	const limit = 1024
+	const id = "size-boundary:1"
+	// NATS/1.0 CRLF + Nats-Msg-Id: <id> CRLF + final CRLF.
+	headerBytes := len("NATS/1.0\r\nNats-Msg-Id: " + id + "\r\n\r\n")
+	payload := make([]byte, limit-headerBytes)
+	publisher, err := NewJetStreamPublisher(JetStreamConfig{URL: url, Token: token, Stream: stream, Subjects: []string{subject}, MaxAge: time.Minute, MaxBytes: 1 << 20, MaxMsgs: 10, MaxMsgSize: limit, DuplicateWindow: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer publisher.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := publisher.Publish(ctx, subject, payload, id); err != nil {
+		t.Fatalf("message at the exact wire limit was rejected: %v", err)
+	}
+	defer publisher.js.DeleteStream(stream)
+	if err := publisher.Publish(ctx, subject, append(payload, 0), id); err == nil || err.Error() != "NATS message violates configured envelope limits" {
+		t.Fatalf("header overflow was not rejected locally: %v", err)
+	}
+	info, err := publisher.js.StreamInfo(stream)
+	if err != nil || info.State.Msgs != 1 {
+		t.Fatalf("unexpected broker contents: info=%+v error=%v", info, err)
+	}
+}

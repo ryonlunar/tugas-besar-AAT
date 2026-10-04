@@ -153,7 +153,7 @@ func TestApplyCycleKeepsStableIDsHistoryAndOutboxIdempotently(t *testing.T) {
 		t.Fatalf("v2 history is missing its additive field: found=%v err=%v", found, err)
 	}
 	latest, found, err := s.Get(ctx, id)
-	if err != nil || !found || latest.HazardID != id || latest.Attributes["confidence_level"] != float64(0.9) {
+	if err != nil || !found || latest.HazardID != id || latest.Attributes["confidence_level"] != json.Number("0.9") {
 		t.Fatalf("latest event does not expose stable ID and v2 data: found=%v event=%+v err=%v", found, latest, err)
 	}
 	items, hasMore, err := s.List(ctx, string(mapper.SourcePVMBG), 1, 0)
@@ -315,4 +315,59 @@ func testHazard(id, source, ref string, at time.Time, attrs map[string]any) mapp
 		AreaName: "Gunung Simulasi (Tamriel)", Latitude: -7, Longitude: 108,
 		OccurredAt: at.Format(time.RFC3339Nano), IngestedAt: at.Format(time.RFC3339Nano), Attributes: attrs,
 	}
+}
+
+func TestListAndGetPreserveAttributeNumberPrecision(t *testing.T) {
+	_, repository := publicationTestStore(t)
+	ctx := context.Background()
+	at := time.Now().UTC()
+	attributes := map[string]any{
+		"count": json.Number("9007199254740993"),
+		"nested": map[string]any{
+			"values": []any{json.Number("-9007199254740993"), json.Number("0.123456789012345678901234567890"), "unchanged", true, nil},
+		},
+	}
+	event := testHazard("00000000-0000-4000-8000-000000000001", "PVMBG", "precise-numbers", at, attributes)
+	if err := repository.ApplyCycle(ctx, mapper.SourcePVMBG, []mapper.HazardEvent{event}, "precision", true, "", at, at); err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(attributes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResponse := func(t *testing.T, got mapper.HazardEvent) {
+		t.Helper()
+		// Serialize the result as the API does. Numbers must remain JSON numbers,
+		// with every digit intact, including inside nested objects and arrays.
+		body, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var response struct {
+			Attributes json.RawMessage `json:"attributes"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			t.Fatal(err)
+		}
+		if string(response.Attributes) != string(want) {
+			t.Fatalf("attribute precision changed: got %s, want %s", response.Attributes, want)
+		}
+		if got.Latitude != event.Latitude || got.Longitude != event.Longitude {
+			t.Fatalf("typed coordinates changed: got %f,%f", got.Latitude, got.Longitude)
+		}
+	}
+	t.Run("detail", func(t *testing.T) {
+		got, found, err := repository.Get(ctx, event.HazardID)
+		if err != nil || !found {
+			t.Fatalf("get: found=%t error=%v", found, err)
+		}
+		checkResponse(t, got)
+	})
+	t.Run("list", func(t *testing.T) {
+		items, hasMore, err := repository.List(ctx, string(mapper.SourcePVMBG), 10, 0)
+		if err != nil || len(items) != 1 || hasMore {
+			t.Fatalf("list: count=%d hasMore=%t error=%v", len(items), hasMore, err)
+		}
+		checkResponse(t, items[0])
+	})
 }

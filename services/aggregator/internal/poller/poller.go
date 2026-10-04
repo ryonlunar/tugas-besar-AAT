@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 )
@@ -241,10 +242,11 @@ func eventFitsEnvelope(event mapper.HazardEvent, correlationID string, at time.T
 	if maxBytes <= 0 || maxBytes > 64<<10 {
 		maxBytes = 64 << 10
 	}
+	messageID := event.HazardID + ":9223372036854775807"
 	envelope := map[string]any{
 		"schema_version": 1,
 		"event_type":     "hazard.updated",
-		"message_id":     event.HazardID + ":9223372036854775807",
+		"message_id":     messageID,
 		"correlation_id": correlationID,
 		"published_at":   at.UTC().Format(time.RFC3339Nano),
 		"producer":       "aggregator",
@@ -255,7 +257,7 @@ func eventFitsEnvelope(event mapper.HazardEvent, correlationID string, at time.T
 	if err != nil {
 		return false, err
 	}
-	return len(encoded) <= maxBytes, nil
+	return broker.MessageFits(encoded, messageID, maxBytes), nil
 }
 
 func (p *Poller) hazardID(ctx context.Context, source mapper.Source, refID string) (string, error) {

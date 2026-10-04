@@ -84,6 +84,7 @@ func run(logger *slog.Logger) error {
 	repository := store.NewWithPools(readDB, bmkgDB, pvmbgDB, relayDB, cfg.staleAfter)
 	repository.SetTimeouts(cfg.dbReadTimeout, cfg.dbWriteTimeout)
 	repository.SetOutboxLimit(cfg.outboxMaxPending)
+	repository.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	if err := repository.Migrate(startupCtx); err != nil {
 		return fmt.Errorf("apply Aggregator migrations: %w", err)
 	}

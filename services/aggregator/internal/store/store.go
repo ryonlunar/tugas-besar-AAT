@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,11 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 )
 
@@ -44,6 +47,7 @@ func SubjectForSource(source mapper.Source) (string, error) {
 }
 
 var ErrOutboxCapacity = errors.New("outbox capacity reached")
+var errEventTooLarge = errors.New("event exceeds the publication size limit")
 
 type Store struct {
 	db                                                      *sql.DB // shared-pool compatibility constructor for integration tests
@@ -51,6 +55,7 @@ type Store struct {
 	staleAfter                                              time.Duration
 	readTimeout, writeTimeout                               time.Duration
 	outboxLimit                                             int64
+	maxEnvelopeBytes                                        int
 }
 
 type SourceState struct {
@@ -76,7 +81,14 @@ func NewWithPools(readDB, bmkgWriteDB, pvmbgWriteDB, relayDB *sql.DB, staleAfter
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Second
 	}
-	return &Store{db: bmkgWriteDB, readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit}
+	return &Store{db: bmkgWriteDB, readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
+}
+
+func (s *Store) SetMaxEnvelopeBytes(limit int) {
+	if limit <= 0 || limit > 64<<10 {
+		limit = 64 << 10
+	}
+	s.maxEnvelopeBytes = limit
 }
 
 func (s *Store) SetOutboxLimit(limit int64) {
@@ -224,6 +236,11 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 		}
 		seen[event.SourceRefID] = struct{}{}
 		if err := s.upsertEvent(ctx, tx, event, correlationID, acceptedAt.UTC()); err != nil {
+			if errors.Is(err, errEventTooLarge) {
+				success, errorCode = false, "EVENT_TOO_LARGE"
+				slog.Warn("source record rejected", "source", source, "source_ref_id", event.SourceRefID, "correlation_id", correlationID, "reason", errorCode)
+				continue
+			}
 			return fmt.Errorf("upsert source record %s: %w", event.SourceRefID, err)
 		}
 	}
@@ -305,17 +322,6 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return fmt.Errorf("encode canonical event: %w", err)
 	}
-	if isNew {
-		_, err = tx.ExecContext(ctx, `INSERT INTO hazard_events(hazard_id,source,source_ref_id,hazard_type,severity,area_name,latitude,longitude,occurred_at,ingested_at,attributes,revision,content_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`, event.HazardID, event.Source, event.SourceRefID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
-	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
-	}
-	if err != nil {
-		return fmt.Errorf("write current event: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO hazard_versions(hazard_id,revision,data,recorded_at) VALUES($1,$2,$3::jsonb,$4)`, event.HazardID, revision, data, at); err != nil {
-		return fmt.Errorf("append event version: %w", err)
-	}
 	eventType := "hazard.updated"
 	if isNew {
 		eventType = "hazard.created"
@@ -323,10 +329,11 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if !sourceIDPattern.MatchString(correlationID) {
 		return errors.New("correlation id is invalid")
 	}
+	messageID := fmt.Sprintf("%s:%d", event.HazardID, revision)
 	envelope := map[string]any{
 		"schema_version": 1,
 		"event_type":     eventType,
-		"message_id":     fmt.Sprintf("%s:%d", event.HazardID, revision),
+		"message_id":     messageID,
 		"correlation_id": correlationID,
 		"published_at":   at.Format(time.RFC3339Nano),
 		"producer":       "aggregator",
@@ -341,12 +348,44 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO outbox(message_id,hazard_id,revision,subject,envelope,created_at,next_attempt_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6)`, envelope["message_id"], event.HazardID, revision, subject, payload, at)
+	// JSONB can expand whitespace and exponent notation. Check its actual wire
+	// representation before writing any part of this record's revision.
+	var normalized []byte
+	if err := tx.QueryRowContext(ctx, `SELECT $1::jsonb`, payload).Scan(&normalized); err != nil {
+		return fmt.Errorf("normalize outbox envelope: %w", err)
+	}
+	wire, err := compactJSON(normalized)
+	if err != nil {
+		return err
+	}
+	if !broker.MessageFits(wire, messageID, s.maxEnvelopeBytes) {
+		return errEventTooLarge
+	}
+	if isNew {
+		_, err = tx.ExecContext(ctx, `INSERT INTO hazard_events(hazard_id,source,source_ref_id,hazard_type,severity,area_name,latitude,longitude,occurred_at,ingested_at,attributes,revision,content_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`, event.HazardID, event.Source, event.SourceRefID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
+	}
+	if err != nil {
+		return fmt.Errorf("write current event: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO hazard_versions(hazard_id,revision,data,recorded_at) VALUES($1,$2,$3::jsonb,$4)`, event.HazardID, revision, data, at); err != nil {
+		return fmt.Errorf("append event version: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO outbox(message_id,hazard_id,revision,subject,envelope,created_at,next_attempt_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6)`, messageID, event.HazardID, revision, subject, normalized, at)
 	if err != nil {
 		return fmt.Errorf("insert outbox message: %w", err)
 	}
 	_ = content
 	return nil
+}
+
+func compactJSON(raw []byte) ([]byte, error) {
+	var result bytes.Buffer
+	if err := json.Compact(&result, raw); err != nil {
+		return nil, fmt.Errorf("compact outbox envelope: %w", err)
+	}
+	return result.Bytes(), nil
 }
 
 func updateSourceState(ctx context.Context, tx *sql.Tx, source mapper.Source, attemptAt, acceptedAt time.Time, success bool, code string) error {
@@ -402,11 +441,11 @@ func (s *Store) List(ctx context.Context, source string, limit, offset int) ([]m
 	items := make([]mapper.HazardEvent, 0, limit)
 	for rows.Next() {
 		var raw []byte
-		var event mapper.HazardEvent
 		if err := rows.Scan(&raw); err != nil {
 			return nil, false, err
 		}
-		if err := json.Unmarshal(raw, &event); err != nil {
+		event, err := decodeHazardEvent(raw)
+		if err != nil {
 			return nil, false, err
 		}
 		items = append(items, event)
@@ -432,11 +471,20 @@ func (s *Store) Get(ctx context.Context, hazardID string) (mapper.HazardEvent, b
 	if err != nil {
 		return mapper.HazardEvent{}, false, err
 	}
-	var event mapper.HazardEvent
-	if err := json.Unmarshal(raw, &event); err != nil {
+	event, err := decodeHazardEvent(raw)
+	if err != nil {
 		return mapper.HazardEvent{}, false, err
 	}
 	return event, true, nil
+}
+
+func decodeHazardEvent(raw []byte) (mapper.HazardEvent, error) {
+	var event mapper.HazardEvent
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	// Preserve dynamic attribute numbers without rounding them through float64.
+	decoder.UseNumber()
+	err := decoder.Decode(&event)
+	return event, err
 }
 
 func (s *Store) GetVersion(ctx context.Context, hazardID string, revision int64) (json.RawMessage, bool, error) {
@@ -504,6 +552,10 @@ func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]
 	for rows.Next() {
 		var msg OutboxMessage
 		if err := rows.Scan(&msg.MessageID, &msg.HazardID, &msg.Revision, &msg.Subject, &msg.Envelope, &msg.Attempts); err != nil {
+			return nil, err
+		}
+		msg.Envelope, err = compactJSON(msg.Envelope)
+		if err != nil {
 			return nil, err
 		}
 		messages = append(messages, msg)
