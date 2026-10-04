@@ -42,6 +42,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) == 2 && os.Args[1] == "store-audit" {
+		if err := runStoreAuditCommand(); err != nil {
+			fmt.Fprintln(os.Stderr, "store audit failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 	if err := run(logger); err != nil {

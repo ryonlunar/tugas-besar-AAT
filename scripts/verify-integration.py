@@ -46,9 +46,9 @@ def eventually(probe, timeout=35):
 
 
 class Trials:
-    def __init__(self):
+    def __init__(self, env_file=Path(".env")):
         self.env = {}
-        for line in Path(".env").read_text().splitlines():
+        for line in env_file.read_text().splitlines():
             if line.strip() and not line.lstrip().startswith("#") and "=" in line:
                 key, value = line.split("=", 1)
                 self.env[key.strip()] = value.strip().strip("\"'")
@@ -109,8 +109,10 @@ class Trials:
         subject = "$JS.API.CONSUMER.DELETE." + self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS") + "." + durable
         # One local NATS API request via nc; credentials travel through stdin only.
         frames = f"CONNECT {connect}\r\nSUB {reply} 1\r\nPUB {subject} {reply} 0\r\n\r\nPING\r\n".encode()
-        response = subprocess.check_output(["docker", "compose", "exec", "-T", "nats", "nc", "-w", "2", "127.0.0.1", "4222"], input=frames, timeout=10)
-        assert any(json.loads(line).get("success") is True for line in response.splitlines() if line.startswith(b"{")), "temporary durable cleanup failed"
+        subprocess.check_output(["docker", "compose", "exec", "-T", "nats", "nc", "-w", "2", "127.0.0.1", "4222"], input=frames, timeout=10)
+        # nc may close stdout before exposing the API reply. Verify the actual
+        # broker state rather than treating a missing reply as a failed delete.
+        eventually(lambda: durable not in self.broker_consumers(), timeout=10)
 
     def smoke(self):
         identities = ["media", "field-team", "bnpb-internal"]
@@ -285,13 +287,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", choices=["smoke", "tokens", "events", "all"], default="smoke")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--env-file", type=Path, default=Path(".env"))
     args = parser.parse_args()
-    trials = Trials()
+    trials = Trials(args.env_file)
     evidence = {"started_at": datetime.now(timezone.utc).isoformat(), "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(), "scenario": args.scenario, "results": trials.results}
     try:
         for scenario in (["smoke", "tokens", "events"] if args.scenario == "all" else [args.scenario]):
             getattr(trials, scenario)()
         evidence["passed"] = True
+    except KeyboardInterrupt:
+        evidence.update(passed=False, cancelled=True)
+        raise SystemExit(130)
     except Exception as error:
         evidence.update(passed=False, failure=type(error).__name__ + ": " + str(error))
         raise
