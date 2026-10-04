@@ -12,47 +12,121 @@ const state = {
   bootstrap: null,
   spec: {},
   containers: [],
-  statusError: "",
-  run: null,
+  selected: "aggregator",
   active: "",
-  tab: "execution",
-  follow: true,
-  inspections: {},
+  stream: null,
+  run: null,
   refs: {},
-  baseline: null,
+  pending: null,
+  starting: false,
+  preview: 0,
+  switchCommand: null,
 };
-const names = {
-  overview: "Overview",
-  p1: "Mapping",
-  p2: "Resilience",
-  p3: "Authentication",
-  p4: "Independence",
-  p5: "Events",
-  inspect: "Inspect",
-  evidence: "Evidence",
-};
-const goals = {
-  p1: "See how two different source formats become HazardEvent, and how a live schema change survives ingestion.",
-  p2: "Show that slow or unavailable PVMBG does not prevent BMKG reads. Measure the sustained workload separately.",
-  p3: "Show separate trust domains, server-enforced permissions, natural token expiry and refresh.",
-  p4: "Rebuild one component while the others continue, and inspect dynamic attributes without a new migration.",
-  p5: "Watch independent consumers receive the same stream, recover after downtime, and add another subscriber.",
-};
+const titles = { overview: "Overview", inspect: "Inspect", runs: "Runs" };
+const nodeLayout = [
+  ["bmkg-mock", "BMKG", 16, 12],
+  ["pvmbg-mock", "PVMBG", 56, 12],
+  ["aggregator", "Aggregator", 43, 36],
+  ["postgres", "PostgreSQL", 80, 36],
+  ["nats", "NATS", 43, 62],
+  ["client-api", "Client API", 80, 62],
+  ["auth", "Auth", 88, 87],
+  ["dashboard-consumer", "Dashboard", 14, 87],
+  ["notifier-consumer", "Notifier", 38, 87],
+  ["third-consumer", "Third", 62, 87],
+];
+const edges = [
+  [
+    "bmkg-mock",
+    "aggregator",
+    "M160 166 C160 228 430 200 430 266",
+    "HTTP polling",
+  ],
+  [
+    "pvmbg-mock",
+    "aggregator",
+    "M560 166 C560 220 470 220 470 266",
+    "HTTP polling",
+  ],
+  ["aggregator", "postgres", "M545 324 L685 324", "SQL"],
+  ["aggregator", "nats", "M430 380 L430 500", "Outbox publication"],
+  [
+    "client-api",
+    "aggregator",
+    "M750 504 C740 444 550 455 500 380",
+    "Aggregator API reads",
+  ],
+  [
+    "auth",
+    "client-api",
+    "M880 727 C880 680 800 680 800 616",
+    "JWT tokens and verification keys",
+  ],
+  [
+    "nats",
+    "dashboard-consumer",
+    "M385 616 C380 675 140 665 140 728",
+    "Event subscription",
+  ],
+  [
+    "nats",
+    "notifier-consumer",
+    "M430 616 C430 675 380 660 380 728",
+    "Event subscription",
+  ],
+  [
+    "nats",
+    "third-consumer",
+    "M475 616 C480 675 620 660 620 728",
+    "Event subscription",
+  ],
+];
 let toastTimer,
-  logPending = false,
-  runPending = false,
   statusPending = false;
-const inspectionSequence = {};
-function reveal(selector) {
-  const el = $(selector);
-  if (el)
-    el.scrollIntoView({
-      block: "start",
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-    });
-}
+const terminal = new Terminal({
+  fontSize: 15,
+  lineHeight: 1.2,
+  fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace",
+  convertEol: true,
+  disableStdin: true,
+  scrollback: 20000,
+  cursorStyle: "bar",
+  cursorInactiveStyle: "none",
+  minimumContrastRatio: 4.5,
+  theme: {
+    background: "#11161d",
+    foreground: "#d7dee7",
+    selectionBackground: "#3b5269",
+    cursor: "#93b7ab",
+  },
+});
+const fit = new FitAddon.FitAddon();
+terminal.loadAddon(fit);
+terminal.open($("#terminal"));
+new ResizeObserver(() => requestAnimationFrame(() => fit.fit())).observe(
+  $("#terminal"),
+);
+terminal.attachCustomKeyEventHandler((event) => {
+  if (event.type !== "keydown") return true;
+  if (event.key === "Enter" && $("#command-input").value.trim()) {
+    event.preventDefault();
+    executePending();
+    return false;
+  }
+  if (
+    event.key === "Escape" ||
+    (event.ctrlKey &&
+      event.key.toLowerCase() === "c" &&
+      !terminal.hasSelection())
+  ) {
+    if (state.active) {
+      if (event.key !== "Escape") stopCommand();
+    } else if (!state.starting) discardPending();
+    event.preventDefault();
+    return false;
+  }
+  return true;
+});
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -81,157 +155,377 @@ function toast(message) {
   $("#toast").textContent = message;
   $("#toast").hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => ($("#toast").hidden = true), 6500);
+  toastTimer = setTimeout(() => ($("#toast").hidden = true), 5000);
 }
-const badge = (status, label = status) =>
-  `<span class="badge ${["passed", "failed", "cancelled", "healthy", "unhealthy", "starting", "running", "exited", "good"].includes(status) ? status : "neutral"}">${h(label)}</span>`;
-const actionButton = (label, id, parameters = {}, primary = false) =>
-  `<button class="button ${primary ? "primary" : ""}" data-action="${h(id)}" data-parameters="${h(JSON.stringify(parameters))}">${h(label)}</button>`;
-const inspectButton = (label, kind, params = {}, extra = "") =>
-  `<button class="button" data-inspect="${h(kind)}" data-query="${h(JSON.stringify(params))}" ${extra}>${h(label)}</button>`;
-function step(number, title, description, controls, expected) {
-  return `<div class="step"><span class="step-number">${number}</span><div><h3>${h(title)}</h3><p>${h(description)}</p><div class="actions">${controls}</div><p class="expected">Look for: ${h(expected)}</p></div></div>`;
+function button(label, action, parameters = {}, primary = false) {
+  return `<button class="button ${primary ? "primary" : ""}" data-action="${h(action)}" data-parameters="${h(JSON.stringify(parameters))}">${h(label)}</button>`;
 }
-function trial(id, label) {
-  const a = state.bootstrap.actions.find((a) => a.id === id);
-  return `<section class="card trial"><div><h2>${h(label || a.title)}</h2><p>${h(a.impact)}</p></div>${actionButton("Run trial", id, {}, true)}</section>`;
+const read = (label, kind, parameters = {}) =>
+  button(label, "inspect", { kind, ...parameters });
+const history = () =>
+  `<div class="field-row"><label>PVMBG source reference<input id="history-ref" value="${h(state.refs.PVMBG || "")}" placeholder="report_id" maxlength="64"></label><button class="button" id="pinned-history">Read versions</button></div>`;
+function infoButton(type, value = "") {
+  return `<button class="info-button" data-info="${h(type)}" data-value="${h(value)}" aria-label="More information">i</button>`;
 }
-function specification() {
-  const s = state.spec[state.page];
-  return s
-    ? `<details class="spec"><summary>Original specification · pages ${s.page}–${s.page + 1}</summary><div class="spec-body"><div class="spec-links"><a href="/api/spec/m1#page=${s.page}" target="_blank" rel="noopener">Open M1 PDF ↗</a><a href="/api/spec/central" target="_blank" rel="noopener">Central document ↗</a></div><pre class="spec-text">${h(s.text)}</pre></div></details>`
-    : "";
+function heading(title, eyebrow = "", info = "") {
+  return `<div class="page-heading"><div><span class="eyebrow">${h(eyebrow)}</span>${info}</div><h1>${h(title)}</h1></div>`;
 }
-function heading(kicker, title, description) {
-  return `<div class="page-heading"><span class="kicker">${h(kicker)}</span><h1>${h(title)}</h1><p>${h(description)}</p></div>`;
+function excerpt(text) {
+  if (text.length <= 170) return text;
+  const short = text.slice(0, 170);
+  return short.slice(0, short.lastIndexOf(" ")) + "…";
 }
-const resultPanel = () =>
-  `<section class="card" id="inspection-panel"><div class="card-heading"><h2>Observed result</h2><span class="subtle" id="inspection-time">Fetch a sample to begin</span></div><div id="inspection-result" class="result-empty">Results appear here. The console keeps the execution output.</div></section>`;
-const runPanel = () =>
-  `<section class="card" id="run-panel" hidden><div class="result-heading"><h2 id="run-title">Latest run</h2><span id="run-badge"></span></div><div id="run-summary" class="run-summary"></div><div id="run-error"></div><ul id="run-checks" class="check-list"></ul><div id="load-result"></div><div id="run-downloads" class="actions"></div></section>`;
+function showInfo(title, content) {
+  $("#info-title").textContent = title;
+  $("#info-content").innerHTML = content;
+  $("#info-dialog").showModal();
+}
 
+function decorateCommandButtons() {
+  document
+    .querySelectorAll(
+      "#main [data-action], #pinned-history, #login-api, #read-api, #read-history, #read-schema, #new-sample",
+    )
+    .forEach((target) => {
+      if (target.parentElement.classList.contains("command-group")) return;
+      const group = document.createElement("span");
+      group.className = "command-group";
+      target.before(group);
+      const help = document.createElement("button");
+      help.className = "command-help";
+      help.type = "button";
+      help.textContent = "i";
+      help.title = `About ${target.textContent}`;
+      help.setAttribute("aria-label", help.title);
+      help.commandTarget = target;
+      group.append(target, help);
+    });
+}
+function explainCommand(target) {
+  let action = target.dataset.action;
+  let p = JSON.parse(target.dataset.parameters || "{}");
+  const special = {
+    "login-api": () => ({ identity: $("#api-identity").value }),
+    "read-api": () => ({
+      kind: "api",
+      source: $("#api-source").value,
+      identity: $("#api-identity").value,
+    }),
+    "read-history": () => ({ kind: "history" }),
+    "pinned-history": () => ({
+      kind: "history",
+      source: "PVMBG",
+      ref: state.refs.PVMBG,
+    }),
+    "read-schema": () => ({ kind: "schema", name: $("#schema-name").value }),
+    "new-sample": () => ({ kind: "canonical", source: "PVMBG", fresh: true }),
+  };
+  if (special[target.id]) {
+    action = target.id === "login-api" ? "client-login" : "inspect";
+    p = special[target.id]();
+  }
+  const number = target.closest("[data-criterion]")?.dataset.criterion;
+  const context = state.spec[state.page]
+    ? `${state.page.toUpperCase()}${number ? ` · criterion ${number}` : ""}`
+    : titles[state.page];
+  showInfo(
+    target.textContent,
+    `<p class="subtle">${h(context)}</p><p>${h(commandPurpose(action, p))}</p>`,
+  );
+}
+function commandPurpose(action, p) {
+  if (action === "inspect") {
+    const identity = {
+      media: "Media",
+      "field-team": "Field Team",
+      "bnpb-internal": "BNPB internal",
+    }[p.identity || "field-team"];
+    const source = p.source || "BMKG";
+    const reads = {
+      api: `Reads ${source} hazards using the saved ${identity} session. Log in first; this read does not refresh an expired token. Use it to check the client's allowed fields${state.page === "p2" ? " and whether data remains available during the PVMBG outage" : ""}.`,
+      load:
+        p.measurement === "load"
+          ? "Reads the latest recorded workload metrics: throughput, per-source p50/p95/p99, errors and controlled 429 responses. Record load + TCP first. A failed or cancelled run may leave partial files; use completed measurements for evidence."
+          : "Reads the latest recorded TCP samples. Check for at least 50 established API connections continuously for at least 60 seconds. The full load trial automatically verifies this interval. Record load + TCP first.",
+      canonical: p.fresh
+        ? "Pins a current PVMBG source_ref_id for a new history comparison and prints the canonical API response."
+        : `Reads stored ${source} HazardEvents through the Aggregator. Compare event_id/report_id in the source output with source_ref_id here. The first read pins a reference for Read versions; later reads keep that reference. After schema v2, check attributes.confidence_level.`,
+      broker:
+        "Reads JetStream stream and durable positions. Compare message counts and ACK/pending counts before stopping a consumer, during the stop, and after restart.",
+      consumer: `Reads ${p.service}'s inbox and ACK position. Compare with the broker and the other consumer to see independent delivery and recovery.`,
+      history:
+        "Reads stored revisions 1 and 2 for the selected record. Use it to show that schema changes preserve older data. Read PVMBG HazardEvents under schema v1 first, or enter its source_ref_id explicitly.",
+      store:
+        "Shows stored hazards, JSONB column types, migration history and outbox counts. Use it to check the canonical store and show that adding a source field required no database migration.",
+      events:
+        "Shows the JetStream state and running consumers' inbox/ACK positions. Compare before stopping a consumer, while stopped and after recovery to see independent progress and catch-up.",
+      containers:
+        "Lists this project's containers and their status. Compare before and after stopping or rebuilding a single service for P4.",
+      profile:
+        "Shows the selected startup environment with credentials masked. Use it to check ports, token TTLs, polling and NATS settings.",
+      "tracked-config":
+        "Lists configuration paths tracked by Git. Use it for P3's credential review; source code must be checked separately.",
+      config: `Shows ${p.service}'s environment and network attachments, with credentials masked. In P4, compare PostgreSQL and API networks to check database access boundaries.`,
+      schema: `Prints the ${p.name || "hazard-event"} JSON Schema contract. Compare it with the mapped data to see the required fields and extension rules.`,
+    };
+    return reads[p.kind];
+  }
+  const purposes = {
+    "source-read": `Sends the ${p.credential} credential to ${p.source}. Expect HTTP ${p.source === p.credential ? "200 with source records" : "401 or 403 with an authorization error"}. This command makes only this request. The visible since filter selects the last two minutes; edit or remove it for older records.`,
+    "client-login": `Logs in ${p.identity} and saves its session privately for subsequent commands. Expect HTTP 200, scope and expires_in. Tokens are masked in the log. This replaces any previous saved session for this client.`,
+    "client-read": `Uses the saved ${p.identity} token without login or refresh. ${p.identity === "media" && p.view !== "summary" ? "Expect HTTP 401 or 403 for the explicit raw-data request." : "Expect HTTP 200 and the permitted fields while the token is valid; HTTP 401 after expiry."}${state.page === "p2" ? " During outage, inspect meta.sources for freshness, wait for a polling cycle, and repeat after recovery." : ""}`,
+    "token-wait":
+      "Reads the saved JWT expiry timestamp and waits until the clock reaches it plus two seconds. No login or refresh occurs. Run Read expired token next; expect HTTP 401. Backward clock changes can extend the wait; host and service clocks must agree.",
+    "token-refresh":
+      "Uses the saved refresh token, without logging in. Expect HTTP 200. Saves the new session and keeps the prior access token for Read old token. Run promptly after the expiry check.",
+    "token-old-read":
+      "Uses the access token kept before refresh. After the natural-expiry step, expect HTTP 401. This proves the expired token remains rejected; refresh alone does not revoke an unexpired JWT.",
+    "load-run":
+      "Runs 60 workers for 90 seconds and a 115-second TCP collector concurrently. Saves their raw measurements; read each separately afterward. Does not change the source delay. Ctrl+C stops both processes. The full trial additionally configures/restores delay and asserts the sustained TCP threshold.",
+    "latency-trial":
+      "Runs 30 BMKG and 30 PVMBG workers concurrently for 90 seconds. First set the 3-second source delay and allow a polling cycle. Expect BMKG p95 below 300 ms. This command leaves the delay as set; use Restore defaults afterward.",
+    "keys-setup":
+      "Creates the RSA key pair when absent and loads separate private/public key volumes. Auth needs the private key to sign tokens; the API uses the public key to verify them.",
+    "stack-start":
+      "Starts the nine default services from the selected Compose project. Use it to bring up an existing build before the demo.",
+    "stack-build":
+      "Builds changed images and starts the default services. Use it after changing service code or for initial setup.",
+    "service-start": `Starts ${p.service} independently. For consumers, this lets the existing durable subscription resume its backlog.`,
+    "service-stop": `Stops only the ${p.service} container. Use the service map and logs to observe the effect on its dependencies and clients.`,
+    "service-rebuild": `Builds and recreates ${p.service} with --no-deps. Use it to demonstrate an independent container update.`,
+    "service-logs": `Follows ${p.service}'s actual container logs. Use it beside the experiment to see requests, polling, publication or consumption. Stop or Ctrl+C ends the log follower.`,
+    "source-schema":
+      p.version === "2"
+        ? "Switches live PVMBG data to schema v2, which adds confidence_level. Read the same mapping and stored versions to demonstrate additive schema changes without restart."
+        : "Switches live PVMBG data to schema v1. Read a mapping to capture the baseline before adding confidence_level.",
+    "source-outage":
+      p.enabled === "true"
+        ? "Makes PVMBG return HTTP 503. For P2, read BMKG and PVMBG through the client API to check isolation and stale cached data."
+        : "Makes PVMBG available again. Wait for the next poll, then read the API to check recovery and fresh data.",
+    "source-delay":
+      p.preset === "slow"
+        ? "Sets PVMBG response delay to 3 seconds. For P2, compare BMKG latency while the PVMBG poll is slow."
+        : "Restores the PVMBG delay configured in .env.",
+    "restore-defaults":
+      "Restores PVMBG's configured schema, delay and outage settings. Use it to return to the starting state after manual experiments.",
+    "access-check":
+      "Reads the API as all three clients, checks Media's summary fields and rejects Media raw-data requests. It also tries each source's credential at the other source to check P3's trust boundaries.",
+    "token-trial":
+      "Checks an existing JWT while Auth is stopped, waits for the default 60-second expiry, then tests refresh and replay rejection. Auth is restarted by the script.",
+    "smoke-trial":
+      "Runs the existing mapping, access, outage and schema-history checks for P1–P4. It changes PVMBG settings during the trial and restores their configured defaults.",
+    "events-trial":
+      "Checks independent consumer progress, backlog recovery and dashboard rebuild. It creates and removes a fresh durable to prove that a new consumer can read retained events. It finishes with Dashboard and the default third consumer running.",
+    "load-trial":
+      "Defaults: 30 BMKG and 30 PVMBG workers for 90 seconds, with PVMBG delayed by 3 seconds. It measures P2 latency and checks at least 50 TCP connections for 60 seconds. Cleanup stops the measurements and restores delay.",
+    "dashboard-stop":
+      state.page === "p4"
+        ? "Stops Dashboard independently. Read BMKG afterward to show that the client API still serves requests while this container is stopped."
+        : "Stops Dashboard while the producer and Notifier continue. Compare event positions, then restart Dashboard to demonstrate backlog recovery.",
+    "dashboard-start":
+      "Restarts Dashboard using its existing durable subscription. Read event positions afterward to show it catches up with retained messages.",
+    "dashboard-rebuild":
+      "Rebuilds and recreates Dashboard with --no-deps. Read Containers before and after to show other containers were not restarted.",
+    "third-start":
+      "Starts the demo third consumer with its own durable and storage. Use it for P5's subscriber extension demo; repeated starts reuse the same durable.",
+    "third-stop":
+      "Stops the demo third consumer while retaining its durable position and stored data. Use it when ending or repeating the third-consumer demo.",
+  };
+  return (
+    purposes[action] ||
+    state.bootstrap.actions.find((a) => a.id === action)?.impact
+  );
+}
+
+function problemControls(page, n) {
+  const source = (name, credential = name) =>
+    button(`${credential} credential → ${name}`, "source-read", {
+      source: name,
+      credential,
+    });
+  const raw = (name) =>
+    button(`${name} source`, "source-read", { source: name, credential: name });
+  const canonical = (name) =>
+    read(`${name} HazardEvents`, "canonical", { source: name });
+  const schema = (version) =>
+    button("Schema v" + version, "source-schema", { version: String(version) });
+  const login = (identity, name) =>
+    button(`Log in ${name}`, "client-login", { identity });
+  const apiRead = (
+    label,
+    identity = "field-team",
+    source = "BMKG",
+    view = "full",
+  ) => button(label, "client-read", { identity, source, view });
+  const broker = () => read("Broker positions", "broker");
+  const consumer = (service, name) =>
+    read(`${name} inbox`, "consumer", { service });
+  const positions = () =>
+    broker() +
+    consumer("dashboard-consumer", "Dashboard") +
+    consumer("notifier-consumer", "Notifier");
+  const controls = {
+    p1: [
+      schema(1) +
+        raw("BMKG") +
+        canonical("BMKG") +
+        raw("PVMBG") +
+        canonical("PVMBG"),
+      schema(2),
+      raw("PVMBG") + canonical("PVMBG") + read("Wire schema", "schema"),
+      canonical("PVMBG"),
+      "",
+    ],
+    p2: [
+      button("3 s delay", "source-delay", { preset: "slow" }) +
+        button("Compare latency · 90 s", "latency-trial"),
+      button("Record load + TCP · 90 s", "load-run") +
+        read("Read load metrics", "load", { measurement: "load" }) +
+        read("Read TCP samples", "load", { measurement: "tcp" }),
+      login("field-team", "Field Team") +
+        button("Outage on", "source-outage", { enabled: "true" }) +
+        apiRead("Read BMKG") +
+        apiRead("Read PVMBG", "field-team", "PVMBG") +
+        button("Outage off", "source-outage", { enabled: "false" }),
+      "",
+    ],
+    p3: [
+      source("BMKG") +
+        source("PVMBG", "BMKG") +
+        source("PVMBG") +
+        source("BMKG", "PVMBG"),
+      login("media", "Media") +
+        apiRead("Media summary", "media", "BMKG", "summary") +
+        apiRead("Media requests full", "media") +
+        apiRead("Media requests attributes", "media", "BMKG", "attributes") +
+        login("field-team", "Field Team") +
+        apiRead("Field Team full") +
+        login("bnpb-internal", "BNPB") +
+        apiRead("BNPB full", "bnpb-internal"),
+      login("field-team", "Field Team") +
+        apiRead("Read before expiry") +
+        button("Wait for expiry", "token-wait") +
+        apiRead("Read expired token") +
+        button("Refresh token", "token-refresh") +
+        apiRead("Read new token") +
+        button("Read old token", "token-old-read"),
+      read("Tracked configuration", "tracked-config"),
+      "",
+    ],
+    p4: [
+      read("Containers", "containers") +
+        login("field-team", "Field Team") +
+        button("Stop dashboard", "dashboard-stop") +
+        apiRead("Read BMKG") +
+        button("Rebuild dashboard", "dashboard-rebuild") +
+        button("Start dashboard", "dashboard-start"),
+      schema(1) +
+        canonical("PVMBG") +
+        schema(2) +
+        history() +
+        read("Store & migrations", "store"),
+      read("PostgreSQL config", "config", { service: "postgres" }) +
+        read("API config", "config", { service: "client-api" }),
+      "",
+    ],
+    p5: [
+      broker(),
+      consumer("dashboard-consumer", "Dashboard") +
+        consumer("notifier-consumer", "Notifier"),
+      positions() +
+        button("Stop dashboard", "dashboard-stop") +
+        button("Start dashboard", "dashboard-start"),
+      button("Start third", "third-start") +
+        consumer("third-consumer", "Third") +
+        broker() +
+        button("Stop third", "third-stop"),
+      "",
+    ],
+  };
+  return controls[page][n - 1];
+}
+function problemPage(page) {
+  const spec = state.spec[page];
+  return (
+    heading(
+      spec.title,
+      `Problem ${page.slice(1)} · pp. ${spec.page}–${spec.page + 1}`,
+      infoButton("problem"),
+    ) +
+    `<ol class="criteria">${spec.criteria
+      .map((c) => {
+        const controls = problemControls(page, c.number);
+        return `<li class="criterion" data-criterion="${c.number}"><div class="criterion-heading"><span class="criterion-number">${c.number}.</span><p class="criterion-title">${h(excerpt(c.text))}</p>${infoButton("criterion", c.number)}</div>${controls ? `<div class="actions demo-steps">${controls}</div>` : '<span class="report-tag">Laporan</span>'}</li>`;
+      })
+      .join("")}</ol>` +
+    `<div class="problem-footer">${["p1", "p2"].includes(page) ? button("Restore defaults", "restore-defaults") : ""}<details><summary>Full trials</summary><div class="actions">${page === "p1" ? button("Smoke trial", "smoke-trial") : page === "p2" ? button("Load + TCP trial", "load-trial") : page === "p3" ? button("Access trial", "access-check") + button("Token trial", "token-trial") : button("Event trial", "events-trial")}</div></details></div>`
+  );
+}
 function overview() {
   return (
-    heading(
-      "WORKSPACE",
-      "System overview",
-      "Prepare the stack, check its services, then choose a problem to demonstrate.",
-    ) +
-    `<div class="stats"><div class="stat"><div class="stat-label">Healthy services</div><div class="stat-value" id="healthy-count">—</div><div class="stat-note">Nine default services; third consumer optional</div></div><div class="stat"><div class="stat-label">Selected project</div><div class="stat-value mono">${h(state.bootstrap.project)}</div><div class="stat-note">All actions target this Compose project</div></div><div class="stat"><div class="stat-label">Run state</div><div class="stat-value" id="overview-run-state">Idle</div><div class="stat-note">One action at a time</div></div></div>` +
-    `<section class="card"><div class="card-heading"><h2>Prepare & start</h2><span class="subtle">Existing keys and data are retained</span></div><p class="note">Prepare keys once, then build and start the stack. On later launches, Start stack reuses the current images.</p><div class="actions">${actionButton("Prepare JWT keys", "keys-setup")}${actionButton("Build and start", "stack-build", {}, true)}${actionButton("Start stack", "stack-start")}</div></section>` +
-    `<section class="card"><div class="card-heading"><h2>Services</h2><span id="status-time" class="subtle"></span></div><div id="service-table"></div></section>` +
-    `<section class="card"><div class="card-heading"><h2>How the system connects</h2><span class="subtle">HTTP + NATS</span></div><div class="diagram"><div class="diagram-row"><span class="node">BMKG</span><span class="node">PVMBG</span><span class="arrow">→</span><span class="node core">Aggregator</span><span class="arrow">→</span><span class="node">PostgreSQL</span></div><div class="diagram-row"><span class="node">Client API</span><span class="arrow">→</span><span class="node core">Aggregator reads</span></div><div class="diagram-row"><span class="node core">Aggregator outbox</span><span class="arrow">→</span><span class="node">NATS JetStream</span></div><div class="diagram-row"><span class="node">Auth tokens → Client API</span><span class="node">NATS → Dashboard / Notifier</span></div></div><p class="note">The Aggregator owns canonical storage. Client reads use its API; each consumer keeps its own durable position and private store.</p></section>` +
-    runPanel() +
-    `<p class="note mono">${h(state.bootstrap.repo)}</p>`
+    heading("Services", state.bootstrap.project, infoButton("map")) +
+    `<div class="actions">${button("JWT keys", "keys-setup")}${button("Build & start", "stack-build", {}, true)}${button("Start stack", "stack-start")}<button class="button" id="refresh-status">Refresh</button></div>` +
+    `<div id="status-error" class="error" hidden></div><div class="service-map"><svg viewBox="0 0 1000 900" aria-hidden="true"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10" fill="#98a8b4"/></marker></defs>${edges.map(([from, to, path, label]) => `<path class="connection" data-from="${from}" data-to="${to}" d="${path}" marker-end="url(#arrow)"><title>${h(label)}</title></path>`).join("")}</svg>${nodeLayout.map(([id, name, x, y]) => `<div class="service-node" data-node="${id}" style="left:${x}%;top:${y}%"><button class="node-name" data-select="${id}">${name}</button><div class="node-state"><span class="health-dot"></span><span data-health>loading</span></div><button class="service-toggle" role="switch" aria-checked="false" aria-label="Toggle ${name}" data-toggle="${id}"></button></div>`).join("")}</div><div id="service-panel" class="service-panel"></div>`
   );
 }
-
-function problemPage(page) {
-  const sourceSelect = `<label class="field">Source<select id="mapping-source"><option value="PVMBG">PVMBG</option><option value="BMKG">BMKG</option></select></label>`;
-  let content = "";
-  if (page === "p1")
-    content =
-      `<section class="card"><h2>Walk through the change</h2>${step(1, "Read a mapped sample", "The source and canonical record use the same source reference. The selection stays pinned while you change the schema.", `<div class="field-row">${sourceSelect}<button class="button" id="mapping-read">Read sample</button><button class="button" id="mapping-new">Choose latest sample</button></div>`, "Source fields map to the canonical fields; remaining attributes are preserved.")}${step(2, "Change the live schema", "Keep the same report selected. Wait for the next polling cycle, then read the sample again.", actionButton("Schema v1", "source-schema", { version: "1" }) + actionButton("Schema v2", "source-schema", { version: "2" }), "confidence_level appears in attributes after v2, with the same hazard identity.")}${step(3, "Read stored history", "Use the pinned report to inspect revisions and the migration ledger.", `<button class="button" id="pinned-history">Read revisions 1 & 2</button>`, "Both versions remain readable and the migration ledger does not change.")}</section>` +
-      trial("smoke-trial", "Verify mapping, outage & access");
-  if (page === "p2")
-    content =
-      `<section class="card"><h2>Failure & recovery</h2>${step(1, "Read both sources", "Read the cached API response before changing PVMBG availability.", inspectButton("Read BMKG", "api", { source: "BMKG" }) + inspectButton("Read PVMBG", "api", { source: "PVMBG" }), "Data and source freshness metadata are available.")}${step(2, "Make PVMBG unavailable", "Enable outage, allow a polling attempt to fail, then read both sources again.", actionButton("Enable outage", "source-outage", { enabled: "true" }) + inspectButton("Read BMKG", "api", { source: "BMKG" }) + inspectButton("Read PVMBG", "api", { source: "PVMBG" }), "BMKG still responds; PVMBG is stale or explicitly unavailable, without a 500.")}${step(3, "Recover without a restart", "Disable outage and allow the next poll to complete.", actionButton("Disable outage", "source-outage", { enabled: "false" }) + inspectButton("Read PVMBG", "api", { source: "PVMBG" }), "Freshness returns to normal without recreating the services.")}</section><section class="card"><h2>Slow source</h2><p class="note">The load trial sets a fixed 3-second PVMBG delay and captures TCP connections alongside the 90-second workload. Setup and TCP capture add time to the run.</p><div class="actions">${actionButton("Set 3-second delay", "source-delay", { preset: "slow" })}${actionButton("Restore configured delay", "source-delay", { preset: "default" })}</div></section>` +
-      trial("load-trial", "Measure sustained concurrency");
-  if (page === "p3")
-    content =
-      `<section class="card"><h2>Check the trust boundaries</h2>${step(1, "Compare client access", "Make real API requests as Media, Field Team and BNPB. Also test full-view and raw-field requests as Media.", actionButton("Check client permissions", "access-check", {}, true), "Media receives summary fields and raw requests are rejected by the server.")}${step(2, "Inspect an API response", "Choose the identity and source, then inspect the returned fields.", `<div class="field-row"><label class="field">Identity<select id="api-identity"><option value="media">Media</option><option value="field-team">Field Team</option><option value="bnpb-internal">BNPB internal</option></select></label><label class="field">Source<select id="api-source"><option>BMKG</option><option>PVMBG</option></select></label><button class="button" id="identity-read">Read API</button></div>`, "Different identities receive the permitted projections of the same data.")}</section>` +
-      trial("token-trial", "Natural expiry & refresh");
-  if (page === "p4")
-    content =
-      `<section class="card"><h2>Deploy one component</h2>${step(1, "Capture container identities", "Check IDs, start times and restart counts before rebuilding.", `<button class="button" id="show-containers">Read container state</button>`, "Every component has a separate container.")}${step(2, "Rebuild only the dashboard consumer", "The action captures before/after container states and verifies that only dashboard changed.", actionButton("Rebuild dashboard", "dashboard-rebuild", {}, true), "Other container IDs and start times are unchanged.")}${step(3, "Inspect dynamic storage", "The audit command runs inside the Aggregator, using a read-only transaction.", inspectButton("Inspect store & migrations", "store") + inspectButton("HazardEvent schema", "schema", { name: "hazard-event" }), "attributes is JSONB; stored versions and applied migrations are visible.")}</section>` +
-      trial("events-trial", "Verify rebuild with live API reads");
-  if (page === "p5")
-    content =
-      `<section class="card"><h2>Consumer downtime & catch-up</h2>${step(1, "Capture a checkpoint", "Read stream sequence, consumer ACK positions and inbox counts.", `<button class="button" id="capture-checkpoint">Capture checkpoint</button>`, "Two independent consumers subscribe to the same stream.")}${step(2, "Stop dashboard and observe progress", "Wait for new source events, then read the positions again.", actionButton("Stop dashboard", "dashboard-stop") + inspectButton("Read event positions", "events"), "The stream and notifier advance while dashboard is stopped.")}${step(3, "Start dashboard and inspect catch-up", "The durable consumer resumes its existing position.", actionButton("Start dashboard", "dashboard-start") + inspectButton("Read event positions", "events"), "Dashboard catches up to events published during its downtime.")}${step(4, "Add another subscriber", "The third consumer uses its own durable and storage. Use the full trial below to prove a fresh durable on repeated demos.", actionButton("Start third consumer", "third-start") + actionButton("Stop third consumer", "third-stop") + inspectButton("Read event positions", "events"), "The new subscriber receives retained events without changing the producer.")}</section>` +
-      trial("events-trial", "Verify delivery, rebuild & a fresh durable");
-  return (
-    heading(
-      `PROBLEM ${page.slice(1)} · MILESTONE 1`,
-      state.spec[page]?.title || names[page],
-      goals[page],
-    ) +
-    specification() +
-    content +
-    (page === "p1" || page === "p2"
-      ? `<div class="actions">${actionButton("Restore source defaults", "restore-defaults")}</div>`
-      : "") +
-    resultPanel() +
-    runPanel()
-  );
+function renderServicePanel() {
+  const node = $("#service-panel");
+  if (!node) return;
+  const service = state.selected;
+  const name = nodeLayout.find((n) => n[0] === service)?.[1] || service;
+  node.innerHTML =
+    `<div class="section-heading"><h2>${h(name)}</h2>${infoButton("service", service)}</div><div class="actions">${button("Logs", "service-logs", { service })}${button("Rebuild", "service-rebuild", { service })}${read("Environment", "config", { service })}</div>` +
+    (service === "pvmbg-mock"
+      ? `<div class="live-controls"><span class="subtle">Live source controls ${infoButton("source")}</span><div class="actions">${button("Schema v1", "source-schema", { version: "1" })}${button("Schema v2", "source-schema", { version: "2" })}${button("3 s delay", "source-delay", { preset: "slow" })}${button("Outage on", "source-outage", { enabled: "true" })}${button("Restore defaults", "restore-defaults")}</div></div>`
+      : "");
+  decorateCommandButtons();
+  updateButtons();
 }
-
 function inspectPage() {
   return (
-    heading(
-      "WORKSPACE",
-      "Inspect the system",
-      "Read current records, owner-provided storage metadata, wire schemas and the selected configuration.",
-    ) +
-    `<section class="card"><h2>Data & delivery</h2><div class="actions">${inspectButton("BMKG API", "api", { source: "BMKG" })}${inspectButton("PVMBG API", "api", { source: "PVMBG" })}${inspectButton("Store & outbox", "store")}${inspectButton("NATS & consumers", "events")}</div><div class="field-row"><label class="field">Wire schema<select id="schema-name"><option>hazard-event</option><option>hazard-envelope</option><option>hazard-summary</option></select></label><button class="button" id="read-schema">Read schema</button></div></section>` +
-    `<section class="card"><h2>Record history</h2><div class="field-row"><label class="field">Source<select id="history-source"><option>PVMBG</option><option>BMKG</option></select></label><label class="field grow">Source reference<input id="history-ref" placeholder="report_id or event_id" maxlength="64" value="${h(state.refs.PVMBG || "")}"></label><label class="field">Revisions<select id="history-revisions"><option value="1,2">1 & 2</option><option value="1">1</option></select></label><button class="button" id="read-history">Read history</button></div><p class="note">P1 pins a mapped sample and fills its reference here. Reads run through the Aggregator's audit command.</p></section>` +
-    resultPanel() +
-    `<details class="spec"><summary>Configured environment · secrets masked</summary><div class="spec-body"><p class="note">These are the startup configuration values. Live source changes made during a demo appear in execution results.</p><div class="config-list">${Object.entries(
-      state.bootstrap.profile,
-    )
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(
-        ([key, value]) =>
-          `<div class="config-entry"><span>${h(key)}</span>${h(value || "(empty)")}</div>`,
-      )
-      .join("")}</div></div></details>`
+    heading("Inspect") +
+    `<section class="panel"><div class="section-heading"><h2>Data</h2></div><div class="actions">${button("BMKG source", "source-read", { source: "BMKG", credential: "BMKG" })}${read("BMKG HazardEvents", "canonical", { source: "BMKG" })}${button("PVMBG source", "source-read", { source: "PVMBG", credential: "PVMBG" })}${read("PVMBG HazardEvents", "canonical", { source: "PVMBG" })}<button class="button" id="new-sample">New PVMBG sample</button>${read("Store & outbox", "store")}${read("Stream & consumers", "events")}</div><div class="field-row"><label>Identity<select id="api-identity"><option value="media">Media</option><option value="field-team">Field Team</option><option value="bnpb-internal">BNPB internal</option></select></label><label>Source<select id="api-source"><option>BMKG</option><option>PVMBG</option></select></label><button class="button" id="login-api">Log in</button><button class="button" id="read-api">Read API</button></div></section>` +
+    `<section class="panel"><h2>Record history</h2><div class="field-row"><label>Source<select id="history-source"><option>PVMBG</option><option>BMKG</option></select></label><label class="grow">Source reference<input id="history-ref" value="${h(state.refs.PVMBG || "")}" placeholder="report_id / event_id" maxlength="64"></label><button class="button" id="read-history">Read v1 & v2</button></div></section>` +
+    `<section class="panel"><h2>Configuration</h2><div class="actions">${read("Environment", "profile")}${read("Tracked config", "tracked-config")}${read("Containers", "containers")}</div><div class="field-row"><label>Wire schema<select id="schema-name"><option>hazard-event</option><option>hazard-envelope</option><option>hazard-summary</option></select></label><button class="button" id="read-schema">Read schema</button></div></section>`
   );
 }
-
-function evidencePage() {
+function runsPage() {
   return (
-    heading(
-      "WORKSPACE",
-      "Evidence",
-      "Every action saves its revision, result and execution log. Historical trials are shown separately.",
-    ) +
-    `<section class="card"><div class="card-heading"><h2>Console runs</h2><button class="button small" id="refresh-evidence">Refresh</button></div><div id="evidence-list">Loading runs…</div><p class="note mono">${h(state.bootstrap.evidence_dir)}</p></section><section class="card"><h2>Historical repository evidence</h2><p class="note">These files belong to earlier revisions. Opening one does not run a new experiment.</p><div class="field-row"><label class="field grow">Recorded result<select id="historical-file"><option value="">Loading files…</option></select></label><button class="button" id="read-historical">Open result</button></div></section>` +
-    resultPanel() +
-    runPanel()
+    heading("Runs") +
+    `<div class="section-heading"><span class="subtle">Saved commands & output</span><button class="button" id="refresh-runs">Refresh</button></div><div id="run-list">Loading…</div>`
   );
 }
-
 function renderPage() {
-  document.title = `${names[state.page]} · AAT demo console`;
-  document.querySelectorAll("[data-page]").forEach((button) => {
-    const active = button.dataset.page === state.page;
-    button.classList.toggle("active", active);
-    if (active) button.setAttribute("aria-current", "page");
-    else button.removeAttribute("aria-current");
+  document.title = `${state.spec[state.page]?.title || titles[state.page]} · AAT`;
+  document.querySelectorAll("[data-page]").forEach((a) => {
+    if (a.dataset.page === state.page) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
   });
-  $("#main").innerHTML =
-    state.page === "overview"
+  $("#main").innerHTML = state.spec[state.page]
+    ? problemPage(state.page)
+    : state.page === "overview"
       ? overview()
       : state.page === "inspect"
         ? inspectPage()
-        : state.page === "evidence"
-          ? evidencePage()
-          : problemPage(state.page);
-  renderServices();
-  renderInspection();
-  renderRun();
+        : runsPage();
+  if (state.page === "overview") {
+    renderServices();
+    renderServicePanel();
+  }
+  if (state.page === "runs") loadRuns();
+  decorateCommandButtons();
   updateButtons();
-  if (state.page === "evidence") loadEvidence();
 }
 function updateButtons() {
   document
-    .querySelectorAll("[data-action]")
-    .forEach((button) => (button.disabled = !!state.active));
-  $("#cancel-run").hidden = !state.active;
-  $("#overview-run-state")?.replaceChildren(
-    document.createTextNode(state.active ? "Running" : "Idle"),
-  );
+    .querySelectorAll(
+      "[data-action], [data-toggle], #pinned-history, #login-api, #read-api, #read-history, #read-schema, #new-sample, [data-open-run]",
+    )
+    .forEach((b) => (b.disabled = !!state.active || state.starting));
+  $("#stop-command").hidden = !state.active;
+  $("#command-input").disabled =
+    !state.bootstrap || !!state.active || state.starting;
 }
-
 async function refreshStatus() {
   if (statusPending) return;
   statusPending = true;
@@ -246,455 +540,447 @@ async function refreshStatus() {
   }
 }
 function renderServices() {
-  const good = state.containers.filter(
-    (c) => c.state === "running" && c.health === "healthy",
-  ).length;
-  $("#health").className =
-    `badge ${state.statusError ? "failed" : good >= 9 ? "good" : "neutral"}`;
-  $("#health").textContent = state.statusError
-    ? "Docker unavailable"
-    : state.containers.length
-      ? `${good}/${state.containers.length} healthy`
-      : "Stack not started";
-  if ($("#healthy-count"))
-    $("#healthy-count").textContent = `${good}/${state.containers.length || 9}`;
-  const target = $("#service-table");
-  if (!target) return;
-  if (state.statusError) {
-    target.innerHTML = `<div class="run-error">${h(state.statusError)}</div>`;
-    return;
+  const error = $("#status-error");
+  if (error) {
+    error.hidden = !state.statusError;
+    error.textContent = state.statusError || "";
   }
-  if (!state.containers.length) {
-    target.innerHTML =
-      '<div class="empty">No containers found in this project. Prepare keys, then build and start.</div>';
-    return;
+  for (const [id] of nodeLayout) {
+    const node = document.querySelector(`[data-node="${id}"]`);
+    if (!node) continue;
+    const c = state.containers.find((c) => c.service === id);
+    const running = c?.state === "running";
+    const health = c
+      ? running
+        ? c.health || "running"
+        : "stopped"
+      : state.statusError
+        ? "unknown"
+        : "not started";
+    node.classList.toggle("healthy", health === "healthy");
+    node.classList.toggle("unhealthy", health === "unhealthy");
+    node.classList.toggle("selected", state.selected === id);
+    node.querySelector("[data-health]").textContent = health;
+    node
+      .querySelector("[data-toggle]")
+      .setAttribute("aria-checked", String(!!running));
   }
-  target.innerHTML = `<div class="table-wrap"><table><thead><tr><th>Service</th><th>State</th><th>Container</th><th>Restarts</th></tr></thead><tbody>${[
-    ...state.containers,
-  ]
-    .sort((a, b) => a.service.localeCompare(b.service))
-    .map(
-      (c) =>
-        `<tr><td class="service-name">${h(c.service)}</td><td>${badge(c.state === "running" ? c.health || "running" : c.state)}</td><td class="mono" title="${h(c.started)}">${h(c.id.slice(0, 12))}</td><td class="mono">${c.restarts}</td></tr>`,
-    )
-    .join(
-      "",
-    )}</tbody></table></div><div class="table-caption">Container IDs are live. Hover an ID for its start time.</div>`;
-  $("#status-time").textContent =
-    `Checked ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
-}
-
-async function inspect(kind, params = {}, checkpoint = false) {
-  const page = state.page;
-  const sequence = (inspectionSequence[page] =
-    (inspectionSequence[page] || 0) + 1);
-  const node = $("#inspection-result");
-  if (node) {
-    node.className = "result-empty";
-    node.textContent = "Reading current state…";
-  }
-  try {
-    const result = await api(
-      `/api/inspect/${kind}?${new URLSearchParams(params)}`,
-    );
-    if (sequence !== inspectionSequence[page]) return;
-    const value = JSON.parse(result.json);
-    if (kind === "mapping")
-      state.refs[params.source || "PVMBG"] = value.source_ref_id;
-    if (checkpoint) state.baseline = value;
-    state.inspections[page] = {
-      kind,
-      text: result.json,
-      value,
-      time: new Date().toLocaleTimeString(),
-      checkpoint,
-    };
-    if (state.page === page) {
-      renderInspection();
-      reveal("#inspection-panel");
-    }
-  } catch (error) {
-    if (sequence !== inspectionSequence[page]) return;
-    state.inspections[page] = {
-      error: error.message,
-      time: new Date().toLocaleTimeString(),
-    };
-    if (state.page === page) renderInspection();
-    toast(error.message);
-  }
-}
-function renderInspection() {
-  const node = $("#inspection-result");
-  if (!node) return;
-  const item = state.inspections[state.page];
-  if (!item) return;
-  $("#inspection-time").textContent = `Observed ${item.time}`;
-  node.className = "";
-  if (item.error) {
-    node.innerHTML = `<div class="run-error">${h(item.error)}</div>`;
-    return;
-  }
-  if (item.kind === "mapping") {
-    node.innerHTML = `<p class="run-summary">Pinned source reference: <span class="mono">${h(item.value.source_ref_id)}</span></p><div class="json-pair"><div><p class="json-label">SOURCE RECORD</p><pre class="json">${h(item.value.source)}</pre></div><div><p class="json-label">CANONICAL HAZARDEVENT</p><pre class="json">${h(item.value.canonical)}</pre></div></div>`;
-  } else if (item.kind === "events") {
-    const stream = item.value.stream;
-    const sequence = stream?.state?.last_seq ?? "—";
-    const baseline = state.baseline?.stream?.state?.last_seq;
-    node.innerHTML = `<div class="stats"><div class="stat"><div class="stat-label">Last stream sequence</div><div class="stat-value">${h(sequence)}</div><div class="stat-note">${baseline !== undefined ? `Checkpoint: ${h(baseline)} · Δ ${h(sequence - baseline)}` : "Capture a checkpoint before downtime"}</div></div><div class="stat"><div class="stat-label">Retained messages</div><div class="stat-value">${h(stream?.state?.messages ?? "—")}</div></div><div class="stat"><div class="stat-label">Durables</div><div class="stat-value">${h(stream?.consumer_detail?.length ?? 0)}</div></div></div><div class="table-wrap"><table><thead><tr><th>Consumer</th><th>ACK stream position</th><th>Pending</th></tr></thead><tbody>${(stream.consumer_detail || []).map((c) => `<tr><td class="mono">${h(c.name)}</td><td class="mono">${h(c.ack_floor?.stream_seq ?? "—")}</td><td class="mono">${h(c.num_pending ?? "—")}</td></tr>`).join("")}</tbody></table></div><details class="spec"><summary>Full stream & consumer inspection</summary><div class="spec-body"><pre class="json">${h(item.text)}</pre></div></details>`;
-  } else {
-    node.innerHTML = `<pre class="json">${h(item.text)}</pre>`;
-  }
-}
-
-async function startAction(id, parameters) {
-  if (state.active) {
-    toast("Finish or cancel the running action first.");
-    return;
-  }
-  try {
-    state.run = await api("/api/runs", {
-      method: "POST",
-      body: JSON.stringify({ action: id, parameters }),
-    });
-    state.active = state.run.id;
-    state.tab = "execution";
-    setConsoleTab();
-    renderRun();
-    updateButtons();
-    toast("Started: " + state.run.title);
-  } catch (error) {
-    toast(error.message);
-  }
-}
-function duration(run) {
-  const seconds = Math.max(
-    0,
-    Math.round(
-      (run.elapsed_ms ??
-        (run.finished ? new Date(run.finished) - new Date(run.started) : 0)) /
-        1000,
+  document.querySelectorAll(".connection").forEach((edge) =>
+    edge.classList.toggle(
+      "on",
+      [edge.dataset.from, edge.dataset.to].every((id) =>
+        state.containers.some(
+          (c) =>
+            c.service === id && c.state === "running" && c.health === "healthy",
+        ),
+      ),
     ),
   );
-  return seconds >= 60
-    ? `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-    : `${seconds}s`;
 }
-async function pollRun() {
-  if (
-    runPending ||
-    !state.run ||
-    (!state.active && state.run.status !== "running")
-  )
+function output(text) {
+  terminal.write(text);
+}
+function resizeInput() {
+  const input = $("#command-input");
+  input.style.height = "0px";
+  input.style.height = `${Math.min(input.scrollHeight, $("#terminal-panel").clientHeight * 0.4)}px`;
+}
+function clearTerminal() {
+  terminal.reset();
+}
+function discardPending() {
+  if (state.starting) return;
+  state.preview++;
+  state.pending = null;
+  $("#command-input").value = "";
+  resizeInput();
+  $("#command-state").textContent = state.run?.status || "idle";
+}
+async function queueCommand(action, parameters = {}) {
+  if (state.active || state.starting) {
+    toast("Stop the current command first.");
     return;
-  runPending = true;
+  }
+  parameters = { ...parameters, format: $("#json-format").value };
+  const ticket = ++state.preview;
   try {
-    if (state.active && state.active !== state.run.id) {
-      const active = await api("/api/runs/" + state.active);
-      if (active.status !== "running") {
-        state.active = "";
-        refreshStatus();
-        if (state.page === "evidence") loadEvidence();
-      }
+    const preview = await api("/api/commands/preview", {
+      method: "POST",
+      body: JSON.stringify({ action, parameters }),
+    });
+    if (ticket !== state.preview || state.active || state.starting) return;
+    state.stream?.close();
+    state.stream = null;
+    state.pending = { action, parameters, ticket, script: preview.script };
+    $("#command-input").value = preview.script;
+    resizeInput();
+    $("#command-state").textContent = "ready · Enter to run";
+    $("#command-input").focus();
+    const cursor = preview.script.includes("\n") ? 0 : preview.script.length;
+    $("#command-input").setSelectionRange(cursor, cursor);
+    $("#command-input").scrollTop = 0;
+    toast("Command ready. Press Enter to run.");
+  } catch (error) {
+    if (ticket === state.preview) {
+      await discardPending();
+      toast(error.message);
     }
-    if (state.run.status === "running") {
-      const id = state.run.id;
-      const run = await api("/api/runs/" + id);
-      if (state.run.id !== id) return;
-      state.run = run;
-      if (state.active === id && run.status !== "running") {
-        state.active = "";
-        refreshStatus();
-        if (state.page === "evidence") loadEvidence();
-      }
-      renderRun();
+  }
+}
+async function executePending() {
+  const script = $("#command-input").value;
+  if (!script.trim() || state.active || state.starting) return;
+  if (state.pending && state.pending.ticket !== state.preview) return;
+  const pending = state.pending;
+  state.starting = true;
+  state.preview++;
+  updateButtons();
+  try {
+    const run = await api("/api/runs", {
+      method: "POST",
+      body: JSON.stringify({
+        action: pending?.action || "custom",
+        parameters: pending?.parameters || {},
+        script,
+      }),
+    });
+    state.pending = null;
+    $("#command-input").value = "";
+    resizeInput();
+    state.active = run.id;
+    attachStream(run);
+    terminal.focus();
+  } catch (error) {
+    if (pending) pending.ticket = state.preview;
+    $("#command-state").textContent = "ready · Enter to retry";
+    toast(error.message);
+  } finally {
+    state.starting = false;
+    updateButtons();
+  }
+}
+$("#command-input").addEventListener("input", () => {
+  state.preview++;
+  if (state.pending) state.pending.ticket = state.preview;
+  $("#command-state").textContent = $("#command-input").value.trim()
+    ? "ready · Enter to run"
+    : state.run?.status || "idle";
+  resizeInput();
+});
+$("#command-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    executePending();
+  } else if (
+    event.key === "Escape" ||
+    (event.ctrlKey &&
+      event.key.toLowerCase() === "c" &&
+      event.target.selectionStart === event.target.selectionEnd)
+  ) {
+    event.preventDefault();
+    discardPending();
+  }
+});
+new ResizeObserver(resizeInput).observe($("#terminal-panel"));
+function confirmService(service) {
+  if (state.active || state.starting) return;
+  const running = state.containers.some(
+    (c) => c.service === service && c.state === "running",
+  );
+  state.switchCommand = {
+    action: running ? "service-stop" : "service-start",
+    parameters: { service },
+  };
+  $("#confirm-title").textContent = `${running ? "Stop" : "Start"} ${service}?`;
+  $("#confirm-description").textContent =
+    `Project: ${state.bootstrap.project}. The command will be placed in the terminal. Press Enter there to run it.`;
+  $("#confirm-service").showModal();
+}
+function attachStream(run) {
+  state.stream?.close();
+  state.run = run;
+  $("#command-state").textContent = run.status;
+  $("#download-log").href = `/api/runs/${run.id}/output.log`;
+  $("#download-log").hidden = false;
+  const stream = new EventSource(`/api/runs/${run.id}/stream`);
+  state.stream = stream;
+  stream.addEventListener("output", (event) =>
+    output(JSON.parse(event.data).text),
+  );
+  stream.addEventListener("complete", (event) => {
+    const result = JSON.parse(event.data);
+    stream.close();
+    if (state.stream === stream) state.stream = null;
+    state.run = result;
+    if (
+      result.action === "inspect" &&
+      result.parameters?.kind === "mapping" &&
+      result.result?.source_ref_id
+    )
+      state.refs[result.parameters.source || "PVMBG"] =
+        result.result.source_ref_id;
+    if (
+      result.action === "inspect" &&
+      result.parameters?.kind === "canonical"
+    ) {
+      const source = result.parameters.source || "PVMBG";
+      const ref = result.result?.data?.[0]?.source_ref_id;
+      if (ref && !state.refs[source]) state.refs[source] = ref;
+      const input = $("#history-ref");
+      if (source === "PVMBG" && input && !input.value)
+        input.value = state.refs[source] || "";
     }
+    if (state.active === result.id) state.active = "";
+    $("#command-state").textContent = result.status;
+
+    updateButtons();
+    refreshStatus();
+    if (state.page === "runs") loadRuns();
+  });
+  stream.onopen = () => {
+    if (state.active === run.id) $("#command-state").textContent = "running";
+  };
+  stream.onerror = () => {
+    if (state.stream === stream)
+      $("#command-state").textContent = "reconnecting…";
+  };
+}
+async function stopCommand() {
+  if (!state.active) return;
+  try {
+    await api(`/api/runs/${state.active}/cancel`, {
+      method: "POST",
+      body: "{}",
+    });
+    $("#command-state").textContent = "stopping…";
+  } catch (error) {
+    toast(error.message);
+  }
+}
+async function loadRuns() {
+  try {
+    const data = await api("/api/runs");
+    const target = $("#run-list");
+    if (!target) return;
+    target.innerHTML = data.runs.length
+      ? data.runs
+          .map(
+            (r) =>
+              `<div class="run-row"><div><strong>${h(r.title)}</strong> <span class="status-${h(r.status)}">${h(r.status)}</span><div class="run-meta">${h(new Date(r.started).toLocaleString())} · ${h(r.revision?.slice(0, 8))}${r.dirty ? " + local changes" : ""}</div><div class="run-links"><a href="/api/runs/${r.id}/output.log">Log ↓</a>${r.has_result ? `<a href="/api/runs/${r.id}/result.json">JSON ↓</a>` : ""}<a href="/api/runs/${r.id}/run.json">Metadata ↓</a></div></div><button class="button" data-open-run="${r.id}">Open</button></div>`,
+          )
+          .join("")
+      : '<p class="empty">No commands yet.</p>';
     updateButtons();
   } catch (error) {
     toast(error.message);
-  } finally {
-    runPending = false;
   }
 }
-function observedChecks(run) {
-  const checks = [];
-  for (const line of run.lines || []) {
-    const start = line.indexOf("{");
-    if (start < 0) continue;
-    try {
-      const record = JSON.parse(line.slice(start));
-      if (record.check && !checks.includes(record.check))
-        checks.push(record.check);
-    } catch {}
-  }
-  if (run.result?.results) {
-    return run.result.results.map((r) => r.check);
-  }
-  if (Array.isArray(run.result))
-    return run.result.map((r) =>
-      r.identity
-        ? `${r.identity}: HTTP ${r.status}, ${r.field_count} fields (${r.view})`
-        : `${r.check} ${r.query || ""}: HTTP ${r.status}`,
+function information(type, value) {
+  if (type === "problem" || type === "criterion") {
+    const spec = state.spec[state.page];
+    const criteria =
+      type === "criterion"
+        ? spec.criteria.filter((c) => c.number === Number(value))
+        : spec.criteria;
+    const extra =
+      type === "criterion" ? criterionNote(state.page, Number(value)) : "";
+    showInfo(
+      `${state.page.toUpperCase()} · ${spec.title}`,
+      `<ol start="${criteria[0].number}">${criteria.map((c) => `<li value="${c.number}">${h(c.text)}</li>`).join("")}</ol>${extra ? `<p>${h(extra)}</p>` : ""}<p><a href="/api/spec/m1#page=${spec.page}" target="_blank" rel="noopener">M1 PDF · pp. ${spec.page}–${spec.page + 1} ↗</a></p>`,
     );
-  return checks;
-}
-function renderRun() {
-  const run = state.run;
-  if (state.tab === "execution") {
-    $("#run-info").hidden = false;
-    $("#log-controls").hidden = true;
-    $("#console-state").textContent = run ? run.status : "Idle";
-    $("#run-info").innerHTML = run
-      ? `<strong>${h(run.title)}</strong>${h(run.id)} · ${h(duration(run))} <button id="view-run-result">View result</button>`
-      : "<span>No action selected</span>";
-    if (run) setOutput((run.lines || []).join("\n"));
+    return;
   }
-  const panel = $("#run-panel");
-  if (!panel || !run) return;
-  panel.hidden = false;
-  $("#run-title").textContent = run.title;
-  $("#run-badge").innerHTML = badge(run.status);
-  $("#run-summary").textContent =
-    `${run.project} · ${run.revision?.slice(0, 8) || "unknown revision"}${run.dirty ? " + local changes" : ""} · ${duration(run)}`;
-  $("#run-error").innerHTML = run.error
-    ? `<div class="run-error">${h(run.error)}</div>`
-    : "";
-  $("#run-checks").innerHTML = observedChecks(run)
-    .map((check) => `<li><span class="check-mark">✓</span>${h(check)}</li>`)
-    .join("");
-  $("#load-result").innerHTML = "";
-  if (run.action === "load-trial" && run.result?.load) {
-    const v = run.result.load;
-    const samples = run.result.tcp?.samples || [];
-    $("#load-result").innerHTML =
-      `<div class="stats"><div class="stat"><div class="stat-label">BMKG successful p95</div><div class="stat-value">${h(v.sources?.BMKG?.success_duration_ms?.p95?.toFixed(1) ?? "—")} <small>ms</small></div><div class="stat-note">Required &lt; 300 ms</div></div><div class="stat"><div class="stat-label">Unexpected errors</div><div class="stat-value">${h(v.hazard_unexpected_error_percent?.toFixed(2))}%</div><div class="stat-note">Required &lt; 1%</div></div><div class="stat"><div class="stat-label">Successful throughput</div><div class="stat-value">${h(v.hazard_successes_per_second?.toFixed(0))}</div><div class="stat-note">Requests / second</div></div></div>${tcpChart(samples)}<p class="note">TCP criterion: ≥50 established connections sustained for ≥60 seconds. Measured span: ${h(run.result.sustained_tcp_seconds?.toFixed(1) ?? "—")} seconds. Full percentiles and controlled 429 counts are in the result JSON.</p>`;
+  if (type === "map")
+    showInfo(
+      "Service map",
+      "<p>Nodes show Docker container health. Arrows show configured polling, data and event paths; they are not connection probes.</p><p>The switch asks for confirmation, then places a command in the terminal. Enter runs it for only that service. Select its name for logs, rebuild and configuration.</p>",
+    );
+  if (type === "service") {
+    const c = state.containers.find((c) => c.service === value);
+    showInfo(
+      value,
+      c
+        ? `<pre>${h(JSON.stringify(c, null, 2))}</pre>`
+        : "<p>Container not created yet.</p>",
+    );
   }
-  $("#run-downloads").innerHTML =
-    run.status === "running"
-      ? ""
-      : `${run.result ? `<a class="button small" href="/api/runs/${run.id}/result.json">Result JSON ↓</a>` : ""}<a class="button small" href="/api/runs/${run.id}/output.log">Execution log ↓</a><a class="button small" href="/api/runs/${run.id}/run.json">Run metadata ↓</a>`;
+  if (type === "source")
+    showInfo(
+      "Live PVMBG controls",
+      "<p>Schema, delay and outage changes take effect through the existing admin API, without a restart. Restore defaults applies the startup configuration.</p><p>Environment reads are masked. Edit .env locally to change startup configuration.</p>",
+    );
 }
-function tcpChart(samples) {
-  if (!samples.length) return "";
-  const max = Math.max(
-    60,
-    ...samples.map((s) => s.established_connections_to_api),
-  );
-  const end = samples.at(-1).elapsed_seconds || 1;
-  const points = samples
-    .map(
-      (s) =>
-        `${((s.elapsed_seconds / end) * 550 + 30).toFixed(1)},${(105 - (s.established_connections_to_api / max) * 90).toFixed(1)}`,
-    )
-    .join(" ");
-  const threshold = 105 - (50 / max) * 90;
-  return `<svg class="chart" viewBox="0 0 600 120" role="img" aria-label="Measured established TCP connections over time"><line x1="30" y1="${threshold}" x2="580" y2="${threshold}"/><text x="0" y="${threshold + 3}">50</text><polyline points="${points}"/><text x="30" y="119">0s</text><text x="535" y="119">${h(Math.round(end))}s</text></svg>`;
-}
-function setOutput(text) {
-  const el = $("#console-output");
-  if (el.textContent === text) return;
-  const position = el.scrollTop;
-  el.textContent = text || "Waiting for output…";
-  el.scrollTop = state.follow ? el.scrollHeight : position;
-}
-function setConsoleTab() {
-  const execution = state.tab === "execution";
-  $("#execution-tab").setAttribute("aria-selected", execution);
-  $("#logs-tab").setAttribute("aria-selected", !execution);
-  $("#run-info").hidden = !execution;
-  $("#log-controls").hidden = execution;
-  if (execution) renderRun();
-  else {
-    setOutput("Loading service logs…");
-    refreshLogs();
-  }
-}
-async function refreshLogs() {
-  if (logPending || state.tab !== "logs") return;
-  logPending = true;
-  try {
-    const service = $("#log-service").value;
-    const data = await api("/api/logs/" + encodeURIComponent(service));
-    if (state.tab === "logs" && $("#log-service").value === service)
-      setOutput(data.text);
-  } catch (error) {
-    if (state.tab === "logs") setOutput(error.message);
-  } finally {
-    logPending = false;
-  }
-}
-
-async function loadEvidence() {
-  try {
-    const data = await api("/api/runs");
-    const el = $("#evidence-list");
-    if (el)
-      el.innerHTML = data.runs.length
-        ? data.runs
-            .map(
-              (run) =>
-                `<div class="evidence-item"><div><div class="evidence-title">${h(run.title)} ${badge(run.status)}</div><div class="evidence-meta">${h(run.id)} · ${h(run.revision?.slice(0, 8))}</div></div><button class="button small" data-open-run="${h(run.id)}">Open</button></div>`,
-            )
-            .join("")
-        : '<div class="empty">No console runs yet. Run a demo step to create evidence.</div>';
-    const files = await api("/api/inspect/historical");
-    const select = $("#historical-file");
-    if (select)
-      select.innerHTML =
-        JSON.parse(files.json)
-          .map((file) => `<option value="${h(file)}">${h(file)}</option>`)
-          .join("") || '<option value="">No recorded files</option>';
-  } catch (error) {
-    toast(error.message);
-  }
+function criterionNote(page, n) {
+  const notes = {
+    "p1:4":
+      "Unknown fields are preserved in attributes. Schema v2 adds confidence_level; read the same mapped record after changing the schema.",
+    "p1:5":
+      "The implementation supports additive fields and preserves unknown JSON attributes. Renaming fields, changing required field types or removing required fields needs an adapter change.",
+    "p2:1":
+      "Set the delay, wait for a polling cycle, then compare simultaneous BMKG/PVMBG latency. Restore defaults afterward.",
+    "p2:2":
+      "Record load + TCP runs 60 workers for 90 seconds with a concurrent 115-second TCP collector. Read metrics and TCP samples separately. The full trial automatically checks the sustained TCP threshold.",
+    "p3:1":
+      "Each credential has its own accepted-source and rejected-source check. Compare the four HTTP statuses.",
+    "p3:3":
+      "Run the helpers left to right. Reads reuse the saved session; only Refresh token rotates it. The full trial additionally tests Auth restart and refresh replay.",
+    "p3:4":
+      "Tracked configuration shows tracked config paths and masked values. Review source code separately before claiming there are no hardcoded credentials.",
+    "p4:1":
+      "The full event trial also verifies continued API reads during an independent dashboard rebuild.",
+    "p4:2":
+      "Read PVMBG HazardEvents under schema v1 to pin a reference, or enter source_ref_id. Switch to schema v2, wait for a poll, then read versions 1 and 2 of that same record.",
+    "p4:3":
+      "PostgreSQL is on the store network with the Aggregator. Other services obtain canonical data through the Aggregator API.",
+    "p5:3":
+      "Stop dashboard, wait for new events, then read positions. Restart and read again to see catch-up. At-least-once delivery can redeliver events; consumer stores deduplicate them.",
+    "p5:4":
+      "The first Start third creates its durable; repeated starts reuse it. The full event trial creates a fresh temporary durable and also tests dashboard recovery/rebuild.",
+  };
+  return notes[`${page}:${n}`] || "";
 }
 
 document.addEventListener("click", async (event) => {
-  const button = event.target.closest("button");
-  if (!button) return;
-  if (button.dataset.page) {
-    location.hash = button.dataset.page;
+  const el = event.target.closest("button");
+  if (!el) return;
+  if (el.classList.contains("command-help")) {
+    explainCommand(el.commandTarget);
     return;
   }
-  if (button.dataset.action) {
-    startAction(
-      button.dataset.action,
-      JSON.parse(button.dataset.parameters || "{}"),
-    );
+  if (el.dataset.action) {
+    queueCommand(el.dataset.action, JSON.parse(el.dataset.parameters || "{}"));
     return;
   }
-  if (button.dataset.inspect) {
-    inspect(button.dataset.inspect, JSON.parse(button.dataset.query || "{}"));
+  if (el.dataset.toggle) {
+    confirmService(el.dataset.toggle);
     return;
   }
-  if (button.dataset.openRun) {
+  if (el.dataset.select) {
+    state.selected = el.dataset.select;
+    renderServices();
+    renderServicePanel();
+    return;
+  }
+  if (el.dataset.info) {
+    information(el.dataset.info, el.dataset.value);
+    return;
+  }
+  if (el.dataset.openRun) {
+    if (state.active) {
+      toast("Stop the current command first.");
+      return;
+    }
     try {
-      state.run = await api("/api/runs/" + button.dataset.openRun);
-      state.tab = "execution";
-      setConsoleTab();
-      renderRun();
-      reveal("#run-panel");
+      const run = await api("/api/runs/" + el.dataset.openRun);
+      await discardPending();
+      clearTerminal();
+      attachStream(run);
     } catch (error) {
       toast(error.message);
     }
     return;
   }
-  switch (button.id) {
-    case "view-run-result":
-      if (!$("#run-panel")) location.hash = "evidence";
-      else reveal("#run-panel");
+  switch (el.id) {
+    case "cancel-service":
+      $("#confirm-service").close();
+      break;
+    case "queue-service": {
+      const command = state.switchCommand;
+      $("#confirm-service").close();
+      if (command) queueCommand(command.action, command.parameters);
+      break;
+    }
+    case "close-info":
+      $("#info-dialog").close();
       break;
     case "refresh-status":
       refreshStatus();
       break;
-    case "execution-tab":
-      state.tab = "execution";
-      setConsoleTab();
+    case "refresh-runs":
+      loadRuns();
       break;
-    case "logs-tab":
-      state.tab = "logs";
-      setConsoleTab();
+    case "stop-command":
+      stopCommand();
       break;
-    case "follow-output":
-      state.follow = !state.follow;
-      button.setAttribute("aria-pressed", state.follow);
-      if (state.follow)
-        $("#console-output").scrollTop = $("#console-output").scrollHeight;
+    case "clear-terminal":
+      if (state.starting) break;
+      await discardPending();
+      clearTerminal();
       break;
-    case "copy-output":
+    case "copy-terminal": {
+      const buffer = terminal.buffer.active;
+      const lines = [];
+      for (let i = 0; i < buffer.length; i++)
+        lines.push(buffer.getLine(i).translateToString(true));
       try {
-        await navigator.clipboard.writeText($("#console-output").textContent);
-        toast("Output copied.");
+        await navigator.clipboard.writeText(lines.join("\n").trimEnd());
+        toast("Copied.");
       } catch {
-        toast("Select the output and copy it manually.");
+        toast("Select terminal output and copy it.");
       }
-      break;
-    case "cancel-run":
-      try {
-        await api("/api/runs/" + state.active + "/cancel", {
-          method: "POST",
-          body: "{}",
-        });
-        toast("Cancelling. Waiting for cleanup to finish.");
-      } catch (error) {
-        toast(error.message);
-      }
-      break;
-    case "mapping-read":
-    case "mapping-new": {
-      const source = $("#mapping-source").value;
-      if (button.id === "mapping-new") delete state.refs[source];
-      inspect("mapping", {
-        source,
-        ...(state.refs[source] ? { ref: state.refs[source] } : {}),
-      });
       break;
     }
-    case "pinned-history": {
-      const source = $("#mapping-source").value;
-      const ref = state.refs[source];
-      if (!ref) {
-        toast("Read a mapped sample first.");
-        break;
-      }
-      inspect("history", { source, ref, revisions: "1,2" });
+    case "expand-terminal": {
+      const expanded = document.body.classList.toggle("terminal-only");
+      el.setAttribute("aria-pressed", String(expanded));
+      el.setAttribute(
+        "aria-label",
+        expanded ? "Restore split layout" : "Expand terminal",
+      );
       break;
     }
-    case "identity-read":
-      inspect("api", {
-        identity: $("#api-identity").value,
+    case "new-sample":
+      delete state.refs.PVMBG;
+      queueCommand("inspect", { kind: "canonical", source: "PVMBG" });
+      break;
+    case "login-api":
+      queueCommand("client-login", { identity: $("#api-identity").value });
+      break;
+    case "read-api":
+      queueCommand("inspect", {
+        kind: "api",
         source: $("#api-source").value,
+        identity: $("#api-identity").value,
       });
       break;
     case "read-history":
-      inspect("history", {
+      queueCommand("inspect", {
+        kind: "history",
         source: $("#history-source").value,
         ref: $("#history-ref").value.trim(),
-        revisions: $("#history-revisions").value,
+        revisions: "1,2",
       });
       break;
     case "read-schema":
-      inspect("schema", { name: $("#schema-name").value });
+      queueCommand("inspect", {
+        kind: "schema",
+        name: $("#schema-name").value,
+      });
       break;
-    case "show-containers":
-      await refreshStatus();
-      state.inspections[state.page] = {
-        kind: "containers",
-        text: JSON.stringify(state.containers, null, 2),
-        time: new Date().toLocaleTimeString(),
-      };
-      renderInspection();
-      break;
-    case "capture-checkpoint":
-      inspect("events", {}, true);
-      break;
-    case "refresh-evidence":
-      loadEvidence();
-      break;
-    case "read-historical": {
-      const file = $("#historical-file").value;
-      if (!file) return;
-      try {
-        const result = await api(
-          "/api/historical?" + new URLSearchParams({ file }),
-        );
-        state.inspections[state.page] = {
-          kind: "historical",
-          text: result.json,
-          time: new Date().toLocaleTimeString(),
-        };
-        renderInspection();
-      } catch (error) {
-        toast(error.message);
+    case "pinned-history": {
+      const ref = $("#history-ref")?.value.trim() || state.refs.PVMBG;
+      if (!ref) {
+        toast("Read PVMBG HazardEvents first, or enter a source reference.");
+        return;
       }
+      queueCommand("inspect", {
+        kind: "history",
+        source: "PVMBG",
+        ref,
+        revisions: "1,2",
+      });
       break;
     }
   }
 });
-$("#log-service").addEventListener("change", refreshLogs);
+$("#confirm-service").addEventListener("close", () => {
+  state.switchCommand = null;
+});
 window.addEventListener("hashchange", () => {
-  const page = location.hash.slice(1) || "overview";
-  state.page = names[page] ? page : "overview";
+  const page = location.hash.slice(1);
+  state.page = state.spec[page] || titles[page] ? page : "overview";
   renderPage();
+  $("#main").scrollTop = 0;
 });
 async function boot() {
   try {
@@ -703,31 +989,25 @@ async function boot() {
       api("/specification.json"),
     ]);
     $("#project").textContent = state.bootstrap.project;
-    $("#project-label").textContent = state.bootstrap.project;
-    $("#revision").textContent = state.bootstrap.revision;
-    state.page = names[location.hash.slice(1)]
-      ? location.hash.slice(1)
-      : "overview";
+    output(
+      `cwd: ${state.bootstrap.repo}\nenv: ${state.bootstrap.env_file}\nproject: ${state.bootstrap.project}\n`,
+    );
+    const page = location.hash.slice(1);
+    state.page = state.spec[page] || titles[page] ? page : "overview";
     renderPage();
     refreshStatus();
     const runs = await api("/api/runs");
-    state.active = runs.active;
-    if (state.active) {
-      state.run = await api("/api/runs/" + state.active);
-      renderRun();
+    if (runs.active) {
+      const run = await api("/api/runs/" + runs.active);
+      state.active = run.id;
+      attachStream(run);
       updateButtons();
     }
-    setInterval(() => {
-      if (!document.hidden) {
-        pollRun();
-        refreshLogs();
-      }
-    }, 1000);
     setInterval(() => {
       if (!document.hidden) refreshStatus();
     }, 10000);
   } catch (error) {
-    $("#main").innerHTML = `<div class="run-error">${h(error.message)}</div>`;
+    $("#main").innerHTML = `<p class="error">${h(error.message)}</p>`;
   }
 }
 boot();

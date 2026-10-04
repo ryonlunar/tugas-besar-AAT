@@ -1,20 +1,17 @@
 # Demo console
 
-Run from the repository root on Linux or WSL, with Docker Compose, Go, Python 3, OpenSSL and `ss` installed:
+From the repository root on Linux/WSL, with a configured `.env`:
 
 ```sh
 go run ./tools/demo-console
 ```
 
-Open http://localhost:8099. Configure `.env` with local secrets and an explicit `COMPOSE_PROJECT_NAME` first. On Overview, prepare JWT keys, then build and start the stack.
+Open http://localhost:8099. Requires Go, Bash, curl, Docker Compose, Python 3, OpenSSL and `ss`.
 
-- **P1–P5:** numbered demo steps, specification text, controls and full trials.
-- **Inspect:** API records, schemas, storage, outbox, consumers and masked configuration.
-- **Evidence:** results, revision, execution logs and downloads.
-- **Console:** execution output or selected service logs; one action at a time.
+Buttons place the actual Docker, curl or Python commands in xterm.js. Edit the prompt or type a command yourself. Enter runs the exact text through Bash; Shift+Enter adds a line, Escape discards. The small info control beside each helper explains its default command in context. `.env` values are exported into the command environment. Temporary artifact paths are shown in the log. Process output streams into the terminal with credentials masked. Use Stop or Ctrl+C to cancel. Expand for screenshots; Runs saves the command, log and available JSON. Each run starts a new Bash process in the repository root. Closing the browser does not stop a running command.
 
-Runs continue when the browser closes. Cancel waits for trial cleanup; manual changes remain until the corresponding restore/start control is used. A forced process kill cannot guarantee cleanup. Check service state and restore source defaults before retrying an unfinished run.
+Problem helpers perform separate checks. P3 saves each client session privately, then reuses it for reads, natural expiry and refresh. Run those steps in order; reads never log in or refresh automatically. JSON reads default to Pretty, adding a visible `| python3 -m json.tool`; Raw omits that pipe. The toolbar choice applies to the next queued helper. HTTP headers and status remain visible. Source reads select the last two minutes with an editable `since` query.
 
-Private run files are stored in `docs/evidence/private/demo-console/`. Existing repository evidence is labeled historical.
+Service switches ask for confirmation before placing the command. Start/stop affects only that service. PVMBG controls change schema, delay and outage live. Environment inspection is read-only; restart the console after editing `.env`. Trials attempt cleanup; manual changes remain until restored. Forced termination can leave an unfinished run.
 
-Optional flags: `--repo`, `--env-file`, `--evidence-dir`, `--spec-dir`, `--listen`. PDF links expect the supplied course documents in the repository's parent directory, or in `--spec-dir`. The listener accepts only loopback addresses.
+Private files: `docs/evidence/private/demo-console/`. Flags: `--repo`, `--env-file`, `--evidence-dir`, `--spec-dir`, `--listen`. The supplied PDFs belong in the repository's parent directory or `--spec-dir`. The listener accepts only loopback addresses.

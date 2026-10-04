@@ -3,117 +3,102 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>AAT · Demo console</title>
+    <title>AAT demo</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="terminal/xterm.css" />
     <link rel="stylesheet" href="style.css" />
-    <script type="module" src="app.js"></script>
+    <script defer src="terminal/xterm.js"></script>
+    <script defer src="terminal/addon-fit.js"></script>
+    <script defer src="app.js"></script>
   </head>
   <body>
-    <aside class="sidebar">
-      <a class="brand" href="#overview"
-        ><span class="brand-mark">a.</span
-        ><span>AAT<span class="brand-sub">Demo console</span></span></a
-      >
-      <div class="nav-label">WORKSPACE</div>
-      <nav aria-label="Main navigation" id="navigation">
-        <button data-page="overview">
-          <span class="nav-symbol">◫</span>Overview
-        </button>
-        <div class="nav-label">MILESTONE 1</div>
-        <button data-page="p1">
-          <span class="nav-symbol">01</span>Mapping
-        </button>
-        <button data-page="p2">
-          <span class="nav-symbol">02</span>Resilience
-        </button>
-        <button data-page="p3">
-          <span class="nav-symbol">03</span>Authentication
-        </button>
-        <button data-page="p4">
-          <span class="nav-symbol">04</span>Independence
-        </button>
-        <button data-page="p5"><span class="nav-symbol">05</span>Events</button>
-        <div class="nav-divider"></div>
-        <button data-page="inspect">
-          <span class="nav-symbol">⌕</span>Inspect
-        </button>
-        <button data-page="evidence">
-          <span class="nav-symbol">▤</span>Evidence
-        </button>
+    <header class="app-header">
+      <a class="brand" href="#overview">AAT<span>demo</span></a>
+      <nav aria-label="Pages">
+        <a href="#overview" data-page="overview">Overview</a>
+        <a href="#p1" data-page="p1">P1</a><a href="#p2" data-page="p2">P2</a>
+        <a href="#p3" data-page="p3">P3</a><a href="#p4" data-page="p4">P4</a>
+        <a href="#p5" data-page="p5">P5</a>
+        <a href="#inspect" data-page="inspect">Inspect</a>
+        <a href="#runs" data-page="runs">Runs</a>
       </nav>
-      <div class="sidebar-bottom">
-        <span class="local-dot"></span> Local workspace
-        <div id="project-label">Connecting…</div>
-      </div>
-    </aside>
-    <div class="workspace">
-      <header class="topbar">
-        <div>
-          <span class="eyebrow">COMPOSE PROJECT</span
-          ><strong id="project">Connecting…</strong
-          ><span id="revision" class="revision"></span>
-        </div>
-        <div class="topbar-right">
-          <span id="health" class="badge neutral">Checking services</span
-          ><button
-            class="icon-button"
-            id="refresh-status"
-            title="Refresh service status"
-            aria-label="Refresh service status"
-          >
-            ↻
-          </button>
-        </div>
-      </header>
-      <div class="body-grid">
-        <main id="main" tabindex="-1">
-          <div class="empty">Loading workspace…</div>
-        </main>
-        <aside class="console-panel" aria-label="Output console">
-          <div class="console-heading">
-            <div>
-              <span class="console-indicator"></span><strong>Console</strong>
-            </div>
-            <span id="console-state">Idle</span>
-          </div>
-          <div class="console-tabs" role="tablist">
-            <button id="execution-tab" role="tab" aria-selected="true">
-              Execution</button
-            ><button id="logs-tab" role="tab" aria-selected="false">
-              Service logs
+      <span id="project" class="project">Connecting…</span>
+    </header>
+    <div class="app-grid">
+      <main id="main"><p>Loading…</p></main>
+      <section id="terminal-panel" aria-label="Command terminal">
+        <div class="terminal-toolbar">
+          <strong>Terminal</strong
+          ><label
+            class="json-format"
+            title="Format JSON reads when placing the next helper command"
+            >JSON
+            <select id="json-format" aria-label="JSON output format">
+              <option value="pretty">Pretty</option>
+              <option value="raw">Raw</option>
+            </select></label
+          ><span id="command-state">idle</span>
+          <div class="terminal-tools">
+            <button
+              id="stop-command"
+              hidden
+              title="Stop the command and wait for cleanup (Ctrl+C)"
+            >
+              Stop
+            </button>
+            <button id="clear-terminal" title="Clear the terminal display">
+              Clear
+            </button>
+            <button id="copy-terminal" title="Copy terminal output">
+              Copy
+            </button>
+            <a id="download-log" hidden>Log ↓</a>
+            <button
+              id="expand-terminal"
+              aria-label="Expand terminal"
+              aria-pressed="false"
+              title="Expand terminal for a screenshot"
+            >
+              ⤢
             </button>
           </div>
-          <div id="run-info" class="console-run">
-            <span>No action selected</span>
-          </div>
-          <div id="log-controls" class="log-controls" hidden>
-            <label for="log-service">Service</label
-            ><select id="log-service">
-              <option>aggregator</option>
-              <option>client-api</option>
-              <option>auth</option>
-              <option>bmkg-mock</option>
-              <option>pvmbg-mock</option>
-              <option>dashboard-consumer</option>
-              <option>notifier-consumer</option>
-              <option>third-consumer</option>
-              <option>nats</option>
-              <option>postgres</option>
-            </select>
-          </div>
-          <pre id="console-output" tabindex="0">
-Choose a demo step to see its command and output here.
-
-Service logs are available in the next tab.</pre>
-          <div class="console-footer">
-            <button id="follow-output" aria-pressed="true">
-              ↓ Follow output</button
-            ><button id="copy-output">Copy</button
-            ><button id="cancel-run" hidden>Cancel run</button>
-          </div>
-        </aside>
-      </div>
+        </div>
+        <div id="terminal"></div>
+        <div class="command-entry">
+          <span aria-hidden="true">$</span>
+          <textarea
+            id="command-input"
+            rows="1"
+            maxlength="32768"
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            aria-label="Shell command, Enter to run, Shift+Enter for a new line"
+            placeholder="Type a command, or choose a helper"
+            disabled
+          ></textarea>
+        </div>
+      </section>
     </div>
+    <dialog id="info-dialog">
+      <div class="dialog-heading">
+        <h2 id="info-title"></h2>
+        <button id="close-info" aria-label="Close information">×</button>
+      </div>
+      <div id="info-content"></div>
+    </dialog>
+    <dialog
+      id="confirm-service"
+      aria-labelledby="confirm-title"
+      aria-describedby="confirm-description"
+    >
+      <div class="dialog-heading"><h2 id="confirm-title"></h2></div>
+      <p id="confirm-description"></p>
+      <div class="dialog-actions">
+        <button id="cancel-service" class="button" autofocus>Cancel</button>
+        <button id="queue-service" class="button">Place command</button>
+      </div>
+    </dialog>
     <div id="toast" role="status" hidden></div>
   </body>
 </html>

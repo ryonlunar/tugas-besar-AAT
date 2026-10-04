@@ -1,27 +1,124 @@
 {
   "p1": {
-    "title": "Mapping & schema evolution",
+    "title": "Arsitektur & Interoperabilitas Data",
     "page": 16,
-    "text": "Problem 1 \nArsitektur & Interoperabilitas Data\n\n\n\n\nPrototipe pertama gateway BNPB yang dibangun tim Astolfo bekerja dengan asumsi\nsederhana: field-field SeismicEvent dari BMKG dan VolcanicReport dari PVMBG dianggap\ntetap selamanya, sehingga parsing-nya ditulis dengan mengasumsikan struktur itu tidak\nakan pernah berubah. Semuanya baik-baik saja, sampai suatu hari PVMBG menambahkan\nconfidence_level ke laporan mereka tanpa memberi tahu siapa pun terlebih dahulu bagi\nPVMBG itu perubahan internal mereka sendiri, bukan urusan BNPB. Gateway Astolfo, yang\ntidak siap menerima field baru, mulai berperilaku tidak terduga: entah field itu hilang begitu\nsaja, entah keseluruhan pesan gagal di-parse.\n\n\n Gateway di-hardcode terhadap bentuk skema yang diasumsikan tetap, sehingga\n perubahan skema aditif dari salah satu instansi memaksa perubahan kode gateway dan\n redeploy. Padahal, instansi sumber tidak berkoordinasi soal kapan mereka boleh\n mengubah skema.\n\nKriteria penyelesaian:\n\n   1. Jalankan sistem dengan PVMBG pada skema awal, lalu tunjukkan Aggregator\n      menghasilkan HazardEvent yang sesuai dengan aturan pemetaan untuk kedua\n      sumber.\n\n   2. Picu perubahan skema PVMBG melalui POST /admin/schema-version saat sistem\n      sedang berjalan, tanpa restart atau redeploy service mana pun.\n\n   3. Tunjukkan Aggregator tetap menghasilkan HazardEvent yang valid setelah\n      perubahan tersebut, tanpa crash dan tanpa intervensi manual pada kode.\n\n   4. Deklarasikan kebijakan penanganan field tak dikenal di laporan apakah diteruskan\n      ke attributes atau diabaikan lalu tunjukkan perilaku sistem konsisten dengan\n      kebijakan yang dideklarasikan. Yang dinilai adalah konsistensi terhadap kebijakan\n      yang dinyatakan, bukan pilihan kebijakannya.\n\n   5. Di laporan, jelaskan mekanisme yang dipilih (contoh: schema registry, dynamic field\n      mapping, schema evolution ala Protobuf/Avro, atau JSON dengan kebijakan\n      additive-only), serta nyatakan eksplisit jenis perubahan skema yang didukung dan\n      yang secara sadar tidak didukung."
+    "criteria": [
+      {
+        "number": 1,
+        "text": "Jalankan sistem dengan PVMBG pada skema awal, lalu tunjukkan Aggregator menghasilkan HazardEvent yang sesuai dengan aturan pemetaan untuk kedua sumber."
+      },
+      {
+        "number": 2,
+        "text": "Picu perubahan skema PVMBG melalui POST /admin/schema-version saat sistem sedang berjalan, tanpa restart atau redeploy service mana pun."
+      },
+      {
+        "number": 3,
+        "text": "Tunjukkan Aggregator tetap menghasilkan HazardEvent yang valid setelah perubahan tersebut, tanpa crash dan tanpa intervensi manual pada kode."
+      },
+      {
+        "number": 4,
+        "text": "Deklarasikan kebijakan penanganan field tak dikenal di laporan apakah diteruskan ke attributes atau diabaikan lalu tunjukkan perilaku sistem konsisten dengan kebijakan yang dideklarasikan. Yang dinilai adalah konsistensi terhadap kebijakan yang dinyatakan, bukan pilihan kebijakannya."
+      },
+      {
+        "number": 5,
+        "text": "Di laporan, jelaskan mekanisme yang dipilih (contoh: schema registry, dynamic field mapping, schema evolution ala Protobuf/Avro, atau JSON dengan kebijakan additive-only), serta nyatakan eksplisit jenis perubahan skema yang didukung dan yang secara sadar tidak didukung."
+      }
+    ]
   },
   "p2": {
-    "title": "Resilience under load",
+    "title": "Concurrency, Availability, & Graceful Degradation",
     "page": 18,
-    "text": "Problem 2 \nConcurrency, Availability, & Graceful Degradation\n\n\n\n\nBegitu gateway dasar Astolfo berjalan, masalah baru muncul pada demo internal. Karena\ngateway memanggil BMKG lalu PVMBG secara berurutan dalam satu alur yang sama, dan\nPVMBG dengan infrastruktur lawasnya membutuhkan waktu jauh lebih lama untuk\nmerespons, permintaan yang sebetulnya hanya memerlukan data BMKG pun ikut\nmenunggu tanpa alasan. Ketika status berubah dari normal ke siaga dan banyak pihak\nmengakses gateway bersamaan, sistem yang tadinya hanya terasa lambat berubah\nmenjadi tidak responsif. Lalu PVMBG benar-benar mati selama beberapa waktu dan\nseluruh dashboard BNPB ikut kosong, padahal data gempa dari BMKG masih mengalir\nnormal dan data vulkanik terakhir sebenarnya masih tersimpan.\n\n\nTerdapat tiga kegagalan berbeda:\n    1. Head-of-line blocking\n       Pemanggilan BMKG dan PVMBG yang sekuensial membuat permintaan cepat\n       tertahan oleh permintaan lambat yang tidak berhubungan.\n    2. Resource exhaustion\n\n       Tidak ada batas jumlah permintaan bersamaan yang dapat ditangani, sehingga\n       lonjakan akses menghabiskan resource hingga sistem berhenti melayani semua\n       pihak.\n    3. Ketiadaan degradasi terkendali\n       Matinya satu sumber membuat seluruh respons gagal, padahal sebagian data\n       masih tersedia dan masih berguna bagi pengguna.\n\n\n\n\nKriteria penyelesaian:\n\n   1. Dengan delay PVMBG diatur pada 3 detik, kirim permintaan yang hanya\n      membutuhkan data BMKG bersamaan dengan permintaan yang membutuhkan data\n      PVMBG. Tunjukkan p95 latensi permintaan BMKG-only tetap di bawah 300 ms.\n\n   2. Jalankan load testing dengan ≥50 koneksi paralel selama minimal 60 detik dalam\n      pola sustained. Laporkan throughput, p50/p95/p99, dan error rate. Sistem wajib\n      tidak crash, dengan error rate di luar penolakan terkontrol di bawah 1%. Penolakan\n      terkontrol seperti HTTP 429 tidak dihitung sebagai kegagalan, selama jumlahnya\n      dilaporkan.\n\n   3. Nyalakan outage PVMBG melalui POST /admin/outage. Selama outage,\n      permintaan data seismik tetap dilayani normal, permintaan data vulkanik dijawab\n      dengan data terakhir dari Canonical Store disertai penanda kebaruan data (contoh:\n      stale_since) atau dengan status ketidaktersediaan yang eksplisit bukan error 500\n      dan bukan permintaan yang menggantung sampai timeout client. Setelah outage\n      dimatikan, tunjukkan sistem kembali normal tanpa restart.\n\n   4. Di laporan, jelaskan model konkurensi yang dipilih dan bagaimana model tersebut\n      mencegah ketiga kegagalan di atas. Sertakan konfigurasi load testing beserta\n      tooling yang dipakai."
+    "criteria": [
+      {
+        "number": 1,
+        "text": "Dengan delay PVMBG diatur pada 3 detik, kirim permintaan yang hanya membutuhkan data BMKG bersamaan dengan permintaan yang membutuhkan data PVMBG. Tunjukkan p95 latensi permintaan BMKG-only tetap di bawah 300 ms."
+      },
+      {
+        "number": 2,
+        "text": "Jalankan load testing dengan ≥50 koneksi paralel selama minimal 60 detik dalam pola sustained. Laporkan throughput, p50/p95/p99, dan error rate. Sistem wajib tidak crash, dengan error rate di luar penolakan terkontrol di bawah 1%. Penolakan terkontrol seperti HTTP 429 tidak dihitung sebagai kegagalan, selama jumlahnya dilaporkan."
+      },
+      {
+        "number": 3,
+        "text": "Nyalakan outage PVMBG melalui POST /admin/outage. Selama outage, permintaan data seismik tetap dilayani normal, permintaan data vulkanik dijawab dengan data terakhir dari Canonical Store disertai penanda kebaruan data (contoh: stale_since) atau dengan status ketidaktersediaan yang eksplisit bukan error 500 dan bukan permintaan yang menggantung sampai timeout client. Setelah outage dimatikan, tunjukkan sistem kembali normal tanpa restart."
+      },
+      {
+        "number": 4,
+        "text": "Di laporan, jelaskan model konkurensi yang dipilih dan bagaimana model tersebut mencegah ketiga kegagalan di atas. Sertakan konfigurasi load testing beserta tooling yang dipakai."
+      }
+    ]
   },
   "p3": {
-    "title": "Authentication & trust",
+    "title": "Service-to-Service Authentication & Trust",
     "page": 20,
-    "text": "Problem 3 \nService-to-Service Authentication & Trust\n\n\n\n\nVersi awal sistem Astolfo memakai satu kunci rahasia yang sama untuk mengakses BMKG\nmaupun PVMBG, sekaligus dipakai ulang sebagai kunci akses bagi client di luar BNPB.\nRasanya begitu praktis, sampai tim keamanan mengajukan pertanyaan sederhana: kalau\nkunci milik media bocor, apakah mereka juga bisa melihat data mentah? Jawabannya iya.\n\n\nTidak ada pemisahan domain of trust. Kredensial ke BMKG, kredensial ke PVMBG, dan\ntoken untuk client downstream seharusnya independen. Kompromi pada satu domain\ntidak boleh berdampak ke domain lain.\n\n\n\n\nKriteria penyelesaian:\n\n   1. Tunjukkan kredensial yang valid untuk BMKG ditolak dengan 401/403 saat dipakai\n      mengakses PVMBG, dan sebaliknya.\n\n   2. Tunjukkan client ber-scope Media hanya menerima field berklasifikasi Ringkasan.\n      Permintaan eksplisit terhadap field mentah ditolak server dengan 401/403, bukan\n      sekadar disembunyikan di sisi tampilan.\n\n   3. Tunggu access token Tim Lapangan kedaluwarsa secara alami sesuai TTL (default 60\n      detik) di tengah sesi aktif. Tunjukkan alur refresh menghasilkan token baru tanpa\n      login ulang manual, dan tunjukkan token lama ditolak setelah refresh.\n\n4. Tunjukkan tidak ada kredensial yang ter-hardcode di kode maupun ter-commit,\n   dan .env.example tersedia sesuai Ketentuan Implementasi.\n\n5. Di laporan, jelaskan mekanisme yang dipakai beserta alasan mengapa mekanisme\n   tersebut tidak membuka celah baru."
+    "criteria": [
+      {
+        "number": 1,
+        "text": "Tunjukkan kredensial yang valid untuk BMKG ditolak dengan 401/403 saat dipakai mengakses PVMBG, dan sebaliknya."
+      },
+      {
+        "number": 2,
+        "text": "Tunjukkan client ber-scope Media hanya menerima field berklasifikasi Ringkasan. Permintaan eksplisit terhadap field mentah ditolak server dengan 401/403, bukan sekadar disembunyikan di sisi tampilan."
+      },
+      {
+        "number": 3,
+        "text": "Tunggu access token Tim Lapangan kedaluwarsa secara alami sesuai TTL (default 60 detik) di tengah sesi aktif. Tunjukkan alur refresh menghasilkan token baru tanpa login ulang manual, dan tunjukkan token lama ditolak setelah refresh."
+      },
+      {
+        "number": 4,
+        "text": "Tunjukkan tidak ada kredensial yang ter-hardcode di kode maupun ter-commit, dan .env.example tersedia sesuai Ketentuan Implementasi."
+      },
+      {
+        "number": 5,
+        "text": "Di laporan, jelaskan mekanisme yang dipakai beserta alasan mengapa mekanisme tersebut tidak membuka celah baru."
+      }
+    ]
   },
   "p4": {
-    "title": "Independent services & storage",
+    "title": "Arsitektur Microservice & Flexible Storage",
     "page": 22,
-    "text": "Problem 4 \nArsitektur Microservice & Flexible Storage\n\n\n\n\nGateway Astolfo kini benar secara fungsi, tetapi tim mulai kesulitan mengoperasikannya.\nSeluruh logic polling, pemetaan skema, autentikasi, dan penyajian ke client masih hidup\ndalam satu unit deploy yang sama, sehingga satu perbaikan kecil di bagian autentikasi\nmemaksa seluruh sistem ikut di-deploy ulang, termasuk bagian pemetaan skema yang\nsama sekali tidak berubah. Masalah lain menyusul dari sisi penyimpanan: HazardEvent\ndisimpan pada tabel relasional dengan kolom yang ditetapkan di muka, sehingga setiap\nkali PVMBG menambah field baru seperti confidence_level, tim harus mengubah definisi\ntabel dan menjalankan migrasi yang sekali lagi memaksa koordinasi dan deploy bersama,\npersis masalah yang sejak awal ingin dihindari.\n\n\n Dua hal yang saling berkaitan:\n    1. Sistem belum berbentuk kumpulan service yang independen, terbukti dari\n        kenyataan bahwa mengubah satu bagian memaksa deploy ulang bagian lain yang\n        tidak berhubungan.\n\n    2. Mekanisme penyimpanan tidak sejalan dengan sifat data yang skemanya dapat\n       berubah sewaktu-waktu, sehingga masalah coupling dari Problem 1 kembali\n       muncul melalui jalur storage.\n\n\n\n\nKriteria penyelesaian:\n\n   1. Tunjukkan setiap komponen berjalan sebagai container terpisah, dan tunjukkan\n      salah satunya dapat dihentikan, di-rebuild, dan dijalankan ulang tanpa me-rebuild\n      atau merestart container lain. Tunjukkan pula sistem tetap melayani permintaan yang\n      tidak bergantung pada komponen yang sedang di-restart.\n\n   2. Simpan HazardEvent pada penyimpanan yang mengakomodasi atribut dinamis\n      tanpa migrasi skema saat field baru muncul. Pilihan teknologi bebas document\n      store, key-value store, maupun basis data relasional dengan kolom dokumen\n      seperti JSONB selama tidak ada langkah migrasi yang diperlukan ketika\n      confidence_level mulai muncul. Tunjukkan record dari sebelum dan sesudah\n      perubahan skema tersimpan berdampingan dan keduanya dapat dibaca.\n\n   3. Tunjukkan Canonical Store hanya dapat diakses langsung oleh Aggregator, dan\n      komponen lain memperoleh data melalui API Aggregator, sesuai ketentuan poin di\n      atas (2) yang anda implementasikan.\n\n   4. Di laporan, jelaskan alasan penentuan batas tiap service, mengapa dipecah seperti\n      itu dan bukan dengan pembagian lain. Serta, bandingkan minimal dua alternatif\n      penyimpanan beserta konsekuensi dari pilihan yang diambil."
+    "criteria": [
+      {
+        "number": 1,
+        "text": "Tunjukkan setiap komponen berjalan sebagai container terpisah, dan tunjukkan salah satunya dapat dihentikan, di-rebuild, dan dijalankan ulang tanpa me-rebuild atau merestart container lain. Tunjukkan pula sistem tetap melayani permintaan yang tidak bergantung pada komponen yang sedang di-restart."
+      },
+      {
+        "number": 2,
+        "text": "Simpan HazardEvent pada penyimpanan yang mengakomodasi atribut dinamis tanpa migrasi skema saat field baru muncul. Pilihan teknologi bebas document store, key-value store, maupun basis data relasional dengan kolom dokumen seperti JSONB selama tidak ada langkah migrasi yang diperlukan ketika confidence_level mulai muncul. Tunjukkan record dari sebelum dan sesudah perubahan skema tersimpan berdampingan dan keduanya dapat dibaca."
+      },
+      {
+        "number": 3,
+        "text": "Tunjukkan Canonical Store hanya dapat diakses langsung oleh Aggregator, dan komponen lain memperoleh data melalui API Aggregator, sesuai ketentuan poin di atas (2) yang anda implementasikan."
+      },
+      {
+        "number": 4,
+        "text": "Di laporan, jelaskan alasan penentuan batas tiap service, mengapa dipecah seperti itu dan bukan dengan pembagian lain. Serta, bandingkan minimal dua alternatif penyimpanan beserta konsekuensi dari pilihan yang diambil."
+      }
+    ]
   },
   "p5": {
-    "title": "Independent event consumers",
+    "title": "Fan-out Event Distribution/Pub-sub",
     "page": 24,
-    "text": "Problem 5 \nFan-out Event Distribution/Pub-sub\n\n\n\n\nSemakin sistem dipakai, semakin banyak pihak yang ingin tahu setiap kali ada data baru\nmasuk. Tim dashboard internal ingin update otomatis begitu ada HazardEvent baru, tim\nnotifikasi ingin segera mengirim peringatan ke perangkat tim lapangan, dan belakangan\nmuncul rencana menyambungkan feed yang sama ke portal pemerintah daerah. Jika\nAggregator harus memanggil setiap pihak satu per satu secara langsung, satu pihak yang\nlambat dapat menahan pengiriman notifikasi ke tim lapangan yang jauh lebih mendesak.\nSetiap kali ada pihak baru yang ingin berlangganan pun, kode Aggregator harus diubah lagi.\n\n\n Producer dan consumer saling terikat langsung. Producer harus mengetahui dan\n memanggil tiap consumer secara sinkron, sehingga kelambatan atau kegagalan satu\n consumer berdampak pada producer maupun consumer lain, dan penambahan\n consumer baru berarti mengubah kode producer.\n\n\n\n\nKriteria penyelesaian:\n\n   1. Setiap HazardEvent baru hasil pemetaan dipublikasikan ke message broker\n      (contoh: Kafka, RabbitMQ, NATS), bukan dikirim langsung ke masing-masing\n      consumer.\n\n2. Tunjukkan minimal dua consumer independen berlangganan pada stream yang\n   sama dan menerima event tanpa producer mengetahui keberadaan mereka.\n\n3. Hentikan salah satu consumer selama beberapa waktu. Tunjukkan producer tetap\n   mempublikasikan event tanpa tertahan dan consumer lain tetap menerima event\n   normal. Setelah consumer dinyalakan kembali, jelaskan dan tunjukkan apa yang\n   terjadi pada event yang terbit selama consumer mati apakah tersusul atau hilang\n   sesuai konfigurasi broker yang dipilih.\n\n4. Tunjukkan penambahan satu consumer baru pada topic yang sudah ada, tanpa\n   mengubah kode producer sama sekali.\n\n5. Di laporan, jelaskan broker dan pola yang dipilih, semantik pengiriman yang berlaku\n   (at-least-once atau at-most-once), serta konsekuensinya bagi consumer termasuk\n   apakah    consumer     perlu   bersifat   idempoten   dan   bagaimana    kelompok\n   menyikapinya."
+    "criteria": [
+      {
+        "number": 1,
+        "text": "Setiap HazardEvent baru hasil pemetaan dipublikasikan ke message broker (contoh: Kafka, RabbitMQ, NATS), bukan dikirim langsung ke masing-masing consumer."
+      },
+      {
+        "number": 2,
+        "text": "Tunjukkan minimal dua consumer independen berlangganan pada stream yang sama dan menerima event tanpa producer mengetahui keberadaan mereka."
+      },
+      {
+        "number": 3,
+        "text": "Hentikan salah satu consumer selama beberapa waktu. Tunjukkan producer tetap mempublikasikan event tanpa tertahan dan consumer lain tetap menerima event normal. Setelah consumer dinyalakan kembali, jelaskan dan tunjukkan apa yang terjadi pada event yang terbit selama consumer mati apakah tersusul atau hilang sesuai konfigurasi broker yang dipilih."
+      },
+      {
+        "number": 4,
+        "text": "Tunjukkan penambahan satu consumer baru pada topic yang sudah ada, tanpa mengubah kode producer sama sekali."
+      },
+      {
+        "number": 5,
+        "text": "Di laporan, jelaskan broker dan pola yang dipilih, semantik pengiriman yang berlaku (at-least-once atau at-most-once), serta konsekuensinya bagi consumer termasuk apakah consumer perlu bersifat idempoten dan bagaimana kelompok menyikapinya."
+      }
+    ]
   }
 }
