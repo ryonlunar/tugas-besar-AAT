@@ -1,7 +1,7 @@
 <a id="readme-top"></a>
 
 <div align="center">
-  <h3 align="center">IF4031/AAT — Koordinasi Kebencanaan M1</h3>
+  <h3 align="center">IF4031/AAT - Koordinasi Kebencanaan M1</h3>
   <p align="center">
     Ingest dan distribusi event kebencanaan berbasis kontrak M1<br/>
     Go · PostgreSQL · NATS JetStream · Docker Compose
@@ -26,10 +26,9 @@
     <li><a href="#arsitektur">Arsitektur</a></li>
     <li><a href="#struktur-dan-pembagian">Struktur dan pembagian</a></li>
     <li><a href="#port-default">Port default</a></li>
-    <li><a href="#menjalankan-slice-docker-yang-tersedia">Menjalankan slice Docker</a></li>
+    <li><a href="#menjalankan-slice-docker-yang-tersedia">Menjalankan aplikasi</a></li>
     <li><a href="#compose-aplikasi-penuh">Compose aplikasi penuh</a></li>
     <li><a href="#konfigurasi">Konfigurasi</a></li>
-    <li><a href="#status-dan-batas-implementasi">Status dan batas implementasi</a></li>
   </ol>
 </details>
 
@@ -37,7 +36,7 @@
 
 <a id="status-singkat"></a>
 
-**Status: mock BMKG/PVMBG, mapping, polling, PostgreSQL Canonical Store/riwayat, API internal, transactional outbox dengan guard kapasitas per snapshot, dan publisher JetStream tersedia; slice Docker Compose (dua mock, Aggregator, PostgreSQL, NATS) sudah dibuild dan diuji end-to-end. Auth/Client API, consumer, Compose aplikasi lengkap, load test, dan acceptance P1–P5 masih belum selesai.**
+**Komponen M1 tersedia: dua mock, Aggregator, PostgreSQL, NATS, Auth, Client API, dan dua consumer. Trial integrasi dan load test tersedia di `scripts/`; hasil pengujian ada di `docs/evidence/`.**
 
 Stack pilihan kelompok: Go, PostgreSQL, NATS JetStream, Docker Compose. Kontrak v1 ditetapkan berdasarkan PDF tugas dan sumber teknis primer; bukan lagi placeholder endpoint/skema.
 
@@ -49,11 +48,9 @@ Stack pilihan kelompok: Go, PostgreSQL, NATS JetStream, Docker Compose. Kontrak 
 
 <a id="baca-sebelum-coding"></a>
 
-1. [Kontrak implementasi](docs/contract.md): source schema, mapping, endpoint, role, freshness, delivery dan batas service.
-2. [Keputusan dan fondasi](docs/decisions.md): D01–D16, masing-masing kebutuhan, alasan, sumber, alternatif/trade-off, dan bukti.
-3. [Acceptance matrix](docs/testing-plan.md): kriteria P1–P5 dan pengujian kegagalan.
-4. [JSON Schema dan contoh sintetis](contracts/README.md): wire contract lintas-service, bukan shared library business logic.
-5. [Hasil verifikasi baseline](docs/verification.md): pemeriksaan nyata dan batas yang belum diuji.
+1. [Wire contract](contracts/README.md): JSON Schema dan contoh sintetis lintas-service.
+2. [Setup dan pengujian](scripts/README.md): kunci RSA, trial P1–P5, dan load test.
+3. [Evidence](docs/evidence/): hasil pengujian beserta commit dan profil yang digunakan.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -77,12 +74,12 @@ Auth dan Client API terpisah. Consumer memiliki durable dan SQLite sendiri. Hany
 
 | Lokasi | Pemilik | Fokus |
 |---|---|---|
-| `services/bmkg-mock/`, `services/pvmbg-mock/`, `services/aggregator/` | Hazim | Source, mapping, polling, PostgreSQL, API internal, outbox, wiring Compose lokal untuk slice ini |
+| `services/bmkg-mock/`, `services/pvmbg-mock/`, `services/aggregator/` | Hazim | Source, mapping, polling, PostgreSQL, API internal, outbox, wiring Compose lokal |
 | `services/client-api/`, `services/auth/` | Bimo | Otorisasi, token, API read, bukti load/resilience |
 | `services/dashboard-consumer/`, `services/notifier-consumer/` | Refki | Consumer JetStream, Compose aplikasi penuh, network antarservice, deployment/integrasi E2E |
-| `contracts/`, `docs/` | Bersama | Wire schema, alasan desain, acceptance/evidence |
+| `contracts/`, `docs/` | Bersama | Wire schema dan evidence |
 
-Tiap service memiliki entrypoint `cmd/server/`, logic privat `internal/`, serta Dockerfile jika service sudah dimulai implementasinya. Jangan mengimpor business logic service lain. `cmd/` dan `internal/` tingkat root hanya menyimpan catatan kompatibilitas struktur lama; jangan menambahkan logic di sana.
+Tiap service memiliki entrypoint `cmd/server/`, logic privat `internal/`, serta Dockerfile. Jangan mengimpor business logic service lain. `cmd/` dan `internal/` tingkat root hanya menyimpan catatan kompatibilitas struktur lama; jangan menambahkan logic di sana.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -100,31 +97,30 @@ PostgreSQL 5432 dan NATS 4222 hanya di jaringan internal; tidak di-publish ke ho
 
 ---
 
-## Menjalankan slice Docker yang tersedia
+## Menjalankan aplikasi
 
 <a id="menjalankan-slice-docker-yang-tersedia"></a>
 
-Prasyarat: Docker Engine/Desktop dan Compose. Salin konfigurasi contoh hanya jika belum memiliki `.env`, lalu isi lima secret berbeda secara lokal: `BMKG_API_KEY`, `PVMBG_TOKEN`, `AGGREGATOR_API_KEY`, `POSTGRES_PASSWORD`, dan `NATS_TOKEN`.
+Prasyarat: Docker Engine/Desktop, Compose, Python 3, dan OpenSSL. Jalankan dari root repo.
+
+1. Salin `.env.example` ke `.env` jika belum ada. Isi `COMPOSE_PROJECT_NAME` dan sembilan secret berbeda: `BMKG_API_KEY`, `PVMBG_TOKEN`, `AGGREGATOR_API_KEY`, `CONSUMER_DEMO_KEY`, `POSTGRES_PASSWORD`, `NATS_TOKEN`, `MEDIA_CLIENT_SECRET`, `FIELD_TEAM_CLIENT_SECRET`, `BNPB_INTERNAL_CLIENT_SECRET`.
+2. Buat pasangan RSA dan muat ke volume sesuai [setup kunci](scripts/README.md#setup-kunci-dan-trial-integrasi).
+3. Jalankan:
 
 ```bash
-cp -n .env.example .env
 docker compose config --quiet
 docker compose up --build --detach --wait --wait-timeout 180
 docker compose ps
 ```
 
-Saat ini Compose menjalankan dua mock sumber, Aggregator, PostgreSQL, dan NATS. Healthcheck tiap service tersedia. BMKG/PVMBG/Aggregator dipetakan hanya ke loopback host pada port 8081/8082/8083; PostgreSQL dan NATS tidak dipublish. Store/event network tetap internal, sementara source/API network memberi routing yang diperlukan untuk source dan port demo. NATS monitoring hanya diakses dengan `docker compose exec`.
+Sembilan service berjalan secara default. Mock, Aggregator, Auth, dan Client API hanya dipublish ke loopback host. PostgreSQL, NATS, dan consumer hanya dapat diakses melalui jaringan container atau `docker compose exec`. Tiap service menerima konfigurasi miliknya. Aggregator hanya menunggu PostgreSQL; polling sumber dan relay NATS pulih secara independen.
 
 ```bash
-curl -fsS http://127.0.0.1:8081/health
-curl -fsS http://127.0.0.1:8082/health
-curl -fsS http://127.0.0.1:8083/ready
+curl -fsS http://127.0.0.1:8080/ready
 docker compose exec -T nats wget -qO- 'http://127.0.0.1:8222/healthz?js-enabled-only=true'
 ```
 
-Compose mengharuskan secret terisi dan tiap service hanya menerima subset env miliknya—jangan gunakan `env_file` untuk menyuntikkan seluruh `.env`. Aggregator menunggu PostgreSQL saja; poller dan relay mengulang koneksi source/NATS secara independen, sehingga outage keduanya tidak menahan API baca selama Store masih bisa dibaca. `--wait` pada perintah di atas tetap meminta Compose menunggu healthcheck semua service sebagai pemeriksaan operator. Jangan mengunggah `.env`, private key, atau hasil `docker compose config` yang dapat menampilkan nilai rahasia.
-
-Ini baru slice integrasi Hazim. Auth/Client API milik Bimo dan consumer serta Compose lengkap milik Refki belum masuk; karena itu `docker compose up --build` belum mewakili seluruh sistem dan tidak ada klaim acceptance P1–P5 lulus.
+`.env`, kunci RSA, dan output lengkap `docker compose config` berisi secret dan tidak masuk Git.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -134,7 +130,13 @@ Ini baru slice integrasi Hazim. Auth/Client API milik Bimo dan consumer serta Co
 
 <a id="compose-aplikasi-penuh"></a>
 
-Menyiapkan Compose penuh, network antar-container, dan integrasi end-to-end merupakan bagian Refki. Berkas aktif `docker-compose.yml` hanya menjalankan slice lima service Hazim; Auth/Client API dan kedua consumer belum tersedia sebagai image yang bisa dijalankan. Jangan menafsirkan diagram arsitektur sebagai bukti Compose penuh sudah terintegrasi.
+Compose root membangun Dockerfile masing-masing service. Untuk menjalankan consumer demo ketiga:
+
+```bash
+docker compose --profile demo up --build --detach --wait third-consumer
+```
+
+Untuk membangun ulang satu service, gunakan `docker compose up --build --detach --no-deps --force-recreate <service>`. Trial otomatis memeriksa API dan container lain selama rebuild.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -151,7 +153,9 @@ Menyiapkan Compose penuh, network antar-container, dan integrasi end-to-end meru
 - Stream `HAZARD_EVENTS`, fixed producer subjects `hazard.events.v1.BMKG`/`hazard.events.v1.PVMBG` (bukan override env), `NATS_PUBLISH_TIMEOUT=2s`, durable dashboard-v1/notifier-v1.
 - Snapshot polling M1; mutation event + outbox atomik; ACK consumer sesudah side effect commit.
 
-Nilai numeric operasional adalah baseline yang harus dibuktikan lewat load/failure test, bukan angka benchmark yang sudah tercapai. Rincian ada di docs/contract.md.
+Konfigurasi lengkap ada di [.env.example](.env.example). Compose menetapkan alamat PostgreSQL/NATS serta path volume kunci/state; nilai contoh tersebut juga dipakai untuk menjalankan binary langsung. Header korelasi selalu `X-Correlation-ID`; batas pagination adalah 50 default dan 100 maksimum.
+
+[Trial integrasi](scripts/README.md) menyediakan skenario `smoke` (mapping, hak akses, outage, schema), `tokens` (expiry/refresh), dan `events` (consumer mati, catch-up, rebuild, consumer ketiga). [Load test P2](scripts/README.md#load-test-p2) mengatur delay PVMBG 3000 ms dan mengukur latency serta koneksi TCP.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 

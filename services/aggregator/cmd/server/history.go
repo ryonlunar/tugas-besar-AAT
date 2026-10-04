@@ -22,6 +22,7 @@ var historySourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 type historyAuditStore interface {
 	FindHazardID(context.Context, mapper.Source, string) (string, bool, error)
 	GetVersion(context.Context, string, int64) (json.RawMessage, bool, error)
+	MigrationStatus(context.Context) ([]store.MigrationStatus, error)
 }
 
 type historySnapshot struct {
@@ -30,10 +31,11 @@ type historySnapshot struct {
 }
 
 type historyAuditResult struct {
-	HazardID    string            `json:"hazard_id"`
-	Source      mapper.Source     `json:"source"`
-	SourceRefID string            `json:"source_ref_id"`
-	Versions    []historySnapshot `json:"versions"`
+	HazardID    string                  `json:"hazard_id"`
+	Source      mapper.Source           `json:"source"`
+	SourceRefID string                  `json:"source_ref_id"`
+	Versions    []historySnapshot       `json:"versions"`
+	Migrations  []store.MigrationStatus `json:"migrations"`
 }
 
 func runHistoryAudit(ctx context.Context, repository historyAuditStore, args []string, output io.Writer) error {
@@ -80,6 +82,10 @@ func runHistoryAudit(ctx context.Context, repository historyAuditStore, args []s
 			return fmt.Errorf("selected revision %d contains invalid stored JSON", revision)
 		}
 		result.Versions = append(result.Versions, historySnapshot{Revision: revision, Data: data})
+	}
+	result.Migrations, err = repository.MigrationStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("read migration ledger: %w", err)
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

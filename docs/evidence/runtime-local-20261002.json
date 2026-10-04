@@ -1,0 +1,128 @@
+{
+  "commit": "62cddea5baf749fd42f2889dd02f0159785f3757",
+  "go_test_passed": true,
+  "go_vet_passed": true,
+  "load_script_regression_tests_passed": 7,
+  "services": [
+    {
+      "service": "aggregator",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "auth",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "bmkg-mock",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "client-api",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "dashboard-consumer",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "nats",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "notifier-consumer",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "postgres",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "pvmbg-mock",
+      "state": "running",
+      "health": "healthy"
+    },
+    {
+      "service": "third-consumer",
+      "state": "running",
+      "health": "healthy"
+    }
+  ],
+  "auth_api_isolation": {
+    "auth": {
+      "networks": [
+        "aat-event-integration_api-net"
+      ],
+      "mounts": [
+        {
+          "volume": "aat-event-integration_jwt-private",
+          "target": "/run/secrets",
+          "read_only": true
+        },
+        {
+          "volume": "aat-event-integration_auth-data",
+          "target": "/data",
+          "read_only": false
+        }
+      ],
+      "environment_variable_names": [
+        "ACCESS_TOKEN_TTL",
+        "AUTH_BODY_MAX_BYTES",
+        "AUTH_HTTP_PORT",
+        "AUTH_MAX_INFLIGHT",
+        "AUTH_READ_TIMEOUT",
+        "AUTH_STATE_PATH",
+        "BNPB_INTERNAL_CLIENT_SECRET",
+        "FIELD_TEAM_CLIENT_SECRET",
+        "HTTP_IDLE_TIMEOUT",
+        "HTTP_READ_HEADER_TIMEOUT",
+        "HTTP_WRITE_TIMEOUT",
+        "JWT_AUDIENCE",
+        "JWT_ISSUER",
+        "JWT_PRIVATE_KEY_FILE",
+        "MEDIA_CLIENT_SECRET",
+        "PATH",
+        "REFRESH_TOKEN_TTL"
+      ]
+    },
+    "client-api": {
+      "networks": [
+        "aat-event-integration_api-net"
+      ],
+      "mounts": [
+        {
+          "volume": "aat-event-integration_jwt-public",
+          "target": "/run/secrets",
+          "read_only": true
+        }
+      ],
+      "environment_variable_names": [
+        "AGGREGATOR_API_KEY",
+        "AGGREGATOR_BASE_URL",
+        "AGGREGATOR_REQUEST_TIMEOUT",
+        "API_HTTP_PORT",
+        "API_MAX_INFLIGHT",
+        "HTTP_IDLE_TIMEOUT",
+        "HTTP_READ_HEADER_TIMEOUT",
+        "HTTP_WRITE_TIMEOUT",
+        "JWT_AUDIENCE",
+        "JWT_ISSUER",
+        "JWT_PUBLIC_KEY_FILE",
+        "PATH"
+      ]
+    }
+  },
+  "durables": [
+    "dashboard-v1",
+    "notifier-v1",
+    "third-consumer-v1"
+  ],
+  "temporary_durables_remaining": 0
+}

@@ -1,11 +1,18 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,6 +57,118 @@ func TestMediaGetsSummaryAndCannotRequestFull(t *testing.T) {
 	}
 }
 
+func TestConcurrentReadsReuseUpstreamConnections(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const readers = 8
+	var opened, arrived atomic.Int64
+	firstWave := make(chan struct{})
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if arrived.Add(1) == readers {
+			close(firstWave)
+		}
+		<-firstWave
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	upstream.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			opened.Add(1)
+		}
+	}
+	upstream.Start()
+	defer upstream.Close()
+	now := time.Now()
+	h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "key", MaxInflight: readers, Now: func() time.Time { return now }})
+	defer h.client.CloseIdleConnections()
+	token := signed(t, key, "field-team", "hazards:summary hazards:raw", now)
+	for wave := 0; wave < 2; wave++ {
+		var workers sync.WaitGroup
+		for worker := 0; worker < readers; worker++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+				req.Header.Set("Authorization", "Bearer "+token)
+				res := httptest.NewRecorder()
+				h.ServeHTTP(res, req)
+				if res.Code != 200 {
+					t.Errorf("read status=%d", res.Code)
+				}
+			}()
+		}
+		workers.Wait()
+	}
+	if opened.Load() != readers {
+		t.Fatalf("opened %d connections for two waves of %d reads", opened.Load(), readers)
+	}
+}
+
+func TestProxyDoesNotSendInternalCredentialAcrossRedirect(t *testing.T) {
+	var redirected atomic.Int64
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected.Add(1)
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	defer destination.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "test-internal-key", Now: func() time.Time { return now }})
+	defer h.client.CloseIdleConnections()
+	req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+	req.Header.Set("Authorization", "Bearer "+signed(t, key, "field-team", "hazards:summary hazards:raw", now))
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, req)
+	if response.Code != http.StatusServiceUnavailable || redirected.Load() != 0 {
+		t.Fatalf("status=%d redirected requests=%d", response.Code, redirected.Load())
+	}
+}
+
+func TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		status       int
+		header, want string
+	}{
+		{429, "7", "7"},
+		{503, "Fri, 02 Oct 2026 12:00:00 GMT", "Fri, 02 Oct 2026 12:00:00 GMT"},
+		{400, "7", ""},
+	} {
+		t.Run(fmt.Sprint(tc.status), func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Retry-After", tc.header)
+				w.Header().Set("X-Internal-Debug", "private")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"error":{"code":"test"}}`))
+			}))
+			defer upstream.Close()
+			h := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, AggregatorKey: "key", Now: func() time.Time { return now }})
+			req := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+			req.Header.Set("Authorization", "Bearer "+signed(t, key, "field-team", "hazards:summary hazards:raw", now))
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != tc.status || res.Header().Get("Retry-After") != tc.want {
+				t.Fatalf("status=%d Retry-After=%q", res.Code, res.Header().Get("Retry-After"))
+			}
+			if res.Header().Get("X-Internal-Debug") != "" {
+				t.Fatal("unrelated upstream header forwarded")
+			}
+		})
+	}
+}
+
 func TestRejectsInvalidIssuerAndScope(t *testing.T) {
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -82,4 +201,133 @@ func signedWith(t *testing.T, key *rsa.PrivateKey, issuer, sub, scope string, no
 		t.Fatal(err)
 	}
 	return token
+}
+
+func TestReadinessForwardsAndLogsCorrelationWithoutCredentials(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Correlation-ID") != "ready-42" {
+			t.Error("readiness correlation not forwarded")
+		}
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+	handler := NewHandler(Config{AggregatorURL: upstream.URL, AggregatorKey: "private-key"})
+	defer handler.client.CloseIdleConnections()
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	request.Header.Set("X-Correlation-ID", "ready-42")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 200 {
+		t.Fatalf("readiness status: %d", response.Code)
+	}
+	decoder := json.NewDecoder(&logs)
+	found := false
+	for decoder.More() {
+		var entry map[string]any
+		if err := decoder.Decode(&entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry["operation"] == "aggregator_ready" {
+			found = entry["correlation_id"] == "ready-42" && entry["status"] == float64(200) && entry["duration_ms"] != nil
+		}
+	}
+	if !found {
+		t.Fatal("correlated readiness timing not logged")
+	}
+}
+
+func TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuedAt := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	expiresAt := issuedAt.Add(time.Minute)
+	sign := func(overrides jwt.MapClaims) string {
+		t.Helper()
+		claims := jwt.MapClaims{"iss": "aat-auth", "aud": "aat-client-api", "sub": "field-team", "scope": "hazards:summary hazards:raw", "iat": issuedAt.Unix(), "exp": expiresAt.Unix()}
+		for name, value := range overrides {
+			if value == nil {
+				delete(claims, name)
+			} else {
+				claims[name] = value
+			}
+		}
+		token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	token := sign(nil)
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	defer upstream.Close()
+	for _, test := range []struct {
+		name       string
+		token      string
+		now        time.Time
+		wantStatus int
+		wantReason string
+	}{
+		{"API clock behind issuance", token, issuedAt.Add(-time.Second), 200, ""},
+		{"just before expiry", token, expiresAt.Add(-time.Nanosecond), 200, ""},
+		{"at expiry", token, expiresAt, 401, "TOKEN_EXPIRED"},
+		{"after expiry", token, expiresAt.Add(time.Nanosecond), 401, "TOKEN_EXPIRED"},
+		{"missing expiry", sign(jwt.MapClaims{"exp": nil}), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong signing key", signed(t, otherKey, "field-team", "hazards:summary hazards:raw", issuedAt), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong audience", sign(jwt.MapClaims{"aud": "other-api"}), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong issuer", sign(jwt.MapClaims{"iss": "other-auth"}), issuedAt, 401, "INVALID_TOKEN"},
+		{"future not-before", sign(jwt.MapClaims{"nbf": issuedAt.Add(time.Second).Unix()}), issuedAt, 401, "INVALID_TOKEN"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			handler := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, Now: func() time.Time { return test.now }})
+			defer handler.client.CloseIdleConnections()
+			request := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+			request.Header.Set("Authorization", "Bearer "+test.token)
+			request.Header.Set("X-Correlation-ID", "401-reproduction")
+			response := httptest.NewRecorder()
+			before := upstreamCalls.Load()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("got HTTP %d, want %d", response.Code, test.wantStatus)
+			}
+			wantCalls := int64(0)
+			if test.wantStatus == 200 {
+				wantCalls = 1
+			}
+			if upstreamCalls.Load()-before != wantCalls {
+				t.Fatal("unexpected upstream access")
+			}
+			if test.wantReason != "" {
+				var rejection map[string]any
+				if err := json.NewDecoder(&logs).Decode(&rejection); err != nil {
+					t.Fatal(err)
+				}
+				if rejection["reason"] != test.wantReason || rejection["correlation_id"] != "401-reproduction" {
+					t.Fatalf("rejection context: %+v", rejection)
+				}
+			} else if strings.Contains(logs.String(), "access token rejected") {
+				t.Fatal("accepted token logged as rejected")
+			}
+			if strings.Contains(logs.String(), test.token) {
+				t.Fatal("token leaked into logs")
+			}
+		})
+	}
 }

@@ -66,7 +66,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	server := &http.Server{Addr: ":" + cfg.port, Handler: auth.NewHandler(service, cfg.maxBody, cfg.maxInflight), ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
+	server := newHTTPServer(cfg, auth.NewHandler(service, cfg.maxBody, cfg.maxInflight))
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)
@@ -85,11 +85,11 @@ func run(logger *slog.Logger) error {
 }
 
 type config struct {
-	port, statePath, privateKeyFile, issuer, audience                   string
-	clients                                                             map[string]auth.Client
-	accessTTL, refreshTTL, readHeaderTimeout, idleTimeout, writeTimeout time.Duration
-	maxBody                                                             int64
-	maxInflight                                                         int
+	port, statePath, privateKeyFile, issuer, audience                                string
+	clients                                                                          map[string]auth.Client
+	accessTTL, refreshTTL, readTimeout, readHeaderTimeout, idleTimeout, writeTimeout time.Duration
+	maxBody                                                                          int64
+	maxInflight                                                                      int
 }
 
 func loadConfig() (config, error) {
@@ -113,6 +113,12 @@ func loadConfig() (config, error) {
 	if c.readHeaderTimeout, err = duration("HTTP_READ_HEADER_TIMEOUT", "2s"); err != nil {
 		return c, err
 	}
+	if c.readTimeout, err = duration("AUTH_READ_TIMEOUT", "2s"); err != nil {
+		return c, err
+	}
+	if c.readTimeout <= 0 {
+		return c, errors.New("AUTH_READ_TIMEOUT must be positive")
+	}
 	if c.idleTimeout, err = duration("HTTP_IDLE_TIMEOUT", "30s"); err != nil {
 		return c, err
 	}
@@ -129,6 +135,9 @@ func loadConfig() (config, error) {
 		return c, errors.New("token TTL values must be positive")
 	}
 	return c, nil
+}
+func newHTTPServer(cfg config, handler http.Handler) *http.Server {
+	return &http.Server{Addr: ":" + cfg.port, Handler: handler, ReadTimeout: cfg.readTimeout, ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
 }
 func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
 	data, err := os.ReadFile(path)

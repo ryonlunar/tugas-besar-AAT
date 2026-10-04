@@ -1,0 +1,61 @@
+time="2026-10-03T16:35:45Z" level=error msg="Error: auth /v1/auth/login failed with status 429\n\tat failAuth (file:///work/hazards.js:46:9(8))\n\tat requestSession (file:///work/hazards.js:70:20(187))\n\tat token (file:///work/hazards.js:76:41(12))\n\tat read (file:///work/hazards.js:83:28(8))\n\tat pvmbgReaders (file:///work/hazards.js:100:38(4))\n" executor=constant-vus hint="script exception" scenario=pvmbg_readers source=stacktrace
+
+
+  █ THRESHOLDS
+
+    auth_failures
+    ✗ 'count==0' count=1
+
+    bmkg_success_duration
+    ✓ 'p(95)<300' p(95)=96.14ms
+
+    hazard_successes{source:BMKG}
+    ✓ 'count>0' count=54777
+
+    hazard_successes{source:PVMBG}
+    ✓ 'count>0' count=54256
+
+    hazard_unexpected_rate
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS
+
+    CUSTOM
+    auth_attempts..................: 251    2.987389/s
+    auth_controlled_429............: 131    1.559155/s
+    auth_duration..................: min=288.4µs      max=650.02ms avg=82.27ms p(50)=10.32ms p(95)=324.47ms p(99)=542.37ms
+    auth_failures..................: 1      0.011902/s
+    bmkg_duration..................: min=-790203847ns max=251.14ms avg=48.18ms p(50)=43.09ms p(95)=96.15ms  p(99)=131.17ms
+    bmkg_success_duration..........: min=-790203847ns max=232.09ms avg=48.18ms p(50)=43.09ms p(95)=96.14ms  p(99)=131.17ms
+    hazard_attempts................: 109035 1297.728971/s
+    hazard_duration................: min=-790203847ns max=288.66ms avg=48.39ms p(50)=43.3ms  p(95)=96.35ms  p(99)=131.23ms
+    hazard_iterations..............: 109036 1297.740873/s
+    hazard_success_duration........: min=-790203847ns max=288.66ms avg=48.38ms p(50)=43.3ms  p(95)=96.34ms  p(99)=131.19ms
+    hazard_successes...............: 109033 1297.705167/s
+      { source:BMKG }..............: 54777  651.953041/s
+      { source:PVMBG }.............: 54256  645.752126/s
+    hazard_unexpected..............: 2      0.023804/s
+    hazard_unexpected_rate.........: 0.00%  2 out of 109035
+    pvmbg_duration.................: min=-753816170ns max=288.66ms avg=48.6ms  p(50)=43.5ms  p(95)=96.52ms  p(99)=131.3ms
+    pvmbg_success_duration.........: min=-753816170ns max=288.66ms avg=48.6ms  p(50)=43.5ms  p(95)=96.5ms   p(99)=131.26ms
+
+    HTTP
+    http_req_duration..............: min=-790203847ns max=650.02ms avg=48.47ms p(50)=43.29ms p(95)=96.57ms  p(99)=132.67ms
+      { expected_response:true }...: min=-790203847ns max=650.02ms avg=48.52ms p(50)=43.32ms p(95)=96.6ms   p(99)=132.66ms
+    http_req_failed................: 0.12%  133 out of 109286
+    http_reqs......................: 109286 1300.71636/s
+
+    EXECUTION
+    iteration_duration.............: min=3.05ms       max=1.46s    avg=49.49ms p(50)=43.84ms p(95)=97.56ms  p(99)=134.31ms
+    iterations.....................: 109036 1297.740873/s
+    vus............................: 60     min=60            max=60
+    vus_max........................: 60     min=60            max=60
+
+    NETWORK
+    data_received..................: 2.4 GB 28 MB/s
+    data_sent......................: 76 MB  901 kB/s
+
+
+
+time="2026-10-03T16:37:08Z" level=error msg="thresholds on metrics 'auth_failures' have been crossed"

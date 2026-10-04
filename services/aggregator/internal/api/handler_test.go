@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -164,4 +166,22 @@ func TestInternalAPIRejectsInvalidQueriesAndUnavailableSource(t *testing.T) {
 			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 		}
 	})
+}
+
+func TestRequestLogIncludesCorrelationTimingAndRejectedStatus(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	handler := NewHandler(&fakeRepository{}, "private-internal-key", time.Now)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/hazards", nil)
+	request.Header.Set("X-Correlation-ID", "request-42")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+	var entry map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["correlation_id"] != "request-42" || entry["status"] != float64(401) || entry["duration_ms"] == nil || strings.Contains(logs.String(), "private-internal-key") {
+		t.Fatalf("unexpected log: %s", logs.String())
+	}
 }

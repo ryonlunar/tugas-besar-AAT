@@ -33,8 +33,25 @@ type JetStreamPublisher struct {
 	js     nats.JetStreamContext
 }
 
+// MessageFits counts the payload and encoded message-ID header against the stream limit.
+func MessageFits(payload []byte, messageID string, maxBytes int) bool {
+	if messageID == "" || maxBytes <= 0 {
+		return false
+	}
+	msg := nats.NewMsg("")
+	msg.Data = payload
+	msg.Header.Set(nats.MsgIdHdr, messageID)
+	return msg.Size() <= maxBytes
+}
+
+// MinDuplicateWindow is the minimum accepted by the project's NATS 2.10 server.
+const MinDuplicateWindow = 100 * time.Millisecond
+
 func NewJetStreamPublisher(config JetStreamConfig) (*JetStreamPublisher, error) {
-	if config.URL == "" || config.Token == "" || config.Stream == "" || len(config.Subjects) == 0 || config.MaxAge <= 0 || config.MaxBytes <= 0 || config.MaxMsgs <= 0 || config.MaxMsgSize <= 0 || config.DuplicateWindow < 0 {
+	if config.DuplicateWindow < MinDuplicateWindow {
+		return nil, fmt.Errorf("NATS duplicate window must be at least %s", MinDuplicateWindow)
+	}
+	if config.URL == "" || config.Token == "" || config.Stream == "" || len(config.Subjects) == 0 || config.MaxAge <= 0 || config.MaxBytes <= 0 || config.MaxMsgs <= 0 || config.MaxMsgSize <= 0 {
 		return nil, errors.New("NATS JetStream configuration is incomplete")
 	}
 	if len(config.StreamSubjects) == 0 {
@@ -62,7 +79,7 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payloa
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(payload) > int(p.config.MaxMsgSize) || messageID == "" {
+	if !MessageFits(payload, messageID, int(p.config.MaxMsgSize)) {
 		return errors.New("NATS message violates configured envelope limits")
 	}
 	allowed := false

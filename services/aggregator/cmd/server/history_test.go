@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 )
 
 func TestHistoryAuditOutputsOnlySelectedSnapshots(t *testing.T) {
@@ -23,9 +24,10 @@ func TestHistoryAuditOutputsOnlySelectedSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got struct {
-		HazardID    string `json:"hazard_id"`
-		Source      string `json:"source"`
-		SourceRefID string `json:"source_ref_id"`
+		HazardID    string                  `json:"hazard_id"`
+		Source      string                  `json:"source"`
+		SourceRefID string                  `json:"source_ref_id"`
+		Migrations  []store.MigrationStatus `json:"migrations"`
 		Versions    []struct {
 			Revision int64           `json:"revision"`
 			Data     json.RawMessage `json:"data"`
@@ -36,6 +38,9 @@ func TestHistoryAuditOutputsOnlySelectedSnapshots(t *testing.T) {
 	}
 	if got.HazardID != repo.hazardID || got.Source != "PVMBG" || got.SourceRefID != "volcano-sim-01" {
 		t.Fatalf("unexpected audit identity: %+v", got)
+	}
+	if len(got.Migrations) != 1 || got.Migrations[0].Version != "001_canonical_store.sql" {
+		t.Fatalf("migration ledger missing: %+v", got.Migrations)
 	}
 	if len(got.Versions) != 2 || got.Versions[0].Revision != 1 || got.Versions[1].Revision != 2 {
 		t.Fatalf("audit returned unselected versions: %+v", got.Versions)
@@ -74,4 +79,8 @@ func (f *fakeHistoryStore) FindHazardID(_ context.Context, source mapper.Source,
 func (f *fakeHistoryStore) GetVersion(_ context.Context, _ string, revision int64) (json.RawMessage, bool, error) {
 	data, ok := f.versions[revision]
 	return data, ok, nil
+}
+
+func (f *fakeHistoryStore) MigrationStatus(context.Context) ([]store.MigrationStatus, error) {
+	return []store.MigrationStatus{{Version: "001_canonical_store.sql", Checksum: "test-checksum"}}, nil
 }

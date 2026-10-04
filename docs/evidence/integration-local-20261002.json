@@ -1,0 +1,99 @@
+{
+  "started_at": "2026-10-02T10:30:52.806252+00:00",
+  "commit": "e6a9b6ad77e2a0819f27960cfb4d1a7b45a386ee",
+  "scenario": "all",
+  "results": [
+    {
+      "check": "client access",
+      "identity": "media",
+      "status": 200,
+      "view": "summary",
+      "fields": 7
+    },
+    {
+      "check": "client access",
+      "identity": "field-team",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "client access",
+      "identity": "bnpb-internal",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "cross-source credentials rejected",
+      "unauthenticated_api_status": 401
+    },
+    {
+      "check": "live PVMBG outage",
+      "status": 200,
+      "freshness": "stale",
+      "records": 50
+    },
+    {
+      "check": "schema v2 stored without Aggregator restart",
+      "new_attribute": "confidence_level"
+    },
+    {
+      "check": "events reach consumer",
+      "consumer": "dashboard-consumer",
+      "inbox_count": 7570,
+      "quarantine_count": 0
+    },
+    {
+      "check": "events reach consumer",
+      "consumer": "notifier-consumer",
+      "inbox_count": 7601,
+      "quarantine_count": 0
+    },
+    {
+      "check": "valid JWT during Auth outage",
+      "status": 200
+    },
+    {
+      "check": "waiting for natural expiry",
+      "seconds": 57.36,
+      "ttl_seconds": 60
+    },
+    {
+      "check": "expiry and persistent refresh after restart",
+      "old_access_status": 401,
+      "new_access_status": 200
+    },
+    {
+      "check": "refresh replay revokes family",
+      "status": 401
+    },
+    {
+      "check": "one consumer down",
+      "notifier_before": 9562,
+      "notifier_after": 9563,
+      "api_status": 200,
+      "stopped_seconds": 1.47
+    },
+    {
+      "check": "dashboard catches up to stopped-period target",
+      "target": 9563,
+      "dashboard_after": 9563
+    },
+    {
+      "check": "consumer rebuild while API remains available",
+      "api_requests": 9,
+      "api_statuses": [
+        200
+      ],
+      "other_container_ids_unchanged": true
+    },
+    {
+      "check": "new third durable without producer changes",
+      "durable": "third-consumer-trial-1790937141405891439",
+      "inbox_count": 9565,
+      "producer_container_unchanged": true
+    }
+  ],
+  "passed": true
+}

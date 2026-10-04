@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type correlationIDContextKey struct{}
@@ -96,13 +98,30 @@ func (c *PVMBGClient) getArray(ctx context.Context, path string, auth func(*http
 	return fetchArray(ctx, c.client, c.baseURL+path, c.maxBody, auth, path)
 }
 
-func fetchArray(ctx context.Context, client *http.Client, target string, maxBody int64, auth func(*http.Request), label string) ([][]byte, error) {
+func fetchArray(ctx context.Context, client *http.Client, target string, maxBody int64, auth func(*http.Request), label string) (items [][]byte, err error) {
+	started := time.Now()
+	status := 0
+	correlationID, _ := ctx.Value(correlationIDContextKey{}).(string)
+	if !sourceIDPattern.MatchString(correlationID) {
+		correlationID, _ = newCorrelationID()
+	}
+	source := "BMKG"
+	if label == "/volcanic-reports" {
+		source = "PVMBG"
+	}
+	defer func() {
+		outcome := "success"
+		if err != nil {
+			outcome = "failed"
+		}
+		slog.Info("source request complete", "service", "aggregator", "operation", "source_read", "source", source, "path", label, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", status, "outcome", outcome)
+	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build source request %s: %w", label, err)
 	}
 	req.Header.Set("Accept", "application/json")
-	if correlationID, ok := ctx.Value(correlationIDContextKey{}).(string); ok && sourceIDPattern.MatchString(correlationID) {
+	if sourceIDPattern.MatchString(correlationID) {
 		req.Header.Set("X-Correlation-ID", correlationID)
 	}
 	auth(req)
@@ -110,6 +129,7 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 	if err != nil {
 		return nil, fmt.Errorf("source request %s failed", label)
 	}
+	status = resp.StatusCode
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("source request %s returned HTTP %d", label, resp.StatusCode)
@@ -129,7 +149,7 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return nil, fmt.Errorf("source response %s has trailing JSON data", label)
 	}
-	items := make([][]byte, len(raw))
+	items = make([][]byte, len(raw))
 	for i, item := range raw {
 		items[i] = append([]byte(nil), item...)
 	}

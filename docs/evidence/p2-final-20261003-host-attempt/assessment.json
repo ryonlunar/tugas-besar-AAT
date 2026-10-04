@@ -1,0 +1,15 @@
+{
+  "passed": false,
+  "reason": "Negative duration metrics invalidate latency evidence. Host wall elapsed time also differed from monotonic elapsed time.",
+  "negative_minima": {
+    "http_req_duration": -1175.069574,
+    "hazard_success_duration": -1175.069574,
+    "bmkg_duration": -1175.069574,
+    "bmkg_success_duration": -1175.069574,
+    "http_req_duration{expected_response:true}": -1175.069574,
+    "hazard_duration": -1175.069574,
+    "pvmbg_duration": -1171.115524,
+    "pvmbg_success_duration": -1171.115524,
+    "http_req_receiving": -1212.683815
+  }
+}

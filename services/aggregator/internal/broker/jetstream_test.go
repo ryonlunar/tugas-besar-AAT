@@ -83,3 +83,17 @@ func TestJetStreamPublishConnectionSetupRespectsCallerDeadline(t *testing.T) {
 		t.Fatalf("connection setup ignored caller deadline: elapsed=%s, err=%v", elapsed, err)
 	}
 }
+
+func TestJetStreamPublisherRejectsDuplicateWindowBelowBrokerMinimum(t *testing.T) {
+	for _, window := range []time.Duration{0, -time.Second, time.Nanosecond, 99 * time.Millisecond} {
+		config := JetStreamConfig{
+			URL: "nats://127.0.0.1:4222", Token: "test-token", Stream: "HAZARD_EVENTS",
+			Subjects: []string{"hazard.events.v1.BMKG"},
+			MaxAge:   time.Hour, MaxBytes: 1 << 20, MaxMsgs: 100, MaxMsgSize: 65536,
+			DuplicateWindow: window,
+		}
+		if _, err := NewJetStreamPublisher(config); err == nil || err.Error() != "NATS duplicate window must be at least 100ms" {
+			t.Fatalf("duplicate window %s: error=%v", window, err)
+		}
+	}
+}

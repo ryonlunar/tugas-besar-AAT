@@ -1,0 +1,26 @@
+{
+  "k6_exit": 99,
+  "tcp_collector_exit": 0,
+  "started_at": "2026-10-03T16:35:43.959409+00:00",
+  "completed_at": "2026-10-03T16:37:11.694999+00:00",
+  "generator_elapsed_seconds": 95.8625165479898,
+  "kernel": "6.18.40.1-microsoft-standard-WSL2",
+  "commit": "cda276a26841e7145acb71474d2769c270327826",
+  "k6_version": "2.3.0",
+  "generator": "Alpine 3.21 Docker container on api-net; k6 and TCP collector share its network namespace",
+  "profile": {
+    "bmkg_vus": 30,
+    "pvmbg_vus": 30,
+    "duration_seconds": 90,
+    "pvmbg_delay_ms": 3000,
+    "page_limit": 50,
+    "view": "full",
+    "identity": "field-team",
+    "access_ttl_seconds": 60
+  },
+  "observed_pvmbg_delay_ms": 3002.93,
+  "commands": [
+    "k6 run --quiet --summary-export /work/evidence/k6-summary.json /work/hazards.js",
+    "python3 /work/capture-tcp-connections.py --api-url http://client-api:18080 --seconds 95 --output /work/evidence/tcp.json"
+  ]
+}

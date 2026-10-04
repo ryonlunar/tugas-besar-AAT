@@ -3,6 +3,12 @@
 *
 !go.mod
 !go.sum
+!contracts/
+!contracts/*.go
+!contracts/*.json
+!pkg/
+!pkg/jetstreamconsumer/
+!pkg/jetstreamconsumer/**
 !services/
 !services/aggregator/
 !services/aggregator/**
@@ -10,3 +16,11 @@
 !services/bmkg-mock/**
 !services/pvmbg-mock/
 !services/pvmbg-mock/**
+!services/dashboard-consumer/
+!services/dashboard-consumer/**
+!services/notifier-consumer/
+!services/notifier-consumer/**
+!services/auth/
+!services/auth/**
+!services/client-api/
+!services/client-api/**

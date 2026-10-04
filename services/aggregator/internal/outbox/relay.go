@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"time"
 
@@ -224,19 +223,27 @@ func retryDelay(attempt int, min, max time.Duration) time.Duration {
 	if attempt < 1 {
 		attempt = 1
 	}
-	factor := math.Pow(2, float64(attempt-1))
-	base := time.Duration(float64(min) * factor)
+	base := min
+	for i := 1; i < attempt && base < max; i++ {
+		if base > max/2 {
+			base = max
+			break
+		}
+		base *= 2
+	}
 	if base > max {
 		base = max
 	}
-	// Stable bounded jitter keeps retries spread while making tests reproducible.
+	// Keep the existing deterministic variation between attempts.
 	jitter := 0.8 + float64(attempt%5)*0.1
-	result := time.Duration(float64(base) * jitter)
+	scaled := float64(base) * jitter
+	// Cap before conversion, which can overflow even when base is bounded.
+	if scaled >= float64(max) {
+		return max
+	}
+	result := time.Duration(scaled)
 	if result < min/2 {
 		result = min / 2
-	}
-	if result > max {
-		result = max
 	}
 	return result
 }

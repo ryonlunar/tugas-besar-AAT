@@ -1,0 +1,34 @@
+{
+  "verified_at": "2026-09-29",
+  "branch": "feat/p5-consumers-compose",
+  "code_provenance": "Uncommitted worktree based on origin/main 3d43454; repeat on the final reviewed commit",
+  "compose_project": "aat-orang3-review",
+  "checks": {
+    "seven_base_services_built_and_healthy": true,
+    "producer_container_id_before_and_after_consumer_rebuild": "37a3cc011c9197668aa183a225731577a12a2d506399fff00245bffd6377801a",
+    "dashboard_stopped_seconds": 33.4,
+    "before_stop_inbox_counts": {"dashboard": 206, "notifier": 206},
+    "notifier_count_while_dashboard_stopped": 213,
+    "after_dashboard_restart_inbox_counts": {"dashboard": 213, "notifier": 213},
+    "third_consumer_configuration_at_test": {"service": "audit-consumer", "durable": "audit-v1"},
+    "third_consumer_added_without_producer_restart": true,
+    "jetstream_consumer_count_after_third_joined": 3,
+    "common_message_ids_seen_in_all_three_visible_samples": 88,
+    "invalid_envelope_quarantine_count_per_consumer": 1,
+    "post_rebuild_invalid_probe_quarantine_count_per_consumer": 2,
+    "duplicate_valid_probe_receipt_count_per_consumer": 1,
+    "out_of_order_probe_dashboard_snapshot": {"revision": 3, "severity": "AWAS"},
+    "broker_outage": {
+      "pending_outbox_before_aggregator_restart": 6,
+      "pending_outbox_after_aggregator_restart": 12,
+      "aggregator_readiness_during_outage": "ready",
+      "pending_outbox_after_broker_restart": 0,
+      "all_services_healthy_after_broker_restart": true
+    }
+  },
+  "limits": [
+    "Auth and Client API are not present in this branch, so this is not full M1 acceptance.",
+    "Malformed, duplicate, and out-of-order probe envelopes were published directly to the local broker; they test consumer behavior, not Aggregator mapping.",
+    "JetStream Limits retention allows catch-up only while messages remain retained."
+  ]
+}

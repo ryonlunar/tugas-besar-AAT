@@ -3,6 +3,7 @@ package poller
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -438,3 +439,33 @@ type fakePVMBG struct {
 }
 
 func (f *fakePVMBG) Fetch(context.Context) ([][]byte, error) { f.calls++; return f.reports, f.err }
+
+func TestSourceCallLogsCorrelationTimingAndSanitizedFailure(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Correlation-ID") != "poll-42" {
+			t.Error("correlation not forwarded")
+		}
+		http.Error(w, "private response body", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	client := NewPVMBGClient(server.URL, "private-source-token", server.Client(), 1024)
+	if _, err := client.Fetch(withCorrelationID(context.Background(), "poll-42")); err == nil {
+		t.Fatal("expected upstream failure")
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry["correlation_id"] != "poll-42" || entry["status"] != float64(503) || entry["duration_ms"] == nil || entry["outcome"] != "failed" {
+		t.Fatalf("unexpected log: %s", logs.String())
+	}
+	for _, private := range []string{"private-source-token", "private response body"} {
+		if strings.Contains(logs.String(), private) {
+			t.Fatal("private upstream information logged")
+		}
+	}
+}

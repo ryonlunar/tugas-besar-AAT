@@ -1,0 +1,16 @@
+{
+  "passed": false,
+  "reason": "Negative duration metrics invalidate latency evidence; Auth retries also exhausted once with controlled 429. Generator shared the WSL kernel.",
+  "negative_minima": {
+    "hazard_duration": -790.203847,
+    "pvmbg_duration": -753.81617,
+    "http_req_duration": -790.203847,
+    "http_req_duration{expected_response:true}": -790.203847,
+    "bmkg_duration": -790.203847,
+    "hazard_success_duration": -790.203847,
+    "bmkg_success_duration": -790.203847,
+    "http_req_receiving": -831.649553,
+    "pvmbg_success_duration": -753.81617
+  },
+  "auth_failures": 1
+}

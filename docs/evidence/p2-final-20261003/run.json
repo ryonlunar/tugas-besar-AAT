@@ -1,0 +1,22 @@
+{
+  "completed_at": "2026-10-03T16:48:54.684311+00:00",
+  "commit": "b17964bcad49f408bad77e6d6901167acff67606",
+  "runner": "Python standard library; monotonic end-to-end request timing",
+  "profile": {
+    "bmkg_vus": 30,
+    "pvmbg_vus": 30,
+    "duration_seconds": 90,
+    "pvmbg_delay_ms": 3000,
+    "page_limit": 50,
+    "view": "full",
+    "identity": "field-team",
+    "access_ttl_seconds": 60
+  },
+  "observed_pvmbg_delay_ms": 3003.03,
+  "runner_exit": 0,
+  "tcp_collector_exit": 0,
+  "commands": [
+    "python3 scripts/load/hazards-monotonic.py --output docs/evidence/p2-final-20261003/monotonic-summary.json",
+    "python3 scripts/load/capture-tcp-connections.py --api-url http://127.0.0.1:18080 --seconds 95 --output docs/evidence/p2-final-20261003/tcp.json"
+  ]
+}

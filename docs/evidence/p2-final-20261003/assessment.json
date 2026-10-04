@@ -1,0 +1,39 @@
+{
+  "passed": true,
+  "all_duration_minima_nonnegative": true,
+  "tcp_at_least_50_seconds": 89.888,
+  "tcp_min_in_verified_interval": 60,
+  "hazard_attempts": 91934,
+  "hazard_successes": 91226,
+  "unexpected_errors": 708,
+  "api_status_counts": {
+    "200": 91226,
+    "401": 696,
+    "503": 12
+  },
+  "unexpected_error_percent": 0.7701176931276785,
+  "hazard_controlled_429": 0,
+  "auth_controlled_429": 12,
+  "auth_failures": 0,
+  "hazard_successes_per_second": 1013.0702173817044,
+  "bmkg_success_ms": {
+    "min": 4.575567,
+    "max": 342.426508,
+    "p50": 52.126793,
+    "p95": 114.05177,
+    "p99": 155.502461
+  },
+  "pvmbg_success_ms": {
+    "min": 7.487411,
+    "max": 295.750585,
+    "p50": 52.517335,
+    "p95": 113.624812,
+    "p99": 156.732113
+  },
+  "observed_pvmbg_delay_ms": 3003.03,
+  "limitations": [
+    "Host wall clocks shifted during verification; use the monotonic duration and TCP interval measurements.",
+    "696 unauthorized responses are included as errors; their individual causes were not fully diagnosed. Twelve 503 responses are also included.",
+    "60 independent sessions were obtained before the measured workload; concurrent login bootstrap is outside this fallback profile."
+  ]
+}

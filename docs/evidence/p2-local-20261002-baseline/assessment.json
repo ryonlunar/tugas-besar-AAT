@@ -1,0 +1,52 @@
+{
+  "commit": "e6a9b6ad77e2a0819f27960cfb4d1a7b45a386ee",
+  "k6_exit": 99,
+  "tcp_minimum": 60,
+  "steady_span_seconds": 69.123,
+  "tcp_gate_passed": true,
+  "hazard_attempts": 87392,
+  "hazard_successes": 85016,
+  "unexpected_errors": 2376,
+  "unexpected_error_percent": 2.7187843280849506,
+  "hazard_429": 0,
+  "auth_429": 126,
+  "successful_hazard_requests_per_second": 948.5024206229103,
+  "hazard_requests_per_second": 975.0108631678435,
+  "latency_ms": {
+    "hazard_duration": {
+      "p(50)": 46.1925885,
+      "p(95)": 149.06230039999994,
+      "p(99)": 322.30021237999887
+    },
+    "hazard_success_duration": {
+      "p(50)": 45.729102499999996,
+      "p(95)": 142.4550965,
+      "p(99)": 318.8737841
+    },
+    "bmkg_duration": {
+      "p(50)": 45.95215,
+      "p(95)": 149.14910789999973,
+      "p(99)": 320.8302172199997
+    },
+    "bmkg_success_duration": {
+      "p(50)": 45.451451,
+      "p(95)": 141.24111799999997,
+      "p(99)": 317.67071119999855
+    },
+    "pvmbg_duration": {
+      "p(50)": 46.483684,
+      "p(95)": 148.96057289999993,
+      "p(99)": 323.69705052999996
+    },
+    "pvmbg_success_duration": {
+      "p(50)": 45.978675,
+      "p(95)": 143.54909919999983,
+      "p(99)": 321.17420081999546
+    },
+    "auth_duration": {
+      "p(50)": 25.9514295,
+      "p(95)": 362.68891325,
+      "p(99)": 543.4708117500003
+    }
+  }
+}
