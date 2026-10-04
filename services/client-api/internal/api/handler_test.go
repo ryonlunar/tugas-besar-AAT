@@ -239,3 +239,48 @@ func TestReadinessForwardsAndLogsCorrelationWithoutCredentials(t *testing.T) {
 		t.Fatal("correlated readiness timing not logged")
 	}
 }
+
+func TestTokenRejectionLogsDistinguishClockSkewFromExpiry(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		issuedAt   time.Time
+		wantReason string
+	}{
+		{"API clock behind Auth", now.Add(time.Second), "TOKEN_ISSUED_IN_FUTURE"},
+		{"natural expiry", now.Add(-time.Minute), "TOKEN_EXPIRED"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			token := signed(t, key, "field-team", "hazards:summary hazards:raw", test.issuedAt)
+			var logs bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+			handler := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: "http://unused.invalid", Now: func() time.Time { return now }})
+			defer handler.client.CloseIdleConnections()
+			request := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
+			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("X-Correlation-ID", "401-reproduction")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != 401 {
+				t.Fatalf("got HTTP %d", response.Code)
+			}
+			decoder := json.NewDecoder(&logs)
+			var rejection map[string]any
+			if err := decoder.Decode(&rejection); err != nil {
+				t.Fatal(err)
+			}
+			if rejection["reason"] != test.wantReason || rejection["correlation_id"] != "401-reproduction" {
+				t.Fatalf("rejection context: %+v", rejection)
+			}
+			if strings.Contains(logs.String(), token) {
+				t.Fatal("token leaked into logs")
+			}
+		})
+	}
+}

@@ -165,6 +165,14 @@ func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (string, 
 		return h.cfg.PublicKey, nil
 	}, jwt.WithValidMethods([]string{"RS256"}), jwt.WithIssuer(h.cfg.Issuer), jwt.WithAudience(h.cfg.Audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(h.cfg.Now))
 	if err != nil || !token.Valid || c.Subject == "" || c.Scope == "" {
+		reason := "INVALID_TOKEN"
+		switch {
+		case errors.Is(err, jwt.ErrTokenUsedBeforeIssued):
+			reason = "TOKEN_ISSUED_IN_FUTURE"
+		case errors.Is(err, jwt.ErrTokenExpired):
+			reason = "TOKEN_EXPIRED"
+		}
+		slog.Warn("access token rejected", "service", "client-api", "correlation_id", corrID(r), "reason", reason)
 		writeError(w, 401, "UNAUTHORIZED", "Bearer token is invalid or expired", corrID(r))
 		return "", false
 	}
