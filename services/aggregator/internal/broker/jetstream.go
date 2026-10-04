@@ -44,8 +44,14 @@ func MessageFits(payload []byte, messageID string, maxBytes int) bool {
 	return msg.Size() <= maxBytes
 }
 
+// MinDuplicateWindow is the minimum accepted by the project's NATS 2.10 server.
+const MinDuplicateWindow = 100 * time.Millisecond
+
 func NewJetStreamPublisher(config JetStreamConfig) (*JetStreamPublisher, error) {
-	if config.URL == "" || config.Token == "" || config.Stream == "" || len(config.Subjects) == 0 || config.MaxAge <= 0 || config.MaxBytes <= 0 || config.MaxMsgs <= 0 || config.MaxMsgSize <= 0 || config.DuplicateWindow < 0 {
+	if config.DuplicateWindow < MinDuplicateWindow {
+		return nil, fmt.Errorf("NATS duplicate window must be at least %s", MinDuplicateWindow)
+	}
+	if config.URL == "" || config.Token == "" || config.Stream == "" || len(config.Subjects) == 0 || config.MaxAge <= 0 || config.MaxBytes <= 0 || config.MaxMsgs <= 0 || config.MaxMsgSize <= 0 {
 		return nil, errors.New("NATS JetStream configuration is incomplete")
 	}
 	if len(config.StreamSubjects) == 0 {

@@ -123,3 +123,51 @@ func TestJetStreamMessageLimitIncludesHeaders(t *testing.T) {
 		t.Fatalf("unexpected broker contents: info=%+v error=%v", info, err)
 	}
 }
+
+func TestJetStreamPublisherRestartsWithPositiveDuplicateWindow(t *testing.T) {
+	url, token := os.Getenv("AAT_TEST_NATS_URL"), os.Getenv("AAT_TEST_NATS_TOKEN")
+	if url == "" || token == "" {
+		t.Skip("disposable NATS is required")
+	}
+	conn, err := nats.Connect(url, nats.Token(token), nats.Timeout(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, window := range []time.Duration{100 * time.Millisecond, 30 * time.Second, 2 * time.Minute} {
+		t.Run(window.String(), func(t *testing.T) {
+			stream := "AAT_RESTART_" + strconv.FormatInt(time.Now().UnixNano(), 36)
+			subject := "aat.restart." + stream
+			defer js.DeleteStream(stream)
+			config := JetStreamConfig{
+				URL: url, Token: token, Stream: stream, Subjects: []string{subject},
+				MaxAge: time.Hour, MaxBytes: 1 << 20, MaxMsgs: 100, MaxMsgSize: 65536,
+				DuplicateWindow: window, ConnectTimeout: time.Second,
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			for revision := 1; revision <= 2; revision++ {
+				publisher, err := NewJetStreamPublisher(config)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = publisher.Publish(ctx, subject, []byte(`{}`), fmt.Sprintf("restart:%d", revision))
+				publisher.Close()
+				if err != nil {
+					t.Fatalf("publisher %d failed with window %s: %v", revision, window, err)
+				}
+			}
+			info, err := js.StreamInfo(stream)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Config.Duplicates != window || info.State.Msgs != 2 {
+				t.Fatalf("effective window=%s messages=%d, want %s and 2", info.Config.Duplicates, info.State.Msgs, window)
+			}
+		})
+	}
+}

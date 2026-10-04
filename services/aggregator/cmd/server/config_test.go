@@ -73,3 +73,20 @@ func TestLoadConfigRejectsNonPositiveNATSPublishTimeout(t *testing.T) {
 		t.Fatal("non-positive NATS publish timeout must be rejected")
 	}
 }
+
+func TestLoadConfigRejectsDuplicateWindowBelowBrokerMinimum(t *testing.T) {
+	setValidConfigEnvironment(t)
+	for _, value := range []string{"0s", "-1s", "1ns", "99ms"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("NATS_DUPLICATE_WINDOW", value)
+			if _, err := loadConfig(); err == nil || err.Error() != "NATS_DUPLICATE_WINDOW must be at least 100ms" {
+				t.Fatalf("invalid duplicate window accepted: %v", err)
+			}
+		})
+	}
+	t.Setenv("NATS_DUPLICATE_WINDOW", "")
+	cfg, err := loadConfig()
+	if err != nil || cfg.natsDuplicateWindow != 2*time.Minute {
+		t.Fatalf("default duplicate window=%s error=%v", cfg.natsDuplicateWindow, err)
+	}
+}

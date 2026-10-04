@@ -323,8 +323,11 @@ func loadConfig() (config, error) {
 	if c.natsMaxMsgSize > int(^uint32(0)>>1) {
 		return config{}, errors.New("NATS_MAX_MSG_SIZE exceeds supported range")
 	}
-	if c.natsMaxAge <= 0 || c.natsDuplicateWindow < 0 {
-		return config{}, errors.New("NATS retention and duplicate window are invalid")
+	if c.natsMaxAge <= 0 {
+		return config{}, errors.New("NATS_MAX_AGE must be positive")
+	}
+	if c.natsDuplicateWindow < broker.MinDuplicateWindow {
+		return config{}, fmt.Errorf("NATS_DUPLICATE_WINDOW must be at least %s", broker.MinDuplicateWindow)
 	}
 	if c.outboxPoll, err = envDuration("OUTBOX_POLL_INTERVAL", "500ms"); err != nil {
 		return config{}, err
