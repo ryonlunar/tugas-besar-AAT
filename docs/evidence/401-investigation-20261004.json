@@ -1,0 +1,154 @@
+{
+  "application_revision": "9319b11",
+  "purpose": "Diagnose the earlier unauthorized responses; no token-validation policy change and no replacement of the existing P2 acceptance evidence",
+  "existing_load_runner": "scripts/load/hazards-monotonic.py",
+  "diagnostic_request_wrapper": "Same request/session flow with a unique correlation per request, response status counts, bounded unauthorized samples of iat/exp and timestamps, and wall versus monotonic drift; no tokens or secrets recorded",
+  "controlled_tests": {
+    "command": "GOCACHE=/tmp/aat-pr-review-go-cache go test -race -mod=readonly ./services/client-api/internal/api",
+    "passed": true,
+    "cases": [
+      {
+        "scenario": "API clock one second behind token iat",
+        "status": 401,
+        "reason": "TOKEN_ISSUED_IN_FUTURE"
+      },
+      {
+        "scenario": "API clock at token exp",
+        "status": 401,
+        "reason": "TOKEN_EXPIRED"
+      }
+    ]
+  },
+  "static_upstream_run": {
+    "profile": {
+      "vus_per_source": 30,
+      "duration_seconds": 90.0,
+      "view": "full",
+      "limit": 50,
+      "identity": "field-team",
+      "access_ttl_seconds": 60
+    },
+    "elapsed_seconds": 90.03458222100744,
+    "response_counts": {
+      "200": 236981
+    },
+    "auth": {
+      "attempts": 131,
+      "controlled_429": 11,
+      "failures": 0
+    },
+    "wall_clock_minus_monotonic_drift_seconds": {
+      "min": -5.716648250789149,
+      "max": 1.199136022478342e-06
+    }
+  },
+  "immediate_login_and_refresh_reads": {
+    "purpose": "immediate read after login and after refresh, static upstream fixture",
+    "session_pairs": 1165,
+    "elapsed_seconds": 30.016438140999526,
+    "statuses": {
+      "200": 2330
+    },
+    "auth": {
+      "attempts": 2330,
+      "controlled_429": 0
+    },
+    "unauthorized_samples": []
+  },
+  "full_stack_run": {
+    "services": 9,
+    "pvmbg_configured_delay_ms": 3000,
+    "profile": {
+      "vus_per_source": 30,
+      "duration_seconds": 90.0,
+      "view": "full",
+      "limit": 50,
+      "identity": "field-team",
+      "access_ttl_seconds": 60
+    },
+    "elapsed_seconds": 90.0393913880107,
+    "response_counts": {
+      "200": 145737
+    },
+    "auth": {
+      "attempts": 129,
+      "controlled_429": 9,
+      "failures": 0
+    },
+    "wall_clock_minus_monotonic_drift_seconds": {
+      "min": -5.910016922454815,
+      "max": 8.99133738130331e-07
+    },
+    "api_log_cross_check": {
+      "method": "Client API JSON logs, correlation_id prefix 401-full-check-, restricted to this reproduction",
+      "response_counts": {
+        "200": 145737
+      },
+      "jwt_rejection_reasons": {},
+      "rejection_examples": []
+    },
+    "auth_log_cross_check": [
+      {
+        "operation": "POST /v1/auth/login",
+        "status": 200,
+        "count": 60
+      },
+      {
+        "operation": "POST /v1/auth/refresh",
+        "status": 200,
+        "count": 60
+      },
+      {
+        "operation": "POST /v1/auth/refresh",
+        "status": 429,
+        "count": 9
+      }
+    ]
+  },
+  "original_401_classification": "Unknown. The old logs did not record rejection reasons or the corresponding token claims. Clock-sensitive issued-at validation is a plausible explanation, not a confirmed attribution of all 696 responses.",
+  "expiry_probe_first_attempt": {
+    "result": "API natural expiry observed; subsequent probe failed because it reused an Auth HTTP connection beyond the configured 30-second idle timeout. Repeating with a fresh Auth connection.",
+    "jwt_rejections": [
+      {
+        "time": "2026-10-04T02:37:40.152482751Z",
+        "level": "WARN",
+        "msg": "access token rejected",
+        "service": "client-api",
+        "correlation_id": "401-expiry-check",
+        "reason": "TOKEN_EXPIRED"
+      }
+    ]
+  },
+  "natural_expiry_and_refresh": {
+    "correlation_id": "401-expiry-check",
+    "iat": 1791081513,
+    "exp": 1791081573,
+    "expires_in": 60,
+    "initial_read_status": 200,
+    "expired_read_status": 401,
+    "expired_response_date": "Sun, 04 Oct 2026 02:39:33 GMT",
+    "elapsed_to_expired_seconds": 63.49464226400596,
+    "refresh_status": 200,
+    "refreshed_read_status": 200,
+    "old_token_read_status": 401,
+    "rejection_examples": [
+      {
+        "time": "2026-10-04T02:39:33.145817326Z",
+        "level": "WARN",
+        "msg": "access token rejected",
+        "service": "client-api",
+        "correlation_id": "401-expiry-check",
+        "reason": "TOKEN_EXPIRED"
+      },
+      {
+        "time": "2026-10-04T02:39:33.170405675Z",
+        "level": "WARN",
+        "msg": "access token rejected",
+        "service": "client-api",
+        "correlation_id": "401-expiry-check",
+        "reason": "TOKEN_EXPIRED"
+      }
+    ]
+  },
+  "result": "Normal login/refresh succeeded in both load reproductions; original 696 unauthorized responses were not reproduced and remain unclassified."
+}
