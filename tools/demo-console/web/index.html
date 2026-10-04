@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>AAT · Demo console</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#overview"
+        ><span class="brand-mark">a.</span
+        ><span>AAT<span class="brand-sub">Demo console</span></span></a
+      >
+      <div class="nav-label">WORKSPACE</div>
+      <nav aria-label="Main navigation" id="navigation">
+        <button data-page="overview">
+          <span class="nav-symbol">◫</span>Overview
+        </button>
+        <div class="nav-label">MILESTONE 1</div>
+        <button data-page="p1">
+          <span class="nav-symbol">01</span>Mapping
+        </button>
+        <button data-page="p2">
+          <span class="nav-symbol">02</span>Resilience
+        </button>
+        <button data-page="p3">
+          <span class="nav-symbol">03</span>Authentication
+        </button>
+        <button data-page="p4">
+          <span class="nav-symbol">04</span>Independence
+        </button>
+        <button data-page="p5"><span class="nav-symbol">05</span>Events</button>
+        <div class="nav-divider"></div>
+        <button data-page="inspect">
+          <span class="nav-symbol">⌕</span>Inspect
+        </button>
+        <button data-page="evidence">
+          <span class="nav-symbol">▤</span>Evidence
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="local-dot"></span> Local workspace
+        <div id="project-label">Connecting…</div>
+      </div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <div>
+          <span class="eyebrow">COMPOSE PROJECT</span
+          ><strong id="project">Connecting…</strong
+          ><span id="revision" class="revision"></span>
+        </div>
+        <div class="topbar-right">
+          <span id="health" class="badge neutral">Checking services</span
+          ><button
+            class="icon-button"
+            id="refresh-status"
+            title="Refresh service status"
+            aria-label="Refresh service status"
+          >
+            ↻
+          </button>
+        </div>
+      </header>
+      <div class="body-grid">
+        <main id="main" tabindex="-1">
+          <div class="empty">Loading workspace…</div>
+        </main>
+        <aside class="console-panel" aria-label="Output console">
+          <div class="console-heading">
+            <div>
+              <span class="console-indicator"></span><strong>Console</strong>
+            </div>
+            <span id="console-state">Idle</span>
+          </div>
+          <div class="console-tabs" role="tablist">
+            <button id="execution-tab" role="tab" aria-selected="true">
+              Execution</button
+            ><button id="logs-tab" role="tab" aria-selected="false">
+              Service logs
+            </button>
+          </div>
+          <div id="run-info" class="console-run">
+            <span>No action selected</span>
+          </div>
+          <div id="log-controls" class="log-controls" hidden>
+            <label for="log-service">Service</label
+            ><select id="log-service">
+              <option>aggregator</option>
+              <option>client-api</option>
+              <option>auth</option>
+              <option>bmkg-mock</option>
+              <option>pvmbg-mock</option>
+              <option>dashboard-consumer</option>
+              <option>notifier-consumer</option>
+              <option>third-consumer</option>
+              <option>nats</option>
+              <option>postgres</option>
+            </select>
+          </div>
+          <pre id="console-output" tabindex="0">
+Choose a demo step to see its command and output here.
+
+Service logs are available in the next tab.</pre>
+          <div class="console-footer">
+            <button id="follow-output" aria-pressed="true">
+              ↓ Follow output</button
+            ><button id="copy-output">Copy</button
+            ><button id="cancel-run" hidden>Cancel run</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div id="toast" role="status" hidden></div>
+  </body>
+</html>
