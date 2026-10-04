@@ -240,45 +240,92 @@ func TestReadinessForwardsAndLogsCorrelationWithoutCredentials(t *testing.T) {
 	}
 }
 
-func TestTokenRejectionLogsDistinguishClockSkewFromExpiry(t *testing.T) {
+func TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuedAt := time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC)
+	expiresAt := issuedAt.Add(time.Minute)
+	sign := func(overrides jwt.MapClaims) string {
+		t.Helper()
+		claims := jwt.MapClaims{"iss": "aat-auth", "aud": "aat-client-api", "sub": "field-team", "scope": "hazards:summary hazards:raw", "iat": issuedAt.Unix(), "exp": expiresAt.Unix()}
+		for name, value := range overrides {
+			if value == nil {
+				delete(claims, name)
+			} else {
+				claims[name] = value
+			}
+		}
+		token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	token := sign(nil)
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte(`{"data":[],"meta":{}}`))
+	}))
+	defer upstream.Close()
 	for _, test := range []struct {
 		name       string
-		issuedAt   time.Time
+		token      string
+		now        time.Time
+		wantStatus int
 		wantReason string
 	}{
-		{"API clock behind Auth", now.Add(time.Second), "TOKEN_ISSUED_IN_FUTURE"},
-		{"natural expiry", now.Add(-time.Minute), "TOKEN_EXPIRED"},
+		{"API clock behind issuance", token, issuedAt.Add(-time.Second), 200, ""},
+		{"just before expiry", token, expiresAt.Add(-time.Nanosecond), 200, ""},
+		{"at expiry", token, expiresAt, 401, "TOKEN_EXPIRED"},
+		{"after expiry", token, expiresAt.Add(time.Nanosecond), 401, "TOKEN_EXPIRED"},
+		{"missing expiry", sign(jwt.MapClaims{"exp": nil}), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong signing key", signed(t, otherKey, "field-team", "hazards:summary hazards:raw", issuedAt), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong audience", sign(jwt.MapClaims{"aud": "other-api"}), issuedAt, 401, "INVALID_TOKEN"},
+		{"wrong issuer", sign(jwt.MapClaims{"iss": "other-auth"}), issuedAt, 401, "INVALID_TOKEN"},
+		{"future not-before", sign(jwt.MapClaims{"nbf": issuedAt.Add(time.Second).Unix()}), issuedAt, 401, "INVALID_TOKEN"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			token := signed(t, key, "field-team", "hazards:summary hazards:raw", test.issuedAt)
 			var logs bytes.Buffer
 			previous := slog.Default()
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(previous) })
-			handler := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: "http://unused.invalid", Now: func() time.Time { return now }})
+			handler := NewHandler(Config{PublicKey: &key.PublicKey, Issuer: "aat-auth", Audience: "aat-client-api", AggregatorURL: upstream.URL, Now: func() time.Time { return test.now }})
 			defer handler.client.CloseIdleConnections()
 			request := httptest.NewRequest(http.MethodGet, "/v1/hazards", nil)
-			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Authorization", "Bearer "+test.token)
 			request.Header.Set("X-Correlation-ID", "401-reproduction")
 			response := httptest.NewRecorder()
+			before := upstreamCalls.Load()
 			handler.ServeHTTP(response, request)
-			if response.Code != 401 {
-				t.Fatalf("got HTTP %d", response.Code)
+			if response.Code != test.wantStatus {
+				t.Fatalf("got HTTP %d, want %d", response.Code, test.wantStatus)
 			}
-			decoder := json.NewDecoder(&logs)
-			var rejection map[string]any
-			if err := decoder.Decode(&rejection); err != nil {
-				t.Fatal(err)
+			wantCalls := int64(0)
+			if test.wantStatus == 200 {
+				wantCalls = 1
 			}
-			if rejection["reason"] != test.wantReason || rejection["correlation_id"] != "401-reproduction" {
-				t.Fatalf("rejection context: %+v", rejection)
+			if upstreamCalls.Load()-before != wantCalls {
+				t.Fatal("unexpected upstream access")
 			}
-			if strings.Contains(logs.String(), token) {
+			if test.wantReason != "" {
+				var rejection map[string]any
+				if err := json.NewDecoder(&logs).Decode(&rejection); err != nil {
+					t.Fatal(err)
+				}
+				if rejection["reason"] != test.wantReason || rejection["correlation_id"] != "401-reproduction" {
+					t.Fatalf("rejection context: %+v", rejection)
+				}
+			} else if strings.Contains(logs.String(), "access token rejected") {
+				t.Fatal("accepted token logged as rejected")
+			}
+			if strings.Contains(logs.String(), test.token) {
 				t.Fatal("token leaked into logs")
 			}
 		})
