@@ -1,0 +1,20 @@
+$ jq '{started_at, profile, elapsed_seconds,
+>     bmkg_p95_ms: .sources.BMKG.success_duration_ms.p95,
+>     throughput: .hazard_successes_per_second,
+>     error_percent: .hazard_unexpected_error_percent}' \
+>   docs/report/evidence/load.json
+{
+  "started_at": "2026-10-05T13:11:41.596066+00:00",
+  "profile": {
+    "vus_per_source": 30,
+    "duration_seconds": 90.0,
+    "view": "full",
+    "limit": 50,
+    "identity": "field-team",
+    "access_ttl_seconds": 60
+  },
+  "elapsed_seconds": 90.08667208399856,
+  "bmkg_p95_ms": 124.521589,
+  "throughput": 980.25599078252,
+  "error_percent": 0.03396047001290498
+}

@@ -1,0 +1,10 @@
+$ jq '{refresh_token}' .secrets/report-session/field-team.json \
+>   | curl -sS --fail-with-body -H 'Content-Type: application/json' \
+>       --data-binary @- http://127.0.0.1:8284/v1/auth/refresh \
+>       -o .secrets/report-session/refreshed.json
+> jq '{token_type, expires_in, scope}' .secrets/report-session/refreshed.json
+{
+  "token_type": "Bearer",
+  "expires_in": 60,
+  "scope": "hazards:summary hazards:raw"
+}

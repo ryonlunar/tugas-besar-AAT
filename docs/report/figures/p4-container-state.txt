@@ -1,0 +1,10 @@
+$ docker inspect $(docker compose ps -q) \
+>   | jq -S 'map(select(.Config.Labels["com.docker.compose.service"]
+>       != "dashboard-consumer")) | sort_by(.Name)
+>       | map({name: .Name, id: .Id, started_at: .State.StartedAt,
+>           restarts: .RestartCount})' > .secrets/report-session/rebuild-after.json
+> diff -s .secrets/report-session/rebuild-before.json \
+>   .secrets/report-session/rebuild-after.json
+> jq length .secrets/report-session/rebuild-after.json
+Files .secrets/report-session/rebuild-before.json and .secrets/report-session/rebuild-after.json are identical
+8

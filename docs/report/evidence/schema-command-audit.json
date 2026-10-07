@@ -1,0 +1,60 @@
+{
+  "hazard_id": "a3e0c470-1b79-4f39-aeb1-c7a063568995",
+  "source": "PVMBG",
+  "source_ref_id": "sim-19ac08b49fd13778-report-001",
+  "versions": [
+    {
+      "revision": 1,
+      "data": {
+        "source": "PVMBG",
+        "latitude": -7,
+        "severity": "NORMAL",
+        "area_name": "Gunung Simulasi Red Mountain (Tamriel)",
+        "hazard_id": "a3e0c470-1b79-4f39-aeb1-c7a063568995",
+        "longitude": 108,
+        "attributes": {
+          "volcano_id": "sim-tamriel-red-mountain",
+          "eruption_count_24h": 1,
+          "ash_column_height_m": 125
+        },
+        "hazard_type": "VOLCANIC",
+        "ingested_at": "2026-10-07T04:55:43.141503395Z",
+        "occurred_at": "2026-10-07T03:58:29.494743Z",
+        "source_ref_id": "sim-19ac08b49fd13778-report-001"
+      }
+    },
+    {
+      "revision": 2,
+      "data": {
+        "source": "PVMBG",
+        "latitude": -7,
+        "severity": "NORMAL",
+        "area_name": "Gunung Simulasi Red Mountain (Tamriel)",
+        "hazard_id": "a3e0c470-1b79-4f39-aeb1-c7a063568995",
+        "longitude": 108,
+        "attributes": {
+          "volcano_id": "sim-tamriel-red-mountain",
+          "confidence_level": 0.58,
+          "eruption_count_24h": 1,
+          "ash_column_height_m": 125
+        },
+        "hazard_type": "VOLCANIC",
+        "ingested_at": "2026-10-07T04:59:03.726732777Z",
+        "occurred_at": "2026-10-07T03:58:29.494743Z",
+        "source_ref_id": "sim-19ac08b49fd13778-report-001"
+      }
+    }
+  ],
+  "migrations": [
+    {
+      "version": "001_canonical_store.sql",
+      "checksum": "52ac7c4d7f329b4d5f9e2e7f53d29919dcc8ba1e1c749e4848a98b28dbcc7011",
+      "applied_at": "2026-10-07T04:55:40.714872Z"
+    },
+    {
+      "version": "002_outbox_unpublished_index.sql",
+      "checksum": "5867f9fc4ae9149fdc77ab790ba6a65d5f47699ffa92b4081d4d4e12f4ea6780",
+      "applied_at": "2026-10-07T04:55:40.915548Z"
+    }
+  ]
+}

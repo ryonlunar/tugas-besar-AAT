@@ -1,0 +1,9 @@
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.xdv
+main.pdf
+!evidence/*.log
+__pycache__/

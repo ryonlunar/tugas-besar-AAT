@@ -1,0 +1,415 @@
+{
+  "started_at": "2026-10-05T13:03:35.560518+00:00",
+  "commit": "071b32d2efe1863ad65b2703a7ff1328998e4deb",
+  "scenario": "all",
+  "results": [
+    {
+      "check": "client access",
+      "identity": "media",
+      "status": 200,
+      "view": "summary",
+      "fields": 7
+    },
+    {
+      "check": "client access",
+      "identity": "field-team",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "client access",
+      "identity": "bnpb-internal",
+      "status": 200,
+      "view": "full",
+      "fields": 11
+    },
+    {
+      "check": "cross-source credentials rejected",
+      "unauthenticated_api_status": 401
+    },
+    {
+      "check": "live PVMBG outage",
+      "status": 200,
+      "freshness": "stale",
+      "records": 27
+    },
+    {
+      "check": "PVMBG v1 mapping",
+      "source_record": {
+        "report_id": "sim-628975556cc7f92f-report-030",
+        "volcano_id": "sim-tamriel-north-crag",
+        "alert_level": "Waspada",
+        "eruption_count_24h": 0,
+        "ash_column_height_m": 750,
+        "reported_at": "2026-10-05T13:03:57.712754289Z"
+      },
+      "canonical_record": {
+        "source": "PVMBG",
+        "latitude": -7.5,
+        "severity": "WASPADA",
+        "area_name": "Gunung Simulasi North Crag (Tamriel)",
+        "hazard_id": "5c90ea76-8e76-4b98-9dfd-5ae8618e4dae",
+        "longitude": 109,
+        "attributes": {
+          "volcano_id": "sim-tamriel-north-crag",
+          "eruption_count_24h": 0,
+          "ash_column_height_m": 750
+        },
+        "hazard_type": "VOLCANIC",
+        "ingested_at": "2026-10-05T13:04:00.968524389Z",
+        "occurred_at": "2026-10-05T13:03:57.712754Z",
+        "source_ref_id": "sim-628975556cc7f92f-report-030"
+      }
+    },
+    {
+      "check": "schema v1/v2 coexist without migration or service restart",
+      "audit": {
+        "hazard_id": "5c90ea76-8e76-4b98-9dfd-5ae8618e4dae",
+        "source": "PVMBG",
+        "source_ref_id": "sim-628975556cc7f92f-report-030",
+        "versions": [
+          {
+            "revision": 1,
+            "data": {
+              "source": "PVMBG",
+              "latitude": -7.5,
+              "severity": "WASPADA",
+              "area_name": "Gunung Simulasi North Crag (Tamriel)",
+              "hazard_id": "5c90ea76-8e76-4b98-9dfd-5ae8618e4dae",
+              "longitude": 109,
+              "attributes": {
+                "volcano_id": "sim-tamriel-north-crag",
+                "eruption_count_24h": 0,
+                "ash_column_height_m": 750
+              },
+              "hazard_type": "VOLCANIC",
+              "ingested_at": "2026-10-05T13:04:00.968524389Z",
+              "occurred_at": "2026-10-05T13:03:57.712754Z",
+              "source_ref_id": "sim-628975556cc7f92f-report-030"
+            }
+          },
+          {
+            "revision": 2,
+            "data": {
+              "source": "PVMBG",
+              "latitude": -7.5,
+              "severity": "WASPADA",
+              "area_name": "Gunung Simulasi North Crag (Tamriel)",
+              "hazard_id": "5c90ea76-8e76-4b98-9dfd-5ae8618e4dae",
+              "longitude": 109,
+              "attributes": {
+                "volcano_id": "sim-tamriel-north-crag",
+                "confidence_level": 0.65,
+                "eruption_count_24h": 0,
+                "ash_column_height_m": 750
+              },
+              "hazard_type": "VOLCANIC",
+              "ingested_at": "2026-10-05T13:04:04.904609776Z",
+              "occurred_at": "2026-10-05T13:03:57.712754Z",
+              "source_ref_id": "sim-628975556cc7f92f-report-030"
+            }
+          }
+        ],
+        "migrations": [
+          {
+            "version": "001_canonical_store.sql",
+            "checksum": "52ac7c4d7f329b4d5f9e2e7f53d29919dcc8ba1e1c749e4848a98b28dbcc7011",
+            "applied_at": "2026-10-05T13:02:23.738624Z"
+          },
+          {
+            "version": "002_outbox_unpublished_index.sql",
+            "checksum": "5867f9fc4ae9149fdc77ab790ba6a65d5f47699ffa92b4081d4d4e12f4ea6780",
+            "applied_at": "2026-10-05T13:02:23.841043Z"
+          }
+        ]
+      },
+      "before": {
+        "aggregator": {
+          "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+          "started_at": "2026-10-05T13:02:23.301195955Z",
+          "restart_count": 0
+        },
+        "auth": {
+          "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+          "started_at": "2026-10-05T13:02:17.534984158Z",
+          "restart_count": 0
+        },
+        "bmkg-mock": {
+          "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+          "started_at": "2026-10-05T13:02:17.543644575Z",
+          "restart_count": 0
+        },
+        "client-api": {
+          "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+          "started_at": "2026-10-05T13:02:29.367036602Z",
+          "restart_count": 0
+        },
+        "dashboard-consumer": {
+          "id": "7a55c325fa8d7cc159e6acdfe4b53dfcda167a458531aa5890bcdbc4e51cde55",
+          "started_at": "2026-10-05T13:02:23.153234448Z",
+          "restart_count": 0
+        },
+        "nats": {
+          "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+          "started_at": "2026-10-05T13:02:17.119524626Z",
+          "restart_count": 0
+        },
+        "notifier-consumer": {
+          "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+          "started_at": "2026-10-05T13:02:23.158189631Z",
+          "restart_count": 0
+        },
+        "postgres": {
+          "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+          "started_at": "2026-10-05T13:02:17.114316587Z",
+          "restart_count": 0
+        },
+        "pvmbg-mock": {
+          "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+          "started_at": "2026-10-05T13:02:17.551580961Z",
+          "restart_count": 0
+        }
+      },
+      "after": {
+        "aggregator": {
+          "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+          "started_at": "2026-10-05T13:02:23.301195955Z",
+          "restart_count": 0
+        },
+        "auth": {
+          "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+          "started_at": "2026-10-05T13:02:17.534984158Z",
+          "restart_count": 0
+        },
+        "bmkg-mock": {
+          "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+          "started_at": "2026-10-05T13:02:17.543644575Z",
+          "restart_count": 0
+        },
+        "client-api": {
+          "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+          "started_at": "2026-10-05T13:02:29.367036602Z",
+          "restart_count": 0
+        },
+        "dashboard-consumer": {
+          "id": "7a55c325fa8d7cc159e6acdfe4b53dfcda167a458531aa5890bcdbc4e51cde55",
+          "started_at": "2026-10-05T13:02:23.153234448Z",
+          "restart_count": 0
+        },
+        "nats": {
+          "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+          "started_at": "2026-10-05T13:02:17.119524626Z",
+          "restart_count": 0
+        },
+        "notifier-consumer": {
+          "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+          "started_at": "2026-10-05T13:02:23.158189631Z",
+          "restart_count": 0
+        },
+        "postgres": {
+          "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+          "started_at": "2026-10-05T13:02:17.114316587Z",
+          "restart_count": 0
+        },
+        "pvmbg-mock": {
+          "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+          "started_at": "2026-10-05T13:02:17.551580961Z",
+          "restart_count": 0
+        }
+      }
+    },
+    {
+      "check": "BMKG mapping",
+      "source_record": {
+        "event_id": "sim-b301fc2bbd259cfa-event-001",
+        "magnitude": 4.2,
+        "depth_km": 7,
+        "epicenter_lat": -9.8,
+        "epicenter_lon": 105.25,
+        "region_name": "Wilayah Simulasi 01",
+        "occurred_at": "2026-10-05T12:24:17.752441259Z",
+        "potential_tsunami": false
+      },
+      "canonical_record": {
+        "source": "BMKG",
+        "latitude": -9.8,
+        "severity": "NORMAL",
+        "area_name": "Wilayah Simulasi 01",
+        "hazard_id": "fb0931b3-549c-4562-bb66-898ddece40a9",
+        "longitude": 105.25,
+        "attributes": {
+          "depth_km": 7,
+          "magnitude": 4.2,
+          "potential_tsunami": false
+        },
+        "hazard_type": "SEISMIC",
+        "ingested_at": "2026-10-05T13:02:23.96284333Z",
+        "occurred_at": "2026-10-05T12:24:17.752441Z",
+        "source_ref_id": "sim-b301fc2bbd259cfa-event-001"
+      },
+      "seed_records": 30
+    },
+    {
+      "check": "events reach consumer",
+      "consumer": "dashboard-consumer",
+      "inbox_count": 91,
+      "quarantine_count": 0
+    },
+    {
+      "check": "events reach consumer",
+      "consumer": "notifier-consumer",
+      "inbox_count": 91,
+      "quarantine_count": 0
+    },
+    {
+      "check": "valid JWT during Auth outage",
+      "status": 200
+    },
+    {
+      "check": "waiting for natural expiry",
+      "seconds": 57.38,
+      "ttl_seconds": 60,
+      "issued_at": 1791205450,
+      "expires_at": 1791205510
+    },
+    {
+      "check": "natural expiry observed",
+      "status": 401,
+      "server_date": "Mon, 05 Oct 2026 13:05:10 GMT"
+    },
+    {
+      "check": "expiry and persistent refresh after restart",
+      "old_access_status": 401,
+      "new_access_status": 200
+    },
+    {
+      "check": "refresh replay revokes family",
+      "status": 401
+    },
+    {
+      "check": "one consumer down",
+      "stream_before": 134,
+      "stream_after": 138,
+      "notifier_before": 134,
+      "notifier_after": 137,
+      "api_statuses": [
+        200,
+        200,
+        200
+      ],
+      "stopped_seconds": 19.24,
+      "target_stream_sequence": 138
+    },
+    {
+      "check": "dashboard catches up to stopped-period target",
+      "target": 137,
+      "dashboard_after": 138,
+      "target_stream_sequence": 138,
+      "dashboard_ack_floor": 138
+    },
+    {
+      "check": "consumer rebuild while API remains available",
+      "api_requests": 10,
+      "api_statuses": [
+        200
+      ],
+      "other_containers_before": {
+        "aggregator": {
+          "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+          "started_at": "2026-10-05T13:02:23.301195955Z",
+          "restart_count": 0
+        },
+        "auth": {
+          "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+          "started_at": "2026-10-05T13:04:11.701243335Z",
+          "restart_count": 0
+        },
+        "bmkg-mock": {
+          "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+          "started_at": "2026-10-05T13:02:17.543644575Z",
+          "restart_count": 0
+        },
+        "client-api": {
+          "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+          "started_at": "2026-10-05T13:02:29.367036602Z",
+          "restart_count": 0
+        },
+        "nats": {
+          "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+          "started_at": "2026-10-05T13:02:17.119524626Z",
+          "restart_count": 0
+        },
+        "notifier-consumer": {
+          "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+          "started_at": "2026-10-05T13:02:23.158189631Z",
+          "restart_count": 0
+        },
+        "postgres": {
+          "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+          "started_at": "2026-10-05T13:02:17.114316587Z",
+          "restart_count": 0
+        },
+        "pvmbg-mock": {
+          "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+          "started_at": "2026-10-05T13:02:17.551580961Z",
+          "restart_count": 0
+        }
+      },
+      "other_containers_after": {
+        "aggregator": {
+          "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+          "started_at": "2026-10-05T13:02:23.301195955Z",
+          "restart_count": 0
+        },
+        "auth": {
+          "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+          "started_at": "2026-10-05T13:04:11.701243335Z",
+          "restart_count": 0
+        },
+        "bmkg-mock": {
+          "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+          "started_at": "2026-10-05T13:02:17.543644575Z",
+          "restart_count": 0
+        },
+        "client-api": {
+          "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+          "started_at": "2026-10-05T13:02:29.367036602Z",
+          "restart_count": 0
+        },
+        "nats": {
+          "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+          "started_at": "2026-10-05T13:02:17.119524626Z",
+          "restart_count": 0
+        },
+        "notifier-consumer": {
+          "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+          "started_at": "2026-10-05T13:02:23.158189631Z",
+          "restart_count": 0
+        },
+        "postgres": {
+          "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+          "started_at": "2026-10-05T13:02:17.114316587Z",
+          "restart_count": 0
+        },
+        "pvmbg-mock": {
+          "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+          "started_at": "2026-10-05T13:02:17.551580961Z",
+          "restart_count": 0
+        }
+      }
+    },
+    {
+      "check": "new third durable without producer changes",
+      "durable": "third-consumer-trial-1791205541999725330",
+      "inbox_count": 142,
+      "target_stream_sequence": 140,
+      "third_ack_floor": 142,
+      "producer_container_unchanged": true
+    },
+    {
+      "check": "temporary durable removed and default third consumer restored"
+    }
+  ],
+  "passed": true
+}

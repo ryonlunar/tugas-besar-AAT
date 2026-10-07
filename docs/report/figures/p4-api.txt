@@ -1,0 +1,12 @@
+$ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+>   -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'
+HTTP 200
+
+$ docker compose up -d --no-deps --force-recreate --wait dashboard-consumer
+ Container aat-report-revision-dashboard-consumer-1  Recreate
+ Container aat-report-revision-dashboard-consumer-1  Recreated
+ Container aat-report-revision-dashboard-consumer-1  Starting
+ Container aat-report-revision-dashboard-consumer-1  Started
+ Container aat-report-revision-dashboard-consumer-1  Waiting
+ Container aat-report-revision-dashboard-consumer-1  Healthy

@@ -1,0 +1,52 @@
+#0 building with "default" instance using docker driver
+
+#1 [dashboard-consumer internal] load build definition from Dockerfile
+#1 transferring dockerfile: 701B done
+#1 DONE 0.0s
+
+#2 [dashboard-consumer internal] load metadata for docker.io/library/golang:1.23-alpine
+#2 DONE 0.0s
+
+#3 [dashboard-consumer internal] load .dockerignore
+#3 transferring context: 676B done
+#3 DONE 0.0s
+
+#4 [dashboard-consumer build 1/7] FROM docker.io/library/golang:1.23-alpine
+#4 DONE 0.0s
+
+#5 [dashboard-consumer internal] load build context
+#5 transferring context: 12.34kB 0.0s done
+#5 DONE 0.0s
+
+#6 [dashboard-consumer build 6/7] COPY services/dashboard-consumer ./services/dashboard-consumer
+#6 CACHED
+
+#7 [dashboard-consumer build 3/7] COPY go.mod go.sum ./
+#7 CACHED
+
+#8 [dashboard-consumer build 5/7] COPY pkg/jetstreamconsumer ./pkg/jetstreamconsumer
+#8 CACHED
+
+#9 [dashboard-consumer stage-1 1/3] COPY --from=build /out/dashboard-consumer /dashboard-consumer
+#9 CACHED
+
+#10 [dashboard-consumer build 4/7] COPY contracts ./contracts
+#10 CACHED
+
+#11 [dashboard-consumer build 7/7] RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/dashboard-consumer ./services/dashboard-consumer/cmd/server && mkdir /out/data
+#11 CACHED
+
+#12 [dashboard-consumer stage-1 2/3] COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+#12 CACHED
+
+#13 [dashboard-consumer build 2/7] WORKDIR /src
+#13 CACHED
+
+#14 [dashboard-consumer stage-1 3/3] COPY --from=build --chown=65532:65532 /out/data /data
+#14 CACHED
+
+#15 [dashboard-consumer] exporting to image
+#15 exporting layers done
+#15 writing image sha256:c54f9851d0aa3b832644178aac40303d6fd0d5e90ffaaecaa5989e5071680245 done
+#15 naming to docker.io/library/aat-report-revision-dashboard-consumer done
+#15 DONE 0.0s

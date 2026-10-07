@@ -1,0 +1,574 @@
+{
+  "project": "aat-report-revision",
+  "commit": "071b32d",
+  "runs": [
+    {
+      "figure": "p1-bmkg",
+      "at": "2026-10-07T04:58:49.123756+00:00",
+      "command": "BMKG_REF=$(curl -sS -H \"X-BMKG-Key: $BMKG_API_KEY\" \\\n  http://127.0.0.1:8281/seismic-events | jq -r '.[0].event_id')\ncurl -sS -H \"X-BMKG-Key: $BMKG_API_KEY\" \\\n  http://127.0.0.1:8281/seismic-events \\\n  | jq --arg id \"$BMKG_REF\" '.[] | select(.event_id == $id)'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"event_id\": \"sim-60f75b621ea2f87f-event-001\",\n  \"magnitude\": 4.2,\n  \"depth_km\": 7,\n  \"epicenter_lat\": -9.8,\n  \"epicenter_lon\": 105.25,\n  \"region_name\": \"Wilayah Simulasi 01\",\n  \"occurred_at\": \"2026-10-07T04:17:29.565895838Z\",\n  \"potential_tsunami\": false\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-bmkg-canonical",
+      "at": "2026-10-07T04:58:49.177808+00:00",
+      "command": "curl -sS -H \"X-Internal-Key: $AGGREGATOR_API_KEY\" \\\n  'http://127.0.0.1:8283/internal/v1/hazards?source=BMKG&view=full&limit=100' \\\n  | jq --arg id \"$BMKG_REF\" '.data[] | select(.source_ref_id == $id)'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"hazard_id\": \"c10e114a-2f04-400c-b3a0-110aaf9cc120\",\n  \"source\": \"BMKG\",\n  \"source_ref_id\": \"sim-60f75b621ea2f87f-event-001\",\n  \"hazard_type\": \"SEISMIC\",\n  \"severity\": \"NORMAL\",\n  \"area_name\": \"Wilayah Simulasi 01\",\n  \"latitude\": -9.8,\n  \"longitude\": 105.25,\n  \"occurred_at\": \"2026-10-07T04:17:29.565895+00:00\",\n  \"ingested_at\": \"2026-10-07T04:55:41.058969+00:00\",\n  \"attributes\": {\n    \"depth_km\": 7,\n    \"magnitude\": 4.2,\n    \"potential_tsunami\": false\n  }\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-pvmbg",
+      "at": "2026-10-07T04:58:54.843023+00:00",
+      "command": "PVMBG_REF=$(curl -sS -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  http://127.0.0.1:8282/volcanic-reports | jq -r '.[0].report_id')\ncurl -sS -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  http://127.0.0.1:8282/volcanic-reports \\\n  | jq --arg id \"$PVMBG_REF\" '.[] | select(.report_id == $id)'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"report_id\": \"sim-19ac08b49fd13778-report-001\",\n  \"volcano_id\": \"sim-tamriel-red-mountain\",\n  \"alert_level\": \"Normal\",\n  \"eruption_count_24h\": 1,\n  \"ash_column_height_m\": 125,\n  \"reported_at\": \"2026-10-07T03:58:29.494743062Z\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-pvmbg-canonical",
+      "at": "2026-10-07T04:58:54.857192+00:00",
+      "command": "curl -sS -H \"X-Internal-Key: $AGGREGATOR_API_KEY\" \\\n  'http://127.0.0.1:8283/internal/v1/hazards?source=PVMBG&view=full&limit=100' \\\n  | jq --arg id \"$PVMBG_REF\" '.data[] | select(.source_ref_id == $id)'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"hazard_id\": \"a3e0c470-1b79-4f39-aeb1-c7a063568995\",\n  \"source\": \"PVMBG\",\n  \"source_ref_id\": \"sim-19ac08b49fd13778-report-001\",\n  \"hazard_type\": \"VOLCANIC\",\n  \"severity\": \"NORMAL\",\n  \"area_name\": \"Gunung Simulasi Red Mountain (Tamriel)\",\n  \"latitude\": -7,\n  \"longitude\": 108,\n  \"occurred_at\": \"2026-10-07T03:58:29.494743+00:00\",\n  \"ingested_at\": \"2026-10-07T04:55:43.141503+00:00\",\n  \"attributes\": {\n    \"ash_column_height_m\": 125,\n    \"eruption_count_24h\": 1,\n    \"volcano_id\": \"sim-tamriel-red-mountain\"\n  }\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-schema-toggle",
+      "at": "2026-10-07T04:59:08.392427+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'sort_by(.Name) | map({name: .Name, id: .Id,\n      started_at: .State.StartedAt, restarts: .RestartCount})' > /tmp/report-session/schema-before.json\ndocker compose exec -T aggregator /aggregator store-audit \\\n  | jq '[.migrations[].version]'\ncurl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' --data '{\"version\":2}' \\\n  http://127.0.0.1:8282/admin/schema-version | jq .\nsleep 10",
+      "exit_code": 0,
+      "stdout": "[\n  \"001_canonical_store.sql\",\n  \"002_outbox_unpublished_index.sql\"\n]\n{\n  \"version\": 2\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-schema",
+      "at": "2026-10-07T04:59:09.443769+00:00",
+      "command": "docker compose exec -T aggregator /aggregator history-audit \\\n  --source PVMBG --source-ref-id \"$PVMBG_REF\" --revisions 1,2 \\\n  | tee docs/report/evidence/schema-command-audit.json \\\n  | jq '{hazard_id, source_ref_id,\n      versions: [.versions[] | {revision, attributes: .data.attributes}],\n      migrations: [.migrations[].version]}'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"hazard_id\": \"a3e0c470-1b79-4f39-aeb1-c7a063568995\",\n  \"source_ref_id\": \"sim-19ac08b49fd13778-report-001\",\n  \"versions\": [\n    {\n      \"revision\": 1,\n      \"attributes\": {\n        \"volcano_id\": \"sim-tamriel-red-mountain\",\n        \"eruption_count_24h\": 1,\n        \"ash_column_height_m\": 125\n      }\n    },\n    {\n      \"revision\": 2,\n      \"attributes\": {\n        \"volcano_id\": \"sim-tamriel-red-mountain\",\n        \"confidence_level\": 0.58,\n        \"eruption_count_24h\": 1,\n        \"ash_column_height_m\": 125\n      }\n    }\n  ],\n  \"migrations\": [\n    \"001_canonical_store.sql\",\n    \"002_outbox_unpublished_index.sql\"\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-schema-containers",
+      "at": "2026-10-07T04:59:11.060916+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'sort_by(.Name) | map({name: .Name, id: .Id,\n      started_at: .State.StartedAt, restarts: .RestartCount})' > /tmp/report-session/schema-after.json\ndiff -s /tmp/report-session/schema-before.json \\\n  /tmp/report-session/schema-after.json",
+      "exit_code": 0,
+      "stdout": "Files /tmp/report-session/schema-before.json and /tmp/report-session/schema-after.json are identical\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-login-field-team",
+      "at": "2026-10-07T04:59:11.183827+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"field-team\\\",\\\"client_secret\\\":\\\"$FIELD_TEAM_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o /tmp/report-session/field-team.json\njq '{token_type, expires_in, scope}' /tmp/report-session/field-team.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-login-media",
+      "at": "2026-10-07T04:59:11.244756+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"media\\\",\\\"client_secret\\\":\\\"$MEDIA_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o /tmp/report-session/media.json\njq '{token_type, expires_in, scope}' /tmp/report-session/media.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-credentials-bmkg",
+      "at": "2026-10-07T04:59:11.362116+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"X-BMKG-Key: $BMKG_API_KEY\" \\\n  http://127.0.0.1:8281/seismic-events",
+      "exit_code": 0,
+      "stdout": "HTTP 200\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-credentials-bmkg",
+      "at": "2026-10-07T04:59:11.376460+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"X-BMKG-Key: $PVMBG_TOKEN\" \\\n  http://127.0.0.1:8281/seismic-events",
+      "exit_code": 0,
+      "stdout": "HTTP 401\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-credentials-pvmbg",
+      "at": "2026-10-07T04:59:14.394444+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  http://127.0.0.1:8282/volcanic-reports",
+      "exit_code": 0,
+      "stdout": "HTTP 200\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-credentials-pvmbg",
+      "at": "2026-10-07T04:59:14.410129+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $BMKG_API_KEY\" \\\n  http://127.0.0.1:8282/volcanic-reports",
+      "exit_code": 0,
+      "stdout": "HTTP 401\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-media",
+      "at": "2026-10-07T04:59:14.482442+00:00",
+      "command": "MEDIA_ACCESS_TOKEN=$(jq -r .access_token /tmp/report-session/media.json)\ncurl -sS -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&limit=1' \\\n  | jq '.data[0] | keys'\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?view=full'\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?fields=attributes'\n",
+      "exit_code": 0,
+      "stdout": "[\n  \"area_name\",\n  \"hazard_id\",\n  \"hazard_type\",\n  \"ingested_at\",\n  \"occurred_at\",\n  \"severity\",\n  \"source\"\n]\nHTTP 403\nHTTP 403\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p2-delay",
+      "at": "2026-10-07T04:59:17.516850+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' \\\n  --data '{\"min_ms\":3000,\"max_ms\":3000}' \\\n  http://127.0.0.1:8282/admin/delay | jq .\ncurl -sS -o /dev/null -w 'HTTP %{http_code}; durasi %{time_total} s\\n' \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  http://127.0.0.1:8282/volcanic-reports",
+      "exit_code": 0,
+      "stdout": "{\n  \"min_ms\": 3000,\n  \"max_ms\": 3000\n}\nHTTP 200; durasi 3.018729 s\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p2-outage-control",
+      "at": "2026-10-07T04:59:27.600873+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' --data '{\"enabled\":true}' \\\n  http://127.0.0.1:8282/admin/outage | jq .\nsleep 10",
+      "exit_code": 0,
+      "stdout": "{\n  \"enabled\": true\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p2-outage",
+      "at": "2026-10-07T04:59:27.639918+00:00",
+      "command": "FIELD_ACCESS_TOKEN=$(jq -r .access_token /tmp/report-session/field-team.json)\ncurl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=PVMBG&view=full&limit=5' \\\n  | jq '{records: (.data | length), source: .meta.sources.PVMBG}'\ncurl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1' \\\n  | jq '.meta.sources.BMKG'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"records\": 5,\n  \"source\": {\n    \"status\": \"stale\",\n    \"last_success_at\": \"2026-10-07T04:59:19.048513Z\",\n    \"stale_since\": \"2026-10-07T04:59:21.046066Z\"\n  }\n}\n{\n  \"status\": \"fresh\",\n  \"last_success_at\": \"2026-10-07T04:59:26.2003Z\",\n  \"stale_since\": null\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p2-recovery",
+      "at": "2026-10-07T04:59:37.675311+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' --data '{\"enabled\":false}' \\\n  http://127.0.0.1:8282/admin/outage | jq .\nsleep 10\ncurl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=PVMBG&view=full&limit=1' \\\n  | jq '.meta.sources.PVMBG'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"enabled\": false\n}\n{\n  \"status\": \"fresh\",\n  \"last_success_at\": \"2026-10-07T04:59:34.101536Z\",\n  \"stale_since\": null\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-login-field-team",
+      "at": "2026-10-07T05:00:29.312554+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"field-team\\\",\\\"client_secret\\\":\\\"$FIELD_TEAM_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o /tmp/report-session/field-team.json\njq '{token_type, expires_in, scope}' /tmp/report-session/field-team.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-token-before",
+      "at": "2026-10-07T05:00:29.343164+00:00",
+      "command": "FIELD_ACCESS_TOKEN=$(jq -r .access_token /tmp/report-session/field-team.json)\njq -r .access_token /tmp/report-session/field-team.json \\\n  | jq -R 'split(\".\")[1] | @base64d | fromjson | {iat, exp, ttl: (.exp-.iat)}'\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"iat\": 1791349229,\n  \"exp\": 1791349289,\n  \"ttl\": 60\n}\nHTTP 200\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p4-rebuild",
+      "at": "2026-10-07T05:00:42.702119+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'map(select(.Config.Labels[\"com.docker.compose.service\"]\n      != \"dashboard-consumer\")) | sort_by(.Name)\n      | map({name: .Name, id: .Id, started_at: .State.StartedAt,\n          restarts: .RestartCount})' > /tmp/report-session/rebuild-before.json\ndocker compose stop dashboard-consumer\ndocker compose build dashboard-consumer \\\n  > /tmp/report-session/rebuild.log 2>&1\ntail -n 6 /tmp/report-session/rebuild.log\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\ndocker compose up -d --no-deps --force-recreate --wait dashboard-consumer\n",
+      "exit_code": 0,
+      "stdout": "\n#15 [dashboard-consumer] exporting to image\n#15 exporting layers done\n#15 writing image sha256:c54f9851d0aa3b832644178aac40303d6fd0d5e90ffaaecaa5989e5071680245 0.0s done\n#15 naming to docker.io/library/aat-report-revision-dashboard-consumer 0.0s done\n#15 DONE 0.0s\nHTTP 200\n",
+      "stderr": " Container aat-report-revision-dashboard-consumer-1  Stopping\n Container aat-report-revision-dashboard-consumer-1  Stopped\n Container aat-report-revision-dashboard-consumer-1  Recreate\n Container aat-report-revision-dashboard-consumer-1  Recreated\n Container aat-report-revision-dashboard-consumer-1  Starting\n Container aat-report-revision-dashboard-consumer-1  Started\n Container aat-report-revision-dashboard-consumer-1  Waiting\n Container aat-report-revision-dashboard-consumer-1  Healthy\n"
+    },
+    {
+      "figure": "p4-container-state",
+      "at": "2026-10-07T05:00:45.040216+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'map(select(.Config.Labels[\"com.docker.compose.service\"]\n      != \"dashboard-consumer\")) | sort_by(.Name)\n      | map({name: .Name, id: .Id, started_at: .State.StartedAt,\n          restarts: .RestartCount})' > /tmp/report-session/rebuild-after.json\ndiff -s /tmp/report-session/rebuild-before.json \\\n  /tmp/report-session/rebuild-after.json\njq length /tmp/report-session/rebuild-after.json",
+      "exit_code": 0,
+      "stdout": "Files /tmp/report-session/rebuild-before.json and /tmp/report-session/rebuild-after.json are identical\n8\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p4-storage",
+      "at": "2026-10-07T05:00:48.679432+00:00",
+      "command": "docker network inspect \"${COMPOSE_PROJECT_NAME}_store-net\" \\\n  | jq '.[0].Containers | [.[] | .Name] | sort'\ndocker inspect $(docker compose ps -q postgres) \\\n  --format '{{json .NetworkSettings.Ports}}'\n",
+      "exit_code": 0,
+      "stdout": "[\n  \"aat-report-revision-aggregator-1\",\n  \"aat-report-revision-postgres-1\"\n]\n{}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p5-before",
+      "at": "2026-10-07T05:00:49.894652+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 183,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 183,\n      \"pending\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 183,\n      \"pending\": 0\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p5-stop",
+      "at": "2026-10-07T05:01:06.964614+00:00",
+      "command": "docker compose stop dashboard-consumer\nsleep 15",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": " Container aat-report-revision-dashboard-consumer-1  Stopping\n Container aat-report-revision-dashboard-consumer-1  Stopped\n"
+    },
+    {
+      "figure": "p5-stopped",
+      "at": "2026-10-07T05:01:08.431686+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 187,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 183,\n      \"pending\": 3\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 187,\n      \"pending\": 0\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p5-recovery-control",
+      "at": "2026-10-07T05:01:15.612932+00:00",
+      "command": "docker compose start dashboard-consumer\nsleep 5",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": " Container aat-report-revision-nats-1  Waiting\n Container aat-report-revision-nats-1  Healthy\n Container aat-report-revision-dashboard-consumer-1  Starting\n Container aat-report-revision-dashboard-consumer-1  Started\n"
+    },
+    {
+      "figure": "p5-recovery",
+      "at": "2026-10-07T05:01:18.133250+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 189,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 183,\n      \"pending\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 189,\n      \"pending\": 0\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p5-third-start",
+      "at": "2026-10-07T05:01:32.491103+00:00",
+      "command": "docker inspect $(docker compose ps -q aggregator) \\\n  | jq -S '.[0] | {id: .Id, started_at: .State.StartedAt,\n      restarts: .RestartCount}' > /tmp/report-session/producer-before.json\ndocker compose --profile demo up -d --no-deps --wait third-consumer\nsleep 5",
+      "exit_code": 0,
+      "stdout": "#0 building with \"default\" instance using docker driver\n\n#1 [third-consumer internal] load build definition from Dockerfile\n#1 transferring dockerfile: 694B done\n#1 DONE 0.1s\n\n#2 [third-consumer internal] load metadata for docker.io/library/golang:1.23-alpine\n#2 DONE 0.0s\n\n#3 [third-consumer internal] load .dockerignore\n#3 transferring context: 676B done\n#3 DONE 0.0s\n\n#4 [third-consumer build 1/7] FROM docker.io/library/golang:1.23-alpine\n#4 DONE 0.0s\n\n#5 [third-consumer internal] load build context\n#5 transferring context: 11.83kB 0.0s done\n#5 DONE 0.0s\n\n#6 [third-consumer build 4/7] COPY contracts ./contracts\n#6 CACHED\n\n#7 [third-consumer build 7/7] RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags=\"-s -w\" -o /out/notifier-consumer ./services/notifier-consumer/cmd/server && mkdir /out/data\n#7 CACHED\n\n#8 [third-consumer stage-1 1/3] COPY --from=build /out/notifier-consumer /notifier-consumer\n#8 CACHED\n\n#9 [third-consumer stage-1 2/3] COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\n#9 CACHED\n\n#10 [third-consumer build 3/7] COPY go.mod go.sum ./\n#10 CACHED\n\n#11 [third-consumer build 6/7] COPY services/notifier-consumer ./services/notifier-consumer\n#11 CACHED\n\n#12 [third-consumer build 2/7] WORKDIR /src\n#12 CACHED\n\n#13 [third-consumer build 5/7] COPY pkg/jetstreamconsumer ./pkg/jetstreamconsumer\n#13 CACHED\n\n#14 [third-consumer stage-1 3/3] COPY --from=build --chown=65532:65532 /out/data /data\n#14 CACHED\n\n#15 [third-consumer] exporting to image\n#15 exporting layers done\n#15 writing image sha256:aa3e63cff54515965f77ac94c4bc4a1e3124f492ab4d50b59c2063e9695e0d92 done\n#15 naming to docker.io/library/aat-report-revision-third-consumer 0.0s done\n#15 DONE 0.1s\n",
+      "stderr": " Volume \"aat-report-revision_third-consumer-data\"  Creating\n Volume \"aat-report-revision_third-consumer-data\"  Created\n Container aat-report-revision-third-consumer-1  Creating\n Container aat-report-revision-third-consumer-1  Created\n Container aat-report-revision-third-consumer-1  Starting\n Container aat-report-revision-third-consumer-1  Started\n Container aat-report-revision-third-consumer-1  Waiting\n Container aat-report-revision-third-consumer-1  Healthy\n"
+    },
+    {
+      "figure": "p5-third",
+      "at": "2026-10-07T05:01:33.898996+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 192,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 192,\n      \"pending\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 192,\n      \"pending\": 0\n    },\n    {\n      \"name\": \"third-consumer-v1\",\n      \"ack\": 192,\n      \"pending\": 0\n    }\n  ]\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p5-third-producer",
+      "at": "2026-10-07T05:01:38.100566+00:00",
+      "command": "docker inspect $(docker compose ps -q aggregator) \\\n  | jq -S '.[0] | {id: .Id, started_at: .State.StartedAt,\n      restarts: .RestartCount}' > /tmp/report-session/producer-after.json\ndiff -s /tmp/report-session/producer-before.json \\\n  /tmp/report-session/producer-after.json\ndocker compose --profile demo exec -T third-consumer \\\n  /notifier-consumer inspect | jq '{inbox_count, quarantine_count}'\n",
+      "exit_code": 0,
+      "stdout": "Files /tmp/report-session/producer-before.json and /tmp/report-session/producer-after.json are identical\n{\n  \"inbox_count\": 193,\n  \"quarantine_count\": 0\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-expiry",
+      "at": "2026-10-07T05:01:38.122145+00:00",
+      "command": "ACCESS_EXP=$(jq -r .access_token /tmp/report-session/field-team.json \\\n  | jq -R 'split(\".\")[1] | @base64d | fromjson | .exp')\nwhile [ \"$(date +%s)\" -le \"$ACCESS_EXP\" ]; do sleep 1; done\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 401\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-refresh",
+      "at": "2026-10-07T05:01:38.221420+00:00",
+      "command": "jq '{refresh_token}' /tmp/report-session/field-team.json \\\n  | curl -sS --fail-with-body -H 'Content-Type: application/json' \\\n      --data-binary @- http://127.0.0.1:8284/v1/auth/refresh \\\n      -o /tmp/report-session/refreshed.json\njq '{token_type, expires_in, scope}' /tmp/report-session/refreshed.json\nNEW_ACCESS_TOKEN=$(jq -r .access_token /tmp/report-session/refreshed.json)\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $NEW_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\nHTTP 200\nHTTP 401\n",
+      "stderr": ""
+    },
+    {
+      "figure": "correlation-request",
+      "at": "2026-10-07T05:01:38.243177+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $NEW_ACCESS_TOKEN\" \\\n  -H 'X-Correlation-ID: report-command-correlation' \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 200\n",
+      "stderr": ""
+    },
+    {
+      "figure": "correlation",
+      "at": "2026-10-07T05:01:39.852034+00:00",
+      "command": "docker compose logs --no-color --no-log-prefix --since 2m \\\n  client-api aggregator \\\n  | jq -R 'fromjson? | select(.correlation_id == \"report-command-correlation\")\n      | {service, correlation_id, operation, status, duration_ms}'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"service\": \"aggregator\",\n  \"correlation_id\": \"report-command-correlation\",\n  \"operation\": \"GET /internal/v1/hazards\",\n  \"status\": 200,\n  \"duration_ms\": 2\n}\n{\n  \"service\": \"client-api\",\n  \"correlation_id\": \"report-command-correlation\",\n  \"operation\": \"aggregator_read\",\n  \"status\": 200,\n  \"duration_ms\": 3\n}\n{\n  \"service\": \"client-api\",\n  \"correlation_id\": \"report-command-correlation\",\n  \"operation\": \"GET /v1/hazards\",\n  \"status\": 200,\n  \"duration_ms\": 4\n}\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p1-tests",
+      "at": "2026-10-07T05:01:41.391919+00:00",
+      "command": "go test -mod=readonly -count=1 -v \\\n  ./services/aggregator/internal/mapper \\\n  -run 'TestMapVolcanicPreservesV1V2AndDynamicFields|TestMapperRejects' ",
+      "exit_code": 0,
+      "stdout": "=== RUN   TestMapVolcanicPreservesV1V2AndDynamicFields\n--- PASS: TestMapVolcanicPreservesV1V2AndDynamicFields (0.00s)\n=== RUN   TestMapperRejectsUnknownVolcanoInvalidEnumsAndDuplicateKeys\n--- PASS: TestMapperRejectsUnknownVolcanoInvalidEnumsAndDuplicateKeys (0.00s)\n=== RUN   TestMapperRejectsTimestampWithoutTimezone\n--- PASS: TestMapperRejectsTimestampWithoutTimezone (0.00s)\nPASS\nok  \tgithub.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper\t0.005s\n",
+      "stderr": ""
+    },
+    {
+      "figure": "p3-login-field-team",
+      "at": "2026-10-07T05:12:21.027816+00:00",
+      "command": "umask 077\ncurl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"field-team\\\",\\\"client_secret\\\":\\\"$FIELD_TEAM_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o .secrets/report-session/field-team.json\njq '{token_type, expires_in, scope}' .secrets/report-session/field-team.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-token-before",
+      "at": "2026-10-07T05:12:21.050528+00:00",
+      "command": "FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/field-team.json)\njq -r .access_token .secrets/report-session/field-team.json \\\n  | jq -R 'split(\".\")[1] | @base64d | fromjson | {iat, exp, ttl: (.exp-.iat)}'\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "{\n  \"iat\": 1791349941,\n  \"exp\": 1791350001,\n  \"ttl\": 60\n}\nHTTP 200\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-state-before",
+      "at": "2026-10-07T05:12:21.978078+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'map(select(.Config.Labels[\"com.docker.compose.service\"]\n      != \"dashboard-consumer\")) | sort_by(.Name)\n      | map({name: .Name, id: .Id, started_at: .State.StartedAt,\n          restarts: .RestartCount})' > .secrets/report-session/rebuild-before.json",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-rebuild",
+      "at": "2026-10-07T05:12:22.669069+00:00",
+      "command": "docker compose stop dashboard-consumer",
+      "exit_code": 0,
+      "stdout": " Container aat-report-revision-dashboard-consumer-1  Stopping\n Container aat-report-revision-dashboard-consumer-1  Stopped\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-rebuild",
+      "at": "2026-10-07T05:12:23.806481+00:00",
+      "command": "docker compose build dashboard-consumer \\\n  > .secrets/report-session/rebuild.log 2>&1\ntail -n 6 .secrets/report-session/rebuild.log",
+      "exit_code": 0,
+      "stdout": "\n#15 [dashboard-consumer] exporting to image\n#15 exporting layers done\n#15 writing image sha256:c54f9851d0aa3b832644178aac40303d6fd0d5e90ffaaecaa5989e5071680245 done\n#15 naming to docker.io/library/aat-report-revision-dashboard-consumer done\n#15 DONE 0.0s\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-api",
+      "at": "2026-10-07T05:12:23.824054+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 200\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-api",
+      "at": "2026-10-07T05:12:30.513327+00:00",
+      "command": "docker compose up -d --no-deps --force-recreate --wait dashboard-consumer",
+      "exit_code": 0,
+      "stdout": " Container aat-report-revision-dashboard-consumer-1  Recreate\n Container aat-report-revision-dashboard-consumer-1  Recreated\n Container aat-report-revision-dashboard-consumer-1  Starting\n Container aat-report-revision-dashboard-consumer-1  Started\n Container aat-report-revision-dashboard-consumer-1  Waiting\n Container aat-report-revision-dashboard-consumer-1  Healthy\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p4-container-state",
+      "at": "2026-10-07T05:12:31.362948+00:00",
+      "command": "docker inspect $(docker compose ps -q) \\\n  | jq -S 'map(select(.Config.Labels[\"com.docker.compose.service\"]\n      != \"dashboard-consumer\")) | sort_by(.Name)\n      | map({name: .Name, id: .Id, started_at: .State.StartedAt,\n          restarts: .RestartCount})' > .secrets/report-session/rebuild-after.json\ndiff -s .secrets/report-session/rebuild-before.json \\\n  .secrets/report-session/rebuild-after.json\njq length .secrets/report-session/rebuild-after.json",
+      "exit_code": 0,
+      "stdout": "Files .secrets/report-session/rebuild-before.json and .secrets/report-session/rebuild-after.json are identical\n8\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-before",
+      "at": "2026-10-07T05:12:32.038098+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | select(.name == \"dashboard-v1\" or .name == \"notifier-v1\")\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending, inflight: .num_ack_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 308,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 308,\n      \"pending\": 0,\n      \"inflight\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 308,\n      \"pending\": 0,\n      \"inflight\": 0\n    }\n  ]\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-stop",
+      "at": "2026-10-07T05:12:32.806665+00:00",
+      "command": "docker compose stop dashboard-consumer",
+      "exit_code": 0,
+      "stdout": " Container aat-report-revision-dashboard-consumer-1  Stopping\n Container aat-report-revision-dashboard-consumer-1  Stopped\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-stop",
+      "at": "2026-10-07T05:12:47.820020+00:00",
+      "command": "sleep 15",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-stopped",
+      "at": "2026-10-07T05:12:48.306980+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | select(.name == \"dashboard-v1\" or .name == \"notifier-v1\")\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending, inflight: .num_ack_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 311,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 308,\n      \"pending\": 3,\n      \"inflight\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 311,\n      \"pending\": 0,\n      \"inflight\": 0\n    }\n  ]\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-recovery-control",
+      "at": "2026-10-07T05:12:49.931990+00:00",
+      "command": "docker compose start dashboard-consumer",
+      "exit_code": 0,
+      "stdout": " Container aat-report-revision-nats-1  Waiting\n Container aat-report-revision-nats-1  Healthy\n Container aat-report-revision-dashboard-consumer-1  Starting\n Container aat-report-revision-dashboard-consumer-1  Started\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-recovery-control",
+      "at": "2026-10-07T05:13:24.937502+00:00",
+      "command": "sleep 35",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-recovery",
+      "at": "2026-10-07T05:13:25.597990+00:00",
+      "command": "docker compose exec -T nats wget -qO- \\\n  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \\\n  | jq '.account_details[].stream_detail[]\n      | {name, last_seq: .state.last_seq,\n          consumers: [.consumer_detail[]\n            | select(.name == \"dashboard-v1\" or .name == \"notifier-v1\")\n            | {name, ack: .ack_floor.stream_seq,\n                pending: .num_pending, inflight: .num_ack_pending}]}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"name\": \"HAZARD_EVENTS\",\n  \"last_seq\": 318,\n  \"consumers\": [\n    {\n      \"name\": \"dashboard-v1\",\n      \"ack\": 318,\n      \"pending\": 0,\n      \"inflight\": 0\n    },\n    {\n      \"name\": \"notifier-v1\",\n      \"ack\": 318,\n      \"pending\": 0,\n      \"inflight\": 0\n    }\n  ]\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-inbox",
+      "at": "2026-10-07T05:13:26.180766+00:00",
+      "command": "docker compose exec -T dashboard-consumer /dashboard-consumer inspect \\\n  | jq '{inbox_count, quarantine_count}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"inbox_count\": 319,\n  \"quarantine_count\": 0\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p5-inbox",
+      "at": "2026-10-07T05:13:26.682166+00:00",
+      "command": "docker compose exec -T notifier-consumer /notifier-consumer inspect \\\n  | jq '{inbox_count, quarantine_count}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"inbox_count\": 319,\n  \"quarantine_count\": 0\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-expiry",
+      "at": "2026-10-07T05:13:26.700638+00:00",
+      "command": "ACCESS_EXP=$(jq -r .access_token .secrets/report-session/field-team.json \\\n  | jq -R 'split(\".\")[1] | @base64d | fromjson | .exp')\nwhile [ \"$(date +%s)\" -le \"$ACCESS_EXP\" ]; do sleep 1; done\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 401\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-refresh",
+      "at": "2026-10-07T05:13:26.745029+00:00",
+      "command": "jq '{refresh_token}' .secrets/report-session/field-team.json \\\n  | curl -sS --fail-with-body -H 'Content-Type: application/json' \\\n      --data-binary @- http://127.0.0.1:8284/v1/auth/refresh \\\n      -o .secrets/report-session/refreshed.json\njq '{token_type, expires_in, scope}' .secrets/report-session/refreshed.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-refreshed-access",
+      "at": "2026-10-07T05:13:26.763513+00:00",
+      "command": "NEW_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/refreshed.json)\ncurl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $NEW_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 200\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-refreshed-access",
+      "at": "2026-10-07T05:13:26.772463+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'\n",
+      "exit_code": 0,
+      "stdout": "HTTP 401\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-login-media",
+      "at": "2026-10-07T05:13:26.805353+00:00",
+      "command": "umask 077\ncurl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"media\\\",\\\"client_secret\\\":\\\"$MEDIA_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o .secrets/report-session/media.json\njq '{token_type, expires_in, scope}' .secrets/report-session/media.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary\"\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-media",
+      "at": "2026-10-07T05:13:26.825296+00:00",
+      "command": "MEDIA_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/media.json)\ncurl -sS -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&limit=1' \\\n  | jq '.data[0] | keys' ",
+      "exit_code": 0,
+      "stdout": "[\n  \"area_name\",\n  \"hazard_id\",\n  \"hazard_type\",\n  \"ingested_at\",\n  \"occurred_at\",\n  \"severity\",\n  \"source\"\n]\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-media-denied",
+      "at": "2026-10-07T05:13:26.836375+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?view=full' ",
+      "exit_code": 0,
+      "stdout": "HTTP 403\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-media-denied",
+      "at": "2026-10-07T05:13:26.851545+00:00",
+      "command": "curl -sS -o /dev/null -w 'HTTP %{http_code}\\n' \\\n  -H \"Authorization: Bearer $MEDIA_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?fields=attributes' ",
+      "exit_code": 0,
+      "stdout": "HTTP 403\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-load",
+      "at": "2026-10-07T05:13:26.861912+00:00",
+      "command": "jq '{started_at, profile, elapsed_seconds,\n    bmkg_p95_ms: .sources.BMKG.success_duration_ms.p95,\n    throughput: .hazard_successes_per_second,\n    error_percent: .hazard_unexpected_error_percent}' \\\n  docs/report/evidence/load.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"started_at\": \"2026-10-05T13:11:41.596066+00:00\",\n  \"profile\": {\n    \"vus_per_source\": 30,\n    \"duration_seconds\": 90.0,\n    \"view\": \"full\",\n    \"limit\": 50,\n    \"identity\": \"field-team\",\n    \"access_ttl_seconds\": 60\n  },\n  \"elapsed_seconds\": 90.08667208399856,\n  \"bmkg_p95_ms\": 124.521589,\n  \"throughput\": 980.25599078252,\n  \"error_percent\": 0.03396047001290498\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p3-login-field-team",
+      "at": "2026-10-07T05:15:31.054332+00:00",
+      "command": "umask 077\ncurl -sS --fail-with-body \\\n  -H 'Content-Type: application/json' \\\n  --data \"{\\\"client_id\\\":\\\"field-team\\\",\\\"client_secret\\\":\\\"$FIELD_TEAM_CLIENT_SECRET\\\"}\" \\\n  http://127.0.0.1:8284/v1/auth/login -o .secrets/report-session/field-team.json\njq '{token_type, expires_in, scope}' .secrets/report-session/field-team.json",
+      "exit_code": 0,
+      "stdout": "{\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 60,\n  \"scope\": \"hazards:summary hazards:raw\"\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-outage-control",
+      "at": "2026-10-07T05:15:31.072318+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' --data '{\"enabled\":true}' \\\n  http://127.0.0.1:8282/admin/outage | jq .",
+      "exit_code": 0,
+      "stdout": "{\n  \"enabled\": true\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-outage-control",
+      "at": "2026-10-07T05:15:41.077445+00:00",
+      "command": "sleep 10",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-outage",
+      "at": "2026-10-07T05:15:41.100690+00:00",
+      "command": "FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/field-team.json)\ncurl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=PVMBG&view=full&limit=5' \\\n  | jq '{records: (.data | length), source: .meta.sources.PVMBG}' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"records\": 5,\n  \"source\": {\n    \"status\": \"stale\",\n    \"last_success_at\": \"2026-10-07T05:15:29.209971Z\",\n    \"stale_since\": \"2026-10-07T05:15:31.341025Z\"\n  }\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-outage",
+      "at": "2026-10-07T05:15:41.114149+00:00",
+      "command": "curl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1' \\\n  | jq '.meta.sources.BMKG' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"status\": \"fresh\",\n  \"last_success_at\": \"2026-10-07T05:15:36.44186Z\",\n  \"stale_since\": null\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-recovery",
+      "at": "2026-10-07T05:15:41.127617+00:00",
+      "command": "curl -sS --fail-with-body \\\n  -H \"Authorization: Bearer $PVMBG_TOKEN\" \\\n  -H 'Content-Type: application/json' --data '{\"enabled\":false}' \\\n  http://127.0.0.1:8282/admin/outage | jq .",
+      "exit_code": 0,
+      "stdout": "{\n  \"enabled\": false\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-recovery",
+      "at": "2026-10-07T05:15:51.130359+00:00",
+      "command": "sleep 10",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p2-recovery",
+      "at": "2026-10-07T05:15:51.153720+00:00",
+      "command": "curl -sS -H \"Authorization: Bearer $FIELD_ACCESS_TOKEN\" \\\n  'http://127.0.0.1:8280/v1/hazards?source=PVMBG&view=full&limit=1' \\\n  | jq '.meta.sources.PVMBG' ",
+      "exit_code": 0,
+      "stdout": "{\n  \"status\": \"fresh\",\n  \"last_success_at\": \"2026-10-07T05:15:47.835933Z\",\n  \"stale_since\": null\n}\n",
+      "stderr": "merged into stdout"
+    },
+    {
+      "figure": "p1-validation",
+      "at": "2026-10-07T05:15:51.795326+00:00",
+      "command": "go run -mod=readonly docs/report/evidence/validate-records.go",
+      "exit_code": 0,
+      "stdout": "PVMBG v1 mapping: HazardEvent schema valid\nPVMBG revision 1: HazardEvent schema valid\nPVMBG revision 2: HazardEvent schema valid\nBMKG mapping: HazardEvent schema valid\n7 Oktober, p1-bmkg-canonical: HazardEvent schema valid\n7 Oktober, p1-pvmbg-canonical: HazardEvent schema valid\n7 Oktober, PVMBG revision 1: HazardEvent schema valid\n7 Oktober, PVMBG revision 2: HazardEvent schema valid\n",
+      "stderr": "merged into stdout"
+    }
+  ]
+}

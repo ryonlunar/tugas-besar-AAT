@@ -1,0 +1,7 @@
+$ docker compose start dashboard-consumer
+ Container aat-report-revision-nats-1  Waiting
+ Container aat-report-revision-nats-1  Healthy
+ Container aat-report-revision-dashboard-consumer-1  Starting
+ Container aat-report-revision-dashboard-consumer-1  Started
+
+$ sleep 35
