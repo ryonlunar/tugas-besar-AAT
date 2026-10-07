@@ -1,0 +1,64 @@
+\chapter{Problem 4: Arsitektur Microservice \& Flexible Storage}
+\section{Container dan ownership}
+Stack utama terdiri dari tujuh container aplikasi serta dua container infrastruktur, yaitu PostgreSQL dan NATS. Setiap aplikasi memiliki Dockerfile sendiri, sementara kedua komponen infrastruktur memakai image resmi. Third Consumer hanya dijalankan melalui profile demo. Compose membantu mengatur jaringan dan urutan startup, tetapi satu aplikasi tetap dapat dibangun dan diganti dengan \texttt{--no-deps} tanpa menjalankan ulang seluruh stack.
+
+Canonical Store menjadi tanggung jawab Aggregator. Hanya Aggregator dan PostgreSQL yang terhubung ke \texttt{store-net}, dan PostgreSQL tidak membuka host port. Karena itu, Client API membaca data melalui HTTP Aggregator. Consumer memperoleh data melalui NATS, lalu menyimpan hasil olahan dalam database lokalnya sendiri. Perintah audit juga dijalankan melalui binary Aggregator agar inspeksi data tetap dilakukan oleh service pemiliknya.
+
+Pembagian tersebut menghindari ketergantungan consumer pada schema tabel internal Aggregator. Sebagai konsekuensinya, tampilan consumer diperbarui secara eventual: perubahan canonical harus melewati outbox dan broker sebelum diterapkan pada database consumer. Shared database antarservice dapat mengurangi jumlah antarmuka HTTP, tetapi perubahan tabel akan mengikat beberapa aplikasi sekaligus dan tidak memenuhi ownership storage yang diminta spesifikasi.
+
+\section{Struktur storage dan alternatif}
+Field canonical yang stabil disimpan dalam kolom bertipe dengan constraint, sedangkan \texttt{attributes} memakai JSONB untuk menampung atribut yang dapat bertambah. Data terbaru berada di \texttt{hazard\_events} dan setiap revisinya dicatat dalam \texttt{hazard\_versions}. Dua tabel lain melengkapi alur ingest: \texttt{source\_state} menyimpan kondisi polling, sementara \texttt{outbox} mencatat pesan yang perlu dipublikasikan.
+
+Dengan struktur ini, tambahan \texttt{confidence\_level} masuk ke dokumen atribut tanpa \texttt{ALTER TABLE}. Pilihan tersebut dibandingkan dengan dua alternatif pada tabel berikut.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3cm}YY}
+\toprule
+Pilihan & Kelebihan & Konsekuensi \\
+\midrule
+PostgreSQL + JSONB (dipilih) & Constraint identitas, query canonical, dan transaksi outbox dalam satu store & Atribut dinamis tetap perlu validasi; query JSONB yang sering dipakai dapat membutuhkan index tambahan. \\
+Relasional dengan kolom tetap & Tipe setiap atribut jelas dan mudah di-query & Field baru membutuhkan migrasi; kurang sesuai perubahan schema langsung pada P4. \\
+Document store, misalnya MongoDB & Bentuk dokumen sumber mudah disimpan dan berubah & Aturan canonical, index, dan transaksi history/outbox tetap perlu dirancang; fleksibilitas dokumen saja tidak menjamin konsistensi. \\
+\bottomrule
+\end{tabularx}
+\caption{Perbandingan pilihan penyimpanan. Fleksibilitas dokumen tidak menggantikan validasi kontrak.}
+\end{table}
+
+\section{Pengujian penggantian satu container}
+Pengujian menyimpan ID, waktu mulai, dan restart count container selain Dashboard sebelum melakukan rebuild. Dashboard dikecualikan dari daftar ini karena container itulah yang akan diganti.
+\terminalfigure{p4-state-before}{Mencatat kondisi container lain sebelum Dashboard dibangun ulang.}{fig:p4-state-before}
+
+Dashboard kemudian dihentikan dan image-nya dibangun kembali. Log build disimpan ke file, lalu \texttt{tail -n 6} membaca bagian akhir yang menunjukkan image berhasil dibangun. Log lengkap tersedia pada \path{evidence/dashboard-rebuild.log}.
+\terminalfigure{p4-rebuild}{Menghentikan Dashboard dan membangun image service tersebut.}{fig:p4-rebuild}
+
+Saat Dashboard masih berhenti, request BMKG ke API menghasilkan 200. Dashboard kemudian dijalankan kembali dengan \texttt{--no-deps --force-recreate}; opsi pertama menjaga dependency tidak ikut dijalankan ulang, sedangkan opsi kedua memastikan container Dashboard diganti. \texttt{--wait} menunggu hasil healthcheck-nya siap.
+\terminalfigure{p4-api}{API tetap merespons saat Dashboard mati, lalu Dashboard diganti secara terpisah.}{fig:p4-api}
+
+Inspeksi diulang dengan proyeksi yang sama, kemudian \texttt{diff -s} membandingkan file sebelum dan sesudah. Keduanya identik dan berisi delapan container lain. Jadi, penggantian Dashboard tidak mengubah ID, waktu mulai, maupun restart count service lainnya. Trial integrasi 5 Oktober juga mencatat 10 request API sukses selama rebuild; rincian pengujian tersebut tetap tersedia di \texttt{integration.json}.
+\terminalfigure{p4-container-state}{Delapan container lain tidak berubah setelah Dashboard diganti.}{fig:p4-container-state}
+
+\section{Pengujian ownership dan flexible storage}
+Inspeksi jaringan menunjukkan bahwa \texttt{store-net} hanya memuat Aggregator dan PostgreSQL. Inspeksi port PostgreSQL juga menunjukkan bahwa port database tidak dipublikasikan ke host. Hasil ini mendukung batas akses pada konfigurasi; kode Client API dan consumer tetap diperiksa untuk memastikan keduanya tidak membuka koneksi SQL ke Canonical Store.
+\terminalfigure{p4-storage}{Anggota jaringan storage dan port PostgreSQL yang tidak dipublikasikan.}{fig:p4-storage}
+
+Fleksibilitas storage dibuktikan bersama pengujian P1 pada Gambar~\ref{fig:p1-schema}. Snapshot revisi 1 dan 2 tetap terbaca dengan daftar migrasi yang sama. Pembacaan tersebut dilakukan melalui \texttt{/aggregator history-audit}, sehingga perubahan dokumen diperiksa oleh service pemilik storage.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}Y}
+\toprule
+Kriteria & Bukti \\
+\midrule
+P4.1 & Rebuild, request API, dan perbandingan delapan container pada Gambar~\ref{fig:p4-state-before}--\ref{fig:p4-container-state}. \\
+P4.2 & Revisi v1/v2 dan daftar migrasi pada Gambar~\ref{fig:p1-schema}. \\
+P4.3 & Anggota \texttt{store-net}, port privat, serta jalur baca pada kode; Gambar~\ref{fig:p4-storage}. \\
+P4.4 & Batas service pada Bab 2 dan perbandingan tiga pilihan storage pada bab ini. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Batasan}
+Batas ownership diterapkan pada aplikasi dan jaringan Compose. Administrator Docker tetap dapat memasuki container atau memasang volume, sehingga pemisahan ini tidak membatasi administrator host. Pengujian rebuild juga hanya membuktikan isolasi satu consumer; ketersediaan API saat Aggregator atau PostgreSQL mati belum dibuktikan oleh pengujian tersebut.
+
+Selain itu, history, inbox, dan outbox yang telah dipublikasikan belum memiliki kebijakan pembersihan jangka panjang. Kebutuhan ruang akan terus meningkat jika data dibiarkan bertambah. Masalah batch snapshot besar yang dibahas pada P1 serta kebijakan retention lokal perlu diselesaikan sebelum sistem digunakan untuk volume yang lebih tinggi.

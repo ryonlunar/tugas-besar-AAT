@@ -1,0 +1,10 @@
+\chapter{Kesimpulan}
+Pada profil M1 yang diuji, platform dapat menyatukan data BMKG dan PVMBG ke dalam HazardEvent, menerima tambahan atribut tanpa restart atau migrasi, serta membatasi data sesuai identitas client. Ketika PVMBG mengalami outage, API tetap menyediakan data terakhir dengan penanda stale, sementara data BMKG tetap dapat diperbarui. Pemulihan sumber kemudian diikuti polling tanpa menjalankan ulang jalur baca.
+
+Pemisahan consumer juga terbukti pada pengujian fan-out. Dashboard dapat dihentikan atau dibangun ulang ketika producer dan Notifier tetap berjalan, lalu melanjutkan pembacaan event yang tersimpan di broker. Consumer baru dapat membaca stream yang sama tanpa perubahan producer.
+
+\input{evidence/conclusion-result}
+
+Ownership storage, kontrak event, outbox, dan consumer idempoten menjadi dasar untuk pengembangan milestone berikutnya. Jika jumlah instance ditambah, polling dan relay perlu dikoordinasikan, sedangkan state Auth serta consumer perlu dikelola agar sesuai dengan pola deployment tersebut. Pengujian kapasitas dan kegagalan juga harus diulang; hasil satu host pada M1 belum membuktikan high availability pada beberapa node.
+
+Prioritas lanjutan adalah menelusuri kegagalan perubahan schema pada volume besar, mengurangi biaya snapshot yang terus tumbuh, dan menetapkan pembersihan data lokal. Sinkronisasi waktu perlu dijaga untuk expiry token serta freshness. Sebelum deployment di luar demo lokal, sistem juga membutuhkan TLS, pemisahan credential broker, dan mekanisme rotasi key.

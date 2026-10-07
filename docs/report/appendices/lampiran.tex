@@ -1,0 +1,51 @@
+\appendix
+\chapter{Penelusuran Kode dan Bukti}
+\section{Lokasi implementasi}
+Path berikut relatif terhadap root repo. Kode menjelaskan bagaimana mekanisme bekerja, sedangkan berkas evidence menyimpan hasil yang diamati ketika mekanisme tersebut diuji.
+\begin{description}[style=nextline,leftmargin=0pt]
+\item[P1: pemetaan dan perubahan schema]
+\path{services/aggregator/internal/mapper/}, \path{services/aggregator/internal/poller/}, dan \path{services/pvmbg-mock/internal/mock/}.
+\item[P2: jalur baca dan isolasi]
+\path{services/client-api/internal/api/handler.go}, \path{services/aggregator/internal/store/store.go}, serta \path{scripts/load/}.
+\item[P3: autentikasi dan token]
+\path{services/auth/internal/auth/}, \path{services/client-api/internal/api/handler.go}, \path{.env.example}, \path{.gitignore}, dan \path{.dockerignore}.
+\item[P4: ownership dan dokumen]
+\path{docker-compose.yml}, Dockerfile tiap service, \path{services/aggregator/internal/store/migrations/}, serta perintah audit pada \path{services/aggregator/cmd/server/}.
+\item[P5: publish dan consumer]
+\path{services/aggregator/internal/outbox/}, \path{services/aggregator/internal/broker/}, \path{pkg/jetstreamconsumer/}, serta direktori \texttt{internal/store} pada kedua consumer.
+\end{description}
+
+\clearpage
+\section{Berkas evidence}
+Berkas berikut berada di \path{docs/report/evidence/}. Trial integrasi dan load test dilakukan pada 5 Oktober 2026. Pengujian fungsional melalui HTTP dan Docker dilakukan pada 7 Oktober. Waktu, command, exit code, dan output pengujian dicatat dalam \texttt{terminal-commands.json}. Contoh record, daftar migrasi, dan kondisi container juga tersedia pada berkas audit.
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{5.2cm}Y}
+\toprule
+Berkas & Isi \\
+\midrule
+\path{integration.json}, \path{integration.log} & Pemetaan, schema, outage, token, rebuild, dan fan-out; 20 catatan pemeriksaan, trial lulus. \\
+\path{validated-records.log} & Validasi delapan record dari trial integrasi dan command langsung, termasuk dua pasang revisi PVMBG. \\
+\path{contract-tests.log} & Test schema, mapper, scope API, dan validasi token. \\
+\path{access-and-networks.json} & Empat request credential, akses Media, dan anggota network setiap container. \\
+\path{load.json}, \path{load.log}, \path{load-statuses.json} & Konfigurasi, throughput, percentile, status error, dan refresh saat beban. \\
+\path{tcp.json}, \path{tcp.log} & Sampel koneksi TCP established selama beban. \\
+\path{pvmbg-delay.json} & Delay yang diminta dan latency sumber yang diukur. \\
+\path{outage-recovery.json} & Status stale/fresh kedua sumber dan pemulihan tanpa restart. \\
+\path{schema-volume-review.txt} & Catatan kegagalan perubahan schema pada sekitar 1000 record PVMBG. \\
+\path{correlation.log} & Log JSON API dan Aggregator untuk request dengan correlation ID yang sama. \\
+\path{terminal-commands.json} & Command langsung, waktu pengambilan, exit code, stdout, dan stderr untuk tangkapan terminal. \\
+\texttt{mapping-command-}\newline\texttt{records.json},\newline\texttt{schema-command-}\newline\texttt{audit.json} & Record canonical dan output audit lengkap dari pengujian command 7 Oktober. \\
+\path{rebuild-container-states.json} & ID, waktu mulai, dan restart count delapan container sebelum serta sesudah rebuild. \\
+\path{environment.json} & Commit, versi alat, mesin, project, dan konfigurasi non-secret. \\
+\path{assessment.json} & Pemeriksaan threshold dan interval koneksi dari data mentah. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\IfFileExists{appendices/form-penggunaan-ai.pdf}{%
+\clearpage
+\phantomsection
+\addcontentsline{toc}{chapter}{Formulir Penggunaan AI}
+\includepdf[pages=-]{appendices/form-penggunaan-ai.pdf}
+}{}

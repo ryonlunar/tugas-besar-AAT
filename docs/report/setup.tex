@@ -1,0 +1,73 @@
+% Konfigurasi laporan IF4031 M1
+\usepackage[indonesian]{babel}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{pdfpages}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{fancyhdr}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{xurl}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+\usepackage[hidelinks]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.35em}
+\emergencystretch=2em
+\setlist{nosep,leftmargin=2em}
+\renewcommand{\arraystretch}{1.15}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\widowpenalty=10000
+\clubpenalty=10000
+\raggedbottom
+
+\titleformat{\chapter}[block]
+  {\normalfont\fontsize{16pt}{18pt}\selectfont\bfseries\centering}
+  {}{0pt}{}
+\titlespacing*{\chapter}{0pt}{12pt}{18pt}
+\titleformat{\section}[block]
+  {\normalfont\fontsize{14pt}{16pt}\selectfont\bfseries}
+  {\thesection.}{0.75em}{}
+\titleformat{\subsection}[block]
+  {\normalfont\fontsize{12pt}{14pt}\selectfont\bfseries}
+  {\thesubsection}{0.75em}{}
+
+\renewcommand{\contentsname}{DAFTAR ISI}
+\renewcommand{\figurename}{Gambar}
+\renewcommand{\tablename}{Tabel}
+\renewcommand{\cfttoctitlefont}{\hfill\fontsize{16pt}{18pt}\selectfont\bfseries}
+\renewcommand{\cftaftertoctitle}{\hfill}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot[R]{IF4031 AAT\quad\thepage}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\fancypagestyle{plain}{%
+  \fancyhf{}%
+  \fancyfoot[R]{IF4031 AAT\quad\thepage}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+}
+
+
+\captionsetup{font=small,labelfont=bf}
+\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=fullflexible,
+ frame=single,rulecolor=\color{black!20},xleftmargin=0.3em,xrightmargin=0.3em,
+ keepspaces=true,showstringspaces=false}
+\newcommand{\terminalfigure}[3]{%
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth,height=0.74\textheight,keepaspectratio]{figures/#1.png}
+\caption{#2}\label{#3}
+\end{figure}}

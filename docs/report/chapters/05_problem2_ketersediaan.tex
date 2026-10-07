@@ -1,0 +1,76 @@
+\chapter{Problem 2: Concurrency, Availability, \& Graceful Degradation}
+\section{Isolasi request dan polling}
+Jalur request client dipisahkan dari pengambilan data sumber. Client API membaca data yang telah tersimpan melalui Aggregator, sehingga request tidak harus menunggu mock PVMBG yang dapat terlambat 3 detik. Sementara itu, loop polling BMKG dan PVMBG berjalan sendiri-sendiri; fetch seismic dan warning BMKG juga dapat dilakukan paralel. HTTP client menggunakan kembali koneksi untuk mengurangi biaya pembukaan koneksi pada request berikutnya.
+
+Di database, pekerjaan baca memiliki pool 10 koneksi, sedangkan penulisan BMKG, penulisan PVMBG, dan relay masing-masing mendapat 2 koneksi. Dengan pemisahan ini, pekerjaan polling tidak mengambil seluruh koneksi yang dibutuhkan jalur baca. API dan Aggregator membatasi jumlah request yang sedang diproses menjadi 128. Jika batas tersebut tercapai, service mengembalikan 429 beserta \texttt{Retry-After}, sehingga client mengetahui bahwa request perlu dicoba lagi.
+
+Timeout membatasi lamanya setiap pekerjaan: baca database 200 ms, write 2 detik, request API ke Aggregator 1 detik, request ke BMKG 1 detik, dan request ke PVMBG 4 detik. Angka PVMBG dibuat lebih panjang agar delay 3 detik pada pengujian masih dapat ditangani.
+
+Alternatifnya adalah mengambil data sumber untuk setiap request client. Cara itu dapat memberikan data yang lebih baru, tetapi waktu respons dan kegagalan sumber langsung memengaruhi client. Polling menghindari ketergantungan tersebut dengan konsekuensi adanya jeda pembaruan. Karena itu, API menyertakan metadata freshness agar client mengetahui status sumber dan waktu pembaruan terakhir.
+
+\section{Outage dan pemulihan}
+Ketika polling PVMBG gagal, Aggregator mempertahankan data terakhir yang berhasil disimpan. API masih dapat mengembalikannya, tetapi \texttt{meta.sources.PVMBG.status} berubah menjadi \texttt{stale}. Respons juga menyertakan \texttt{last\_success\_at} dan \texttt{stale\_since}, sehingga client mengetahui kapan sumber terakhir berhasil dibaca dan sejak kapan data dinyatakan tertinggal. Pada saat yang sama, BMKG dapat tetap berstatus \texttt{fresh} karena polling-nya terpisah.
+
+Jika sumber belum pernah menghasilkan data yang dapat dilayani, API menyatakan \texttt{unavailable} dengan status 503. Setelah outage dinonaktifkan, polling berikutnya memperbarui data dan mengembalikan status PVMBG menjadi fresh tanpa restart API maupun Aggregator.
+Pengujian outage dilakukan melalui endpoint kontrol mock. Request berikut mengirim \texttt{enabled=true} ke \texttt{/admin/outage}; setelah respons diterima, pengujian menunggu polling mendeteksi kegagalan sumber.
+\terminalfigure{p2-outage-control}{Mengaktifkan outage pada sumber PVMBG.}{fig:p2-outage-control}
+
+Berikutnya, dua request dikirim ke Client API dengan token Tim Lapangan. Request pertama memilih PVMBG dan menampilkan jumlah record beserta metadata sumber, sedangkan request kedua membaca metadata BMKG. Pada hasil PVMBG masih ada lima record yang dikembalikan, tetapi statusnya stale dan waktu kegagalan tercatat. BMKG tetap fresh. API tetap menyediakan data terakhir beserta status dan waktu kegagalan sumber.
+\terminalfigure{p2-outage}{Respons API selama PVMBG outage: data terakhir tersedia dan kondisi setiap sumber dinyatakan secara eksplisit.}{fig:p2-outage}
+
+Pemulihan dilakukan dengan mengirim \texttt{enabled=false} ke endpoint yang sama. Setelah jeda polling, request API menunjukkan PVMBG kembali fresh dan \texttt{stale\_since} menjadi null. Langkah ini tidak menjalankan command restart. Trial lengkap pada 5 Oktober juga membandingkan kondisi container sebelum dan sesudah outage; hasilnya tersimpan di \texttt{outage-recovery.json}.
+\terminalfigure{p2-recovery}{Mematikan outage dan membaca hasil polling yang sudah pulih.}{fig:p2-recovery}
+
+\section{Metode dan hasil load test}
+Load test dijalankan pada 5 Oktober 2026 menggunakan \path{scripts/load/hazards-monotonic.py}. Script ini mengirim request HTTP dengan 30 worker BMKG dan 30 worker PVMBG secara bersamaan selama 90 detik. Tidak ada think time, sehingga setiap worker langsung mengirim request berikutnya setelah menerima respons.
+
+Setiap worker mempunyai sesi Tim Lapangan sendiri, menggunakan HTTP keep-alive, dan membaca \texttt{view=full} dengan limit 50. Access token tetap menggunakan TTL 60 detik; script melakukan refresh sebelum expiry agar masa berlaku token tidak menjadi penyebab putusnya beban. Selama pengujian, delay sumber PVMBG ditetapkan 3000 ms.
+
+Latency dihitung sejak request dimulai hingga seluruh body diterima, termasuk pembukaan koneksi jika diperlukan. Pengukuran memakai \path{time.perf_counter_ns}, yaitu timer monotonic yang tidak mengikuti perubahan wall clock host, sedangkan percentile dihitung dengan metode nearest rank.
+
+Untuk memeriksa syarat koneksi paralel, collector menggunakan Linux \texttt{ss} dan mengambil sampel koneksi TCP established ke port API setiap sekitar 1 detik. Pengukuran ini diperlukan karena jumlah worker saja tidak membuktikan jumlah koneksi yang benar-benar terbuka.
+
+Sebelum beban diberikan, delay mock diatur dengan body \texttt{min\_ms} dan \texttt{max\_ms} yang sama-sama bernilai 3000. Request langsung ke sumber kemudian mengukur waktu respons melalui \texttt{curl}. Flag \texttt{-o /dev/null} membuang body, sedangkan \texttt{-w} menampilkan status HTTP dan durasi request. Ini membedakan delay sumber dari latency Client API yang membaca data tersimpan.
+\terminalfigure{p2-delay}{Mengatur delay 3 detik dan mengukur request langsung ke sumber PVMBG.}{fig:p2-delay}
+
+Collector TCP dijalankan bersamaan dengan load test untuk mengukur jumlah koneksi established selama beban berlangsung. Kedua proses dimulai dari root repo dengan command berikut:
+\begin{lstlisting}
+export API_URL=http://127.0.0.1:8280
+export AUTH_URL=http://127.0.0.1:8284
+python3 scripts/load/capture-tcp-connections.py \
+  --api-url "$API_URL" --seconds 110 --interval 1 \
+  --output /tmp/report-tcp.json &
+tcp_pid=$!
+python3 scripts/load/hazards-monotonic.py \
+  --seconds 90 --vus-per-source 30 --output /tmp/report-load.json
+wait "$tcp_pid"
+\end{lstlisting}
+Hasil load test tersimpan di \path{docs/report/evidence/load.json}. Field yang diperiksa meliputi jumlah worker, durasi pengujian, p95 BMKG, throughput, dan persentase error.
+\terminalfigure{p2-load}{Membaca hasil load test 5 Oktober dari berkas pengukuran yang disimpan.}{fig:p2-load}
+
+\input{evidence/load-results}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/p2-tcp.pdf}
+\caption{Sampel koneksi established selama pengujian. Garis putus-putus menunjukkan batas 50 koneksi. Interval di atas batas dihitung dari rangkaian sampel koneksi.}
+\label{fig:p2-tcp}
+\end{figure}
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}Y}
+\toprule
+Kriteria & Bukti \\
+\midrule
+P2.1 & Delay sumber terukur dan BMKG p95 pada Tabel~\ref{tab:load}; kedua sumber menerima request bersamaan. \\
+P2.2 & Throughput, percentile, error, 429, serta sampel TCP; Tabel~\ref{tab:load} dan Gambar~\ref{fig:p2-tcp}. \\
+P2.3 & Kontrol outage, data stale, dan pemulihan pada Gambar~\ref{fig:p2-outage-control}--\ref{fig:p2-recovery}; trial lengkap di \texttt{outage-recovery.json}. \\
+P2.4 & Metode, konfigurasi, serta mekanisme isolasi di bab ini; script dan output lengkap disertakan. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Batasan}
+Hasil load test menggambarkan beban yang dicoba pada satu host dengan pembacaan maksimal 50 record per request. Pengujian tersebut belum mencari kapasitas maksimum sistem. Selain itu, jalur baca tetap membutuhkan Aggregator dan PostgreSQL, sehingga isolasi dari gangguan sumber tidak menjamin API tersedia jika salah satu komponen ini mati.
+
+Penilaian freshness masih menggunakan wall clock. Jika waktu host bergeser, umur data yang ditampilkan dapat ikut berubah meskipun pengukuran latency tetap benar. Perluasan ke beberapa node karena itu memerlukan sinkronisasi waktu serta pengujian ulang terhadap kapasitas dan pola kegagalan yang baru.

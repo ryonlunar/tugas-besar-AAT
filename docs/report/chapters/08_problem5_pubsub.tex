@@ -1,0 +1,101 @@
+\chapter{Problem 5: Fan-out Event Distribution/Pub-sub}
+\section{Producer, stream, dan consumer}
+Distribusi event dimulai dari transaksi penyimpanan Aggregator. Event canonical, revisinya, dan pesan outbox ditulis bersamaan, sehingga event yang berhasil disimpan mempunyai catatan untuk dikirim ke broker. Relay kemudian mempublikasikan envelope ke subject \path{hazard.events.v1.BMKG} atau \path{hazard.events.v1.PVMBG}. Kedua subject ditangkap oleh stream \texttt{HAZARD\_EVENTS} melalui filter \texttt{hazard.events.v1.*}.
+
+Outbox dipilih untuk menangani celah antara penyimpanan data dan publish. Jika publish langsung dilakukan setelah commit, proses dapat mati ketika data sudah tersimpan tetapi pesan belum terkirim. Sebaliknya, publish sebelum commit dapat mengirim event dari transaksi yang kemudian gagal. Outbox mencatat kebutuhan publish dalam transaksi data yang sama, lalu relay mencobanya kembali. Konsekuensinya, ada jeda sebelum event sampai ke consumer dan kemungkinan publish berulang.
+
+Producer mempublikasikan pesan berdasarkan subject dan kontrak event, sehingga penambahan pembaca tidak memerlukan perubahan pada producer. Daftar consumer serta posisi baca masing-masing dikelola oleh broker.
+
+Dashboard dan Notifier memakai durable yang berbeda, yaitu \texttt{dashboard-v1} dan \texttt{notifier-v1}. Broker menyimpan posisi baca setiap durable meskipun aplikasinya berhenti. Dengan posisi yang terpisah, masing-masing aplikasi dapat menerima seluruh event dan memberikan ACK sendiri.
+
+Jika kedua aplikasi berbagi satu durable, pesan akan dibagi sebagai pekerjaan untuk pembaca durable tersebut. Pola itu tidak memenuhi kebutuhan fan-out, yaitu event yang sama dapat diterima oleh setiap aplikasi. Karena itu, kedua consumer memakai pull consumer yang independen meskipun stream-nya sama.
+
+Pull dipilih agar consumer meminta batch berikutnya setelah pengolahan batch sebelumnya selesai. Dibanding push, laju pengambilan lebih langsung dikendalikan aplikasi; ukuran batch dan batas ACK membatasi pesan yang sedang ditangani. Saat stream kosong, consumer tetap melakukan fetch dengan timeout.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.8cm}Y}
+\toprule
+Konfigurasi & Nilai dan fungsi \\
+\midrule
+Storage / replica / retention & File / 1 / LimitsPolicy; ACK consumer tidak menghapus event dari stream. \\
+Batas retention & 24 jam, 256 MiB, 100.000 pesan; batas yang tercapai lebih dahulu menentukan kapasitas. \\
+Batas satu pesan & 64 KiB, termasuk ukuran yang diperhitungkan publisher. \\
+Saat kapasitas penuh & DiscardNew; publish baru ditolak, bukan menghapus pesan lama hanya untuk menerima pesan baru. \\
+Dedup broker & Message ID \texttt{hazard\_id:revision}; window 2 menit. \\
+ACK / redelivery & AckExplicit, AckWait 30 detik, MaxDeliver $-1$; retry tidak dibatasi jumlahnya. \\
+Pull / inflight & Batch 10, expiry fetch 2 detik, MaxAckPending 64. \\
+\bottomrule
+\end{tabularx}
+\caption{Konfigurasi JetStream dan consumer yang digunakan pada M1.}
+\end{table}
+
+LimitsPolicy mempertahankan event sampai batas retention, walaupun consumer telah memberikan ACK. Dengan DeliverAll, consumer baru dapat membaca event lama yang masih tersimpan. InterestPolicy juga mendukung fan-out, tetapi menghapus pesan setelah seluruh consumer yang berkepentingan memberikan ACK. Sementara itu, WorkQueuePolicy ditujukan untuk pembagian pekerjaan dengan satu pemroses per pesan \cite{nats-retention}. LimitsPolicy dipilih agar penambahan consumer pada P5 dapat disertai replay, dengan biaya penyimpanan event selama masa retention.
+
+Alternatif producer memanggil setiap consumer melalui HTTP membutuhkan daftar tujuan dan retry per tujuan di producer. NATS Core memberi fan-out sederhana, tetapi tidak menyimpan backlog durable untuk consumer yang mati. JetStream dipilih agar replay dan posisi baca dikelola broker. Kafka atau RabbitMQ juga memungkinkan pola sejenis, tetapi kebutuhan M1 dapat dipenuhi dengan JetStream dan konfigurasi lokal yang lebih kecil.
+
+\section{Semantik pengiriman dan idempotensi}
+Semantik pengiriman sistem adalah \textbf{at-least-once}, sehingga sebuah pesan dapat diterima lebih dari sekali. Misalnya, broker sudah menerima publish, tetapi relay gagal mencatat status published di database. Relay akan mencoba kembali. Hal serupa dapat terjadi ketika consumer sudah melakukan commit lokal, tetapi proses mati sebelum ACK diterima broker. Message ID \texttt{hazard\_id:revision} membantu broker mengenali publish ulang selama dedup window 2 menit, tetapi perlindungan tersebut memiliki batas waktu.
+
+Untuk menangani pengiriman ulang, setiap consumer menyimpan \texttt{message\_id} pada inbox dengan constraint unik. Pencatatan inbox dan hasil olahan dilakukan dalam satu transaksi SQLite, kemudian consumer mengirim ACK. Jika pesan yang sama datang kembali, inbox menunjukkan bahwa hasilnya sudah diterapkan sehingga side effect lokal tidak diulang. Dashboard hanya menerima revisi yang lebih baru, sedangkan Notifier menggunakan identitas pesan yang unik untuk alert-nya.
+
+Pesan dengan envelope tidak valid disimpan ke quarantine sebelum ACK, agar pesan rusak tidak terus diulang dan payload tetap tersedia untuk diperiksa. Jika penyimpanan gagal, consumer meminta pengiriman ulang sehingga pesan belum dianggap selesai.
+
+Dengan demikian, hasil lokal dibuat idempoten meskipun delivery dapat berulang. Mekanisme ini tidak menyatakan bahwa seluruh alur bersifat exactly-once, terutama jika nantinya Notifier melakukan panggilan ke layanan SMS eksternal yang berada di luar transaksi SQLite.
+
+Saat publish gagal, relay mencoba kembali dengan backoff 1 sampai 30 detik. Pending outbox dibatasi 10.000 pesan; jika batas ini tercapai, ingest tidak terus menambah antrean. Penghentian satu consumer karena itu tidak langsung menghalangi producer, selama broker masih dapat menyimpan event. Namun, kapasitas broker dan disk tetap menjadi batas: dengan DiscardNew, publish baru ditolak ketika stream penuh dan pesan tetap menunggu di outbox.
+
+\section{Pengujian fan-out dan recovery}
+\subsection{Mencatat posisi dua durable consumer}
+Pengujian membaca endpoint monitoring JetStream melalui \texttt{wget} di dalam container NATS. Port monitoring tidak dibuka ke host. Query \texttt{streams=true\&consumers=true} meminta informasi stream beserta consumer-nya, kemudian \texttt{jq} memilih dua durable utama.
+
+Pada output, \texttt{last\_seq} adalah sequence terakhir stream, sedangkan \texttt{ack} menampilkan ACK floor consumer dalam sequence stream. ACK floor menunjukkan posisi yang sudah diakui secara berurutan. \texttt{pending} menghitung pesan yang belum dikirim, dan \texttt{inflight} menghitung pesan yang sudah dikirim tetapi belum di-ACK. Karena dua jenis antrean ini berbeda, pending nol saja belum membuktikan recovery selesai.
+\terminalfigure{p5-before}{Posisi awal stream dan dua durable utama sebelum Dashboard dihentikan.}{fig:p5-before}
+
+Pada snapshot awal, Dashboard dan Notifier sama-sama memiliki ACK 308, sesuai sequence terakhir stream. Ini menunjukkan keduanya membaca stream yang sama dengan posisi masing-masing.
+
+\subsection{Menghentikan satu consumer dan membaca backlog}
+Dashboard dihentikan melalui Compose, sementara producer dan Notifier dibiarkan berjalan. Jeda 15 detik memberi kesempatan bagi mock untuk menghasilkan event baru dan Aggregator untuk meneruskannya ke broker.
+\terminalfigure{p5-stop}{Menghentikan Dashboard tanpa menghentikan producer, broker, atau Notifier.}{fig:p5-stop}
+
+Command monitoring yang sama kemudian dijalankan ulang. Sequence stream naik dari 308 menjadi 311 dan ACK Notifier ikut mencapai 311. ACK Dashboard tetap 308 dengan tiga pesan pending. Jadi, event baru tetap tersimpan dan diolah Notifier saat Dashboard tidak aktif. Sequence 311 dicatat sebagai target yang harus dicapai Dashboard setelah kembali berjalan.
+\terminalfigure{p5-stopped}{Stream dan Notifier terus maju, sedangkan backlog Dashboard bertambah.}{fig:p5-stopped}
+
+Dashboard dijalankan kembali, kemudian pengujian menunggu 35 detik sebelum membaca posisi ACK. Jeda ini juga memberi ruang untuk redelivery jika masih ada pesan yang dikirim sebelum consumer berhenti; konfigurasi AckWait adalah 30 detik.
+\terminalfigure{p5-recovery-control}{Menjalankan kembali Dashboard dan menunggu pemrosesan backlog.}{fig:p5-recovery-control}
+
+Pada pemeriksaan berikutnya, ACK Dashboard mencapai 318, melewati target 311 yang dicatat saat ia mati. Notifier juga mencapai 318, dan kedua consumer tidak mempunyai pesan pending maupun inflight pada snapshot tersebut. Hasil ini membuktikan Dashboard memproses event yang terbit selama gangguan, bukan hanya menerima event setelah startup.
+\terminalfigure{p5-recovery}{Dashboard sudah mengakui seluruh pesan hingga melewati target periode gangguan.}{fig:p5-recovery}
+
+Inspeksi database lokal kemudian menunjukkan bahwa kedua consumer masing-masing memiliki 319 pesan pada inbox dan quarantine nol. Pemeriksaan ini dilakukan setelah snapshot broker, sehingga jumlah inbox dapat bertambah ketika event baru masuk. Inbox yang terpisah mendukung bahwa setiap aplikasi mengolah pesan secara independen.
+\terminalfigure{p5-inbox}{Hasil olahan berada pada inbox lokal masing-masing consumer.}{fig:p5-inbox}
+
+\subsection{Menambahkan consumer tanpa mengubah producer}
+Penambahan consumer diuji pada sesi terpisah. Sebelum Third Consumer dijalankan, ID, waktu mulai, dan restart count Aggregator disimpan. Profile \texttt{demo} kemudian menambahkan container Third Consumer dengan durable \texttt{third-consumer-v1}, tanpa membangun atau menjalankan ulang Aggregator. Consumer ini memakai binary Notifier dengan durable dan volume miliknya sendiri.
+\terminalfigure{p5-third-start}{Menjalankan consumer tambahan melalui profile demo.}{fig:p5-third-start}
+
+Pada sesi tersebut, snapshot monitoring menunjukkan durable baru telah mencapai ACK 192, sama dengan posisi stream dan kedua durable lainnya. Karena consumer baru memakai DeliverAll, pesan yang masih tersimpan sebelum ia dibuat juga tersedia untuk dibaca; producer tidak perlu mengirim ulang secara khusus kepadanya.
+\terminalfigure{p5-third}{Durable baru membaca stream yang sama sampai posisi ACK yang ditampilkan broker.}{fig:p5-third}
+
+Perbandingan kondisi Aggregator sebelum dan sesudah menghasilkan file yang identik. Inspeksi Third Consumer juga menunjukkan inbox 193 dengan quarantine nol. Jumlah inbox diambil setelah snapshot broker, ketika stream masih menerima event. Dengan demikian, penambahan consumer berhasil tanpa perubahan container producer, dan consumer baru berhasil menyimpan hasil pengolahannya.
+\terminalfigure{p5-third-producer}{Producer tidak berubah dan consumer tambahan memiliki inbox sendiri.}{fig:p5-third-producer}
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}Y}
+\toprule
+Kriteria & Bukti \\
+\midrule
+P5.1 & Publish relay ke subject broker pada kode dan kenaikan sequence ketika Dashboard mati. \\
+P5.2 & Posisi durable terpisah pada Gambar~\ref{fig:p5-before} dan inbox masing-masing pada Gambar~\ref{fig:p5-inbox}. \\
+P5.3 & Sequence 311 sebagai target gangguan, lalu ACK Dashboard 318 pada Gambar~\ref{fig:p5-stopped} dan \ref{fig:p5-recovery}. \\
+P5.4 & Startup Third Consumer, posisi ACK, dan kondisi producer pada Gambar~\ref{fig:p5-third-start}--\ref{fig:p5-third-producer}. \\
+P5.5 & Pilihan fan-out, at-least-once, dan transaksi inbox idempoten dijelaskan pada bab ini. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Batasan}
+Consumer dapat mengejar backlog selama event yang dibutuhkannya masih tersedia di stream. Durable mempertahankan posisi baca, tetapi tidak memperpanjang retention. Jika consumer berhenti melewati batas retention, event yang sudah kedaluwarsa tidak dapat diambil kembali dari broker.
+
+Konfigurasi satu replica juga belum menyediakan failover antarmesin. Di sisi consumer, idempotensi bergantung pada riwayat inbox yang tersimpan di volume lokal. Jika volume tersebut dihapus, consumer kehilangan catatan pesan yang pernah diolah. Retention broker dan keberlangsungan volume karena itu menjadi bagian dari batas jaminan pengiriman pada M1.

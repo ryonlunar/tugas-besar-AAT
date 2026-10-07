@@ -1,0 +1,73 @@
+\chapter{Arsitektur Sistem}
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[x=1cm,y=1cm,>=Stealth,
+ service/.style={draw,rounded corners=2pt,fill=blue!5,align=center,minimum width=3.5cm,minimum height=1.0cm,font=\small},
+ store/.style={draw,fill=orange!10,align=center,minimum width=3.5cm,minimum height=0.95cm,font=\small},
+ lab/.style={font=\scriptsize,fill=white,inner sep=2pt,align=center}]
+\node[align=center,font=\small,draw,dashed,minimum width=5cm,minimum height=0.9cm] (client) at (8.5,0) {Media, Tim Lapangan, BNPB internal};
+\node[service] (auth) at (2.5,-2.5) {Auth/Token Service :8084\\private key; SQLite privat};
+\node[service] (api) at (8.5,-2.5) {Client-Facing API :8080\\verifikasi JWT: public key};
+\node[service] (agg) at (8.5,-5) {Aggregator\\HTTP :8083};
+\node[service] (bmkg) at (2.5,-5) {BMKG Mock\\HTTP :8081};
+\node[service] (pvmbg) at (2.5,-7.5) {PVMBG Mock\\HTTP :8082};
+\node[store] (pg) at (14.5,-5) {PostgreSQL :5432\\canonical, history, outbox};
+\node[store] (nats) at (8.5,-8.5) {NATS JetStream :4222\\file storage privat};
+\node[service] (dash) at (2.5,-11.5) {Dashboard Consumer :8085\\SQLite privat};
+\node[service] (notify) at (8.5,-11.5) {Notifier Consumer :8086\\SQLite privat};
+\node[service,dashed] (third) at (14.5,-11.5) {Third Consumer :8087\\opsional; SQLite privat};
+\draw[->] (client.west) -- node[lab,above,sloped]{login / refresh HTTP} (auth.north);
+\draw[->] (client.south) -- node[lab,right]{GET HTTP + JWT} (api.north);
+\draw[->] (api.south) -- node[lab,right]{HTTP + internal key} (agg.north);
+\draw[->] (agg.west) -- node[lab,above]{poll HTTP\\API key} (bmkg.east);
+\draw[->] (agg.south west) -- node[lab,above,sloped]{poll HTTP + Bearer} (pvmbg.east);
+\draw[->] (agg.east) -- node[lab,above]{SQL/TCP} (pg.west);
+\draw[->] (agg.south) -- node[lab,right]{publish NATS/TCP} (nats.north);
+\draw[<->] (nats.south) -- ++(0,-0.7) -| node[lab,pos=0.8,left]{pull / event / ACK} (dash.north);
+\draw[<->] (nats.south) -- node[lab,right]{pull / event / ACK} (notify.north);
+\draw[<->,dashed] (nats.south) -- ++(0,-0.7) -| node[lab,pos=0.8,right]{pull / event / ACK} (third.north);
+\end{tikzpicture}}
+\caption{Setiap kotak berwarna adalah satu container. SQLite berada di volume privat service pemiliknya. Panah menunjukkan komunikasi jaringan dan alur event. Consumer memakai NATS/TCP untuk pull, delivery, dan ACK. Respons HTTP dan SQL kembali melalui koneksi yang sama. Port adalah default proyek.}
+\label{fig:architecture}
+\end{figure}
+
+\section{Alur data dan batas service}
+Alur dimulai ketika Aggregator melakukan polling ke BMKG dan PVMBG. Masing-masing sumber memiliki loop sendiri agar sumber yang lambat tidak menunda pengambilan data dari sumber lain. Setelah respons dipetakan menjadi \texttt{HazardEvent}, Aggregator menyimpan data terbaru, snapshot revisi, dan pesan outbox dalam satu transaksi PostgreSQL. Outbox merupakan daftar pesan yang sudah menjadi bagian dari data tersimpan, tetapi masih perlu dikirim ke broker. Relay membacanya dan melakukan publish ke JetStream, termasuk mencoba kembali jika publish gagal.
+
+Ada dua jalur untuk menggunakan data tersebut. Pada jalur baca, client memperoleh JWT dari Auth, lalu mengirimkannya ke Client-Facing API. API memeriksa signature dan scope secara lokal sebelum membaca data melalui API internal Aggregator. Pada jalur event, Dashboard dan Notifier mengambil pesan dari JetStream, mengolahnya, kemudian menyimpan hasil pada database masing-masing. Notifier hanya mencatat alert lokal sebagai simulasi notifikasi pada M1.
+
+\section{Alasan pembagian service}
+Kontrak BNPB pada spesifikasi M1 mencantumkan Aggregator, Client-Facing API, Auth/Token Service, dan sedikitnya dua Event Consumer. Ketentuan implementasi juga mewajibkan container terpisah serta satu pemilik untuk setiap storage \cite{m1}. Pembagian tanggung jawab berikut menerapkan ketentuan tersebut dan membatasi bagian yang harus berubah bersama.
+
+Aggregator menangani polling, pemetaan, dan transaksi Canonical Store, sedangkan Client API memeriksa izin client dan menyajikan data. Dengan pemisahan ini, perubahan login atau antarmuka client dapat dilakukan tanpa membangun ulang ingest. Client API tetap membaca melalui HTTP Aggregator sesuai aturan ownership. REST/JSON dipilih karena bentuk data yang sama dapat digunakan pada jalur baca dan mudah diperiksa dengan curl. Konsekuensinya, pembacaan membutuhkan satu panggilan jaringan tambahan dan tetap bergantung pada Aggregator.
+
+Auth menangani pemeriksaan credential client, penerbitan token, dan sesi refresh. Client API memverifikasi token serta menegakkan hak akses, sehingga ia cukup memiliki public key; private key tetap berada di Auth. Menggabungkan keduanya akan mengurangi jumlah proses, tetapi mengikat deploy login dan pembacaan data dalam satu unit serta menempatkan key penandatanganan pada proses yang melayani data. Dengan verifikasi JWT lokal, gangguan Auth tidak menghentikan penggunaan access token yang masih valid. Login dan refresh tetap memerlukan Auth.
+
+Polling BMKG dan PVMBG tetap berada dalam satu Aggregator karena keduanya membentuk HazardEvent dan menggunakan Canonical Store yang sama. Loop serta pool koneksi dipisahkan untuk mengisolasi pekerjaan sumber tanpa menambah service ingest per instansi. Relay outbox juga berjalan sebagai worker di Aggregator, sehingga pembacaan outbox tetap dilakukan oleh pemilik storage. Batas ini mengurangi jumlah antarmuka yang harus dikelola, tetapi polling, pemetaan, dan relay masih ikut berhenti jika container Aggregator mati.
+
+Dashboard dan Notifier dipisahkan karena hasil olahannya berbeda: Dashboard menyimpan proyeksi data terbaru, sedangkan Notifier mencatat alert. Satu proses dengan dua handler dapat menjalankan kedua fungsi, tetapi penghentian proses tersebut akan menghentikan keduanya. Container dan durable yang terpisah memungkinkan setiap consumer berhenti, pulih, atau berubah tanpa mengganti consumer lain.
+
+\section{Jaringan dan kepemilikan storage}
+Canonical Store hanya dapat diakses langsung oleh Aggregator; Client API mengaksesnya melalui HTTP, sedangkan consumer menerima event melalui broker. PostgreSQL dan NATS tidak membuka port ke host. Auth dan setiap consumer juga memiliki volume SQLite sendiri, sehingga mereka tidak saling membaca database lokal.
+
+Empat jaringan Compose dipilih untuk membatasi hubungan sesuai jalur komunikasinya. Dibanding satu jaringan untuk seluruh container, konfigurasi ini mengurangi jalur akses yang tidak diperlukan, dengan konsekuensi pengaturan jaringan menjadi lebih banyak. Pembatasan tersebut melengkapi autentikasi pada setiap antarmuka.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{lY}
+\toprule
+Jaringan & Anggota dan fungsi \\
+\midrule
+\texttt{source-net} & Dua mock dan Aggregator; polling sumber. \\
+\texttt{api-net} & Client API, Auth, Aggregator; jalur API internal. \\
+\texttt{store-net} & Hanya Aggregator dan PostgreSQL; jaringan internal. \\
+\texttt{event-net} & Aggregator, NATS, dan consumer; jaringan internal. \\
+\bottomrule
+\end{tabularx}
+\caption{Pembagian jaringan dalam \texttt{docker-compose.yml}.}
+\end{table}
+
+Antarservice berkomunikasi melalui antarmuka jaringan. Paket bersama dipakai untuk kontrak pesan dan utilitas teknis; aturan pemetaan, otorisasi, serta pengolahan event tetap berada pada service yang bertanggung jawab.
+
+Demo console disediakan sebagai alat operator untuk menjalankan command HTTP dan Docker serta melihat output terminal. Alat ini berbeda dari Dashboard Consumer yang mengolah event. Seluruh service dapat dijalankan dan diuji melalui CLI tanpa membuka demo console.
