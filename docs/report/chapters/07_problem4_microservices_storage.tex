@@ -1,4 +1,8 @@
-\chapter{Problem 4: Arsitektur Microservice \& Flexible Storage}
+\chapter{PROBLEM 4}
+\begin{center}\large\bfseries MICROSERVICE DAN FLEXIBLE STORAGE\end{center}
+Bukti runtime pada bab ini mencakup trial 5 Oktober dan tangkapan command 7 Oktober 2026, yang merupakan sesi pengujian berbeda [10].
+
+
 \section{Container dan ownership}
 Stack utama terdiri dari tujuh container aplikasi serta dua container infrastruktur, yaitu PostgreSQL dan NATS. Setiap aplikasi memiliki Dockerfile sendiri, sementara kedua komponen infrastruktur memakai image resmi. Third Consumer hanya dijalankan melalui profile demo. Compose membantu mengatur jaringan dan urutan startup, tetapi satu aplikasi tetap dapat dibangun dan diganti dengan \texttt{--no-deps} tanpa menjalankan ulang seluruh stack.
 
@@ -6,7 +10,14 @@ Canonical Store menjadi tanggung jawab Aggregator. Hanya Aggregator dan PostgreS
 
 Pembagian tersebut menghindari ketergantungan consumer pada schema tabel internal Aggregator. Sebagai konsekuensinya, tampilan consumer diperbarui secara eventual: perubahan canonical harus melewati outbox dan broker sebelum diterapkan pada database consumer. Shared database antarservice dapat mengurangi jumlah antarmuka HTTP, tetapi perubahan tabel akan mengikat beberapa aplikasi sekaligus dan tidak memenuhi ownership storage yang diminta spesifikasi.
 
-\section{Struktur storage dan alternatif}
+\section{Detail Implementasi Canonical Store}
+Aggregator menggunakan PostgreSQL dengan empat kelompok tabel. \texttt{hazard\_events} menyimpan state terbaru dan unique key sumber/reference; \texttt{hazard\_versions} menyimpan snapshot append-only per revisi; \texttt{source\_state} menyimpan percobaan, sukses, kegagalan, dan freshness; \texttt{outbox} menyimpan envelope immutable yang belum atau sudah dipublikasikan. Field kanonik memiliki tipe dan constraint, sedangkan atribut sumber memakai JSONB [5].
+
+Perubahan latest hazard, penambahan versi, dan outbox ditulis dalam satu transaksi. Jika isi identik secara semantik, termasuk angka JSON yang ekuivalen, revisi tidak ditambah. Kapasitas pending outbox diperiksa secara atomik; snapshot yang melampaui batas tidak di-commit. Pool baca dipisahkan dari writer BMKG, writer PVMBG, dan relay sehingga request baca tidak menunggu delay sumber.
+
+Migrasi versioned dijalankan Aggregator saat startup dengan advisory lock dan checksum. Schema v2 PVMBG hanya menambah key JSONB, bukan migrasi baru. CLI audit pada binary Aggregator membaca versi terpilih melalui adapter Store lokal; tidak tersedia endpoint history publik atau akses database untuk consumer.
+
+\section{Struktur Storage dan Alternatif}
 Field canonical yang stabil disimpan dalam kolom bertipe dengan constraint, sedangkan \texttt{attributes} memakai JSONB untuk menampung atribut yang dapat bertambah. Data terbaru berada di \texttt{hazard\_events} dan setiap revisinya dicatat dalam \texttt{hazard\_versions}. Dua tabel lain melengkapi alur ingest: \texttt{source\_state} menyimpan kondisi polling, sementara \texttt{outbox} mencatat pesan yang perlu dipublikasikan.
 
 Dengan struktur ini, tambahan \texttt{confidence\_level} masuk ke dokumen atribut tanpa \texttt{ALTER TABLE}. Pilihan tersebut dibandingkan dengan dua alternatif pada tabel berikut.
@@ -42,7 +53,7 @@ Inspeksi diulang dengan proyeksi yang sama, kemudian \texttt{diff -s} membanding
 Inspeksi jaringan menunjukkan bahwa \texttt{store-net} hanya memuat Aggregator dan PostgreSQL. Inspeksi port PostgreSQL juga menunjukkan bahwa port database tidak dipublikasikan ke host. Hasil ini mendukung batas akses pada konfigurasi; kode Client API dan consumer tetap diperiksa untuk memastikan keduanya tidak membuka koneksi SQL ke Canonical Store.
 \terminalfigure{p4-storage}{Anggota jaringan storage dan port PostgreSQL yang tidak dipublikasikan.}{fig:p4-storage}
 
-Fleksibilitas storage dibuktikan bersama pengujian P1 pada Gambar~\ref{fig:p1-schema}. Snapshot revisi 1 dan 2 tetap terbaca dengan daftar migrasi yang sama. Pembacaan tersebut dilakukan melalui \texttt{/aggregator history-audit}, sehingga perubahan dokumen diperiksa oleh service pemilik storage.
+Fleksibilitas storage dibuktikan bersama pengujian P1 pada Gambar~\ref{fig:p1-refki-schema}. Snapshot revisi 1 dan 2 tetap terbaca dengan daftar migrasi yang sama. Pembacaan tersebut dilakukan melalui \texttt{/aggregator history-audit}, sehingga perubahan dokumen diperiksa oleh service pemilik storage.
 
 \begin{table}[htbp]
 \centering\small
@@ -51,14 +62,14 @@ Fleksibilitas storage dibuktikan bersama pengujian P1 pada Gambar~\ref{fig:p1-sc
 Kriteria & Bukti \\
 \midrule
 P4.1 & Rebuild, request API, dan perbandingan delapan container pada Gambar~\ref{fig:p4-state-before}--\ref{fig:p4-container-state}. \\
-P4.2 & Revisi v1/v2 dan daftar migrasi pada Gambar~\ref{fig:p1-schema}. \\
+P4.2 & Revisi v1/v2 dan daftar migrasi pada Gambar~\ref{fig:p1-refki-schema}. \\
 P4.3 & Anggota \texttt{store-net}, port privat, serta jalur baca pada kode; Gambar~\ref{fig:p4-storage}. \\
 P4.4 & Batas service pada Bab 2 dan perbandingan tiga pilihan storage pada bab ini. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
+\section{Verifikasi Komponen Storage}
+Verifikasi native pada commit \texttt{19beead}, dengan PostgreSQL 18.6 dan NATS 2.10.24, lulus untuk UUID stabil, revisi/history, idempotensi, kapasitas outbox, presisi angka, dan round-trip JSONB ke JetStream. Tes normal dan race, build, vet, serta module verify lulus. Database disposable berakhiran \texttt{\_test} memakai reset opt-in, tanpa mengakses database aplikasi. Bukti ini melengkapi sesi Compose, tetapi bukan pengulangan deployment PostgreSQL 16 atau restart seluruh aplikasi.
 \section{Batasan}
-Batas ownership diterapkan pada aplikasi dan jaringan Compose. Administrator Docker tetap dapat memasuki container atau memasang volume, sehingga pemisahan ini tidak membatasi administrator host. Pengujian rebuild juga hanya membuktikan isolasi satu consumer; ketersediaan API saat Aggregator atau PostgreSQL mati belum dibuktikan oleh pengujian tersebut.
-
-Selain itu, history, inbox, dan outbox yang telah dipublikasikan belum memiliki kebijakan pembersihan jangka panjang. Kebutuhan ruang akan terus meningkat jika data dibiarkan bertambah. Masalah batch snapshot besar yang dibahas pada P1 serta kebijakan retention lokal perlu diselesaikan sebelum sistem digunakan untuk volume yang lebih tinggi.
+Pemisahan aplikasi/jaringan tidak membatasi administrator Docker. Rebuild satu consumer tidak membuktikan ketersediaan API ketika Aggregator atau PostgreSQL mati. History, inbox, dan outbox terpublikasi belum memiliki pembersihan jangka panjang; retention lokal dan batch snapshot besar pada P1 masih perlu ditangani sebelum peningkatan volume.

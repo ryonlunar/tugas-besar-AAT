@@ -1,4 +1,8 @@
-\chapter{Problem 3: Service-to-Service Authentication \& Trust}
+\chapter{PROBLEM 3}
+\begin{center}\large\bfseries SERVICE-TO-SERVICE AUTHENTICATION DAN TRUST\end{center}
+Bukti runtime pada bab ini mencakup trial 5 Oktober dan tangkapan command 7 Oktober 2026, yang merupakan sesi pengujian berbeda [10].
+
+
 \section{Credential dan hak akses}
 Setiap sumber memiliki credential sendiri: BMKG menerima API key melalui header \texttt{X-BMKG-Key}, sedangkan PVMBG menerima Bearer token sumber. API internal Aggregator memakai key lain. Pemisahan ini membuat kebocoran satu credential tidak otomatis memberikan akses ke seluruh antarmuka, dan credential sumber tidak dapat dipakai sebagai identitas client.
 
@@ -6,7 +10,7 @@ Untuk akses client, Auth membedakan identitas \texttt{media}, \texttt{field-team
 
 Pembatasan dilakukan oleh Client API sebelum data diminta dari Aggregator. Jadi, Media tidak dapat memperoleh data raw hanya dengan mengubah query menjadi \texttt{view=full} atau meminta field tambahan secara eksplisit; kedua request tersebut ditolak dengan 403. Aturan akses berada di server, sehingga tidak bergantung pada tampilan yang dipakai client.
 
-JWT ditandatangani Auth menggunakan RS256 dan private key. API hanya memerlukan public key untuk memeriksa signature, issuer, audience, expiry, serta scope. Verifikasi dilakukan secara lokal, sehingga token yang masih valid tetap dapat digunakan saat Auth berhenti sementara \cite{jwt}. Jika API memakai shared signing secret, material untuk memverifikasi juga dapat digunakan untuk membuat token. Sementara itu, introspection ke Auth pada setiap request memudahkan pemeriksaan status token secara terpusat, tetapi menambahkan dependency pada jalur baca. Untuk M1, verifikasi lokal dipilih bersama TTL yang singkat.
+JWT ditandatangani Auth menggunakan RS256 dan private key. API hanya memerlukan public key untuk memeriksa signature, issuer, audience, expiry, serta scope. Verifikasi dilakukan secara lokal, sehingga token yang masih valid tetap dapat digunakan saat Auth berhenti sementara [11]. Jika API memakai shared signing secret, material untuk memverifikasi juga dapat digunakan untuk membuat token. Sementara itu, introspection ke Auth pada setiap request memudahkan pemeriksaan status token secara terpusat, tetapi menambahkan dependency pada jalur baca. Untuk milestone 1, verifikasi lokal dipilih bersama TTL yang singkat.
 
 \section{Expiry dan refresh}
 Access token berlaku 60 detik. Agar client dapat melanjutkan sesi tanpa login ulang, Auth juga memberikan refresh token berupa nilai acak. Hanya hash token tersebut yang disimpan di SQLite. Setiap refresh menghasilkan token baru dan menandai token refresh sebelumnya sudah digunakan. Jika token lama dipakai kembali, keluarga sesi itu dibatalkan untuk mencegah kelanjutan refresh dari token yang digunakan ulang.

@@ -1,5 +1,4 @@
-% Konfigurasi laporan IF4031 M1
-\usepackage[indonesian]{babel}
+% Konfigurasi laporan IF4031 milestone 1
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 \usepackage[a4paper,margin=2.5cm]{geometry}
@@ -15,21 +14,16 @@
 \usepackage{xcolor}
 \usepackage{tikz}
 \usepackage{listings}
-\usepackage{caption}
 \usepackage{float}
 \usepackage{xurl}
 \usetikzlibrary{arrows.meta,positioning,fit,calc}
 \usepackage[hidelinks]{hyperref}
 
-\setlength{\parindent}{0pt}
+\setlength{\parindent}{1.25cm}
 \setlength{\parskip}{0.35em}
 \emergencystretch=2em
 \setlist{nosep,leftmargin=2em}
 \renewcommand{\arraystretch}{1.15}
-\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
-\widowpenalty=10000
-\clubpenalty=10000
-\raggedbottom
 
 \titleformat{\chapter}[block]
   {\normalfont\fontsize{16pt}{18pt}\selectfont\bfseries\centering}
@@ -60,14 +54,20 @@
   \renewcommand{\footrulewidth}{0pt}%
 }
 
+% Penanda bukti yang memang belum tersedia pada tahap rancangan.
+\newcommand{\BuktiBelum}[1]{\smallskip\noindent\textit{Status bukti: belum diuji.} #1\par}
 
-\captionsetup{font=small,labelfont=bf}
+% Local support for imported teammate evidence; retain the existing report theme.
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \lstset{basicstyle=\ttfamily\small,breaklines=true,columns=fullflexible,
  frame=single,rulecolor=\color{black!20},xleftmargin=0.3em,xrightmargin=0.3em,
  keepspaces=true,showstringspaces=false}
+\makeatletter
 \newcommand{\terminalfigure}[3]{%
-\begin{figure}[H]
+\begin{center}\begin{minipage}{\textwidth}
+\def\@captype{figure}
 \centering
-\includegraphics[width=\textwidth,height=0.74\textheight,keepaspectratio]{figures/#1.png}
+\includegraphics[width=\textwidth,height=0.52\textheight,keepaspectratio]{figures/#1.png}
 \caption{#2}\label{#3}
-\end{figure}}
+\end{minipage}\end{center}}
+\makeatother

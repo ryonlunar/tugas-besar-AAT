@@ -1,4 +1,8 @@
-\chapter{Problem 5: Fan-out Event Distribution/Pub-sub}
+\chapter{PROBLEM 5}
+\begin{center}\large\bfseries FAN-OUT EVENT DISTRIBUTION / PUB-SUB\end{center}
+Bukti runtime pada bab ini mencakup trial 5 Oktober dan tangkapan command 7 Oktober 2026, yang merupakan sesi pengujian berbeda [10].
+
+
 \section{Producer, stream, dan consumer}
 Distribusi event dimulai dari transaksi penyimpanan Aggregator. Event canonical, revisinya, dan pesan outbox ditulis bersamaan, sehingga event yang berhasil disimpan mempunyai catatan untuk dikirim ke broker. Relay kemudian mempublikasikan envelope ke subject \path{hazard.events.v1.BMKG} atau \path{hazard.events.v1.PVMBG}. Kedua subject ditangkap oleh stream \texttt{HAZARD\_EVENTS} melalui filter \texttt{hazard.events.v1.*}.
 
@@ -27,12 +31,12 @@ ACK / redelivery & AckExplicit, AckWait 30 detik, MaxDeliver $-1$; retry tidak d
 Pull / inflight & Batch 10, expiry fetch 2 detik, MaxAckPending 64. \\
 \bottomrule
 \end{tabularx}
-\caption{Konfigurasi JetStream dan consumer yang digunakan pada M1.}
+\caption{Konfigurasi JetStream dan consumer yang digunakan pada milestone 1.}
 \end{table}
 
-LimitsPolicy mempertahankan event sampai batas retention, walaupun consumer telah memberikan ACK. Dengan DeliverAll, consumer baru dapat membaca event lama yang masih tersimpan. InterestPolicy juga mendukung fan-out, tetapi menghapus pesan setelah seluruh consumer yang berkepentingan memberikan ACK. Sementara itu, WorkQueuePolicy ditujukan untuk pembagian pekerjaan dengan satu pemroses per pesan \cite{nats-retention}. LimitsPolicy dipilih agar penambahan consumer pada P5 dapat disertai replay, dengan biaya penyimpanan event selama masa retention.
+LimitsPolicy mempertahankan event sampai batas retention, walaupun consumer telah memberikan ACK. Dengan DeliverAll, consumer baru dapat membaca event lama yang masih tersimpan. InterestPolicy juga mendukung fan-out, tetapi menghapus pesan setelah seluruh consumer yang berkepentingan memberikan ACK. Sementara itu, WorkQueuePolicy ditujukan untuk pembagian pekerjaan dengan satu pemroses per pesan [8]. LimitsPolicy dipilih agar penambahan consumer pada P5 dapat disertai replay, dengan biaya penyimpanan event selama masa retention.
 
-Alternatif producer memanggil setiap consumer melalui HTTP membutuhkan daftar tujuan dan retry per tujuan di producer. NATS Core memberi fan-out sederhana, tetapi tidak menyimpan backlog durable untuk consumer yang mati. JetStream dipilih agar replay dan posisi baca dikelola broker. Kafka atau RabbitMQ juga memungkinkan pola sejenis, tetapi kebutuhan M1 dapat dipenuhi dengan JetStream dan konfigurasi lokal yang lebih kecil.
+Alternatif producer memanggil setiap consumer melalui HTTP membutuhkan daftar tujuan dan retry per tujuan di producer. NATS Core memberi fan-out sederhana, tetapi tidak menyimpan backlog durable untuk consumer yang mati. JetStream dipilih agar replay dan posisi baca dikelola broker. Kafka atau RabbitMQ juga memungkinkan pola sejenis, tetapi kebutuhan milestone 1 dapat dipenuhi dengan JetStream dan konfigurasi lokal yang lebih kecil.
 
 \section{Semantik pengiriman dan idempotensi}
 Semantik pengiriman sistem adalah \textbf{at-least-once}, sehingga sebuah pesan dapat diterima lebih dari sekali. Misalnya, broker sudah menerima publish, tetapi relay gagal mencatat status published di database. Relay akan mencoba kembali. Hal serupa dapat terjadi ketika consumer sudah melakukan commit lokal, tetapi proses mati sebelum ACK diterima broker. Message ID \texttt{hazard\_id:revision} membantu broker mengenali publish ulang selama dedup window 2 menit, tetapi perlindungan tersebut memiliki batas waktu.
@@ -72,7 +76,7 @@ Inspeksi database lokal kemudian menunjukkan bahwa kedua consumer masing-masing 
 
 \subsection{Menambahkan consumer tanpa mengubah producer}
 Penambahan consumer diuji pada sesi terpisah. Sebelum Third Consumer dijalankan, ID, waktu mulai, dan restart count Aggregator disimpan. Profile \texttt{demo} kemudian menambahkan container Third Consumer dengan durable \texttt{third-consumer-v1}, tanpa membangun atau menjalankan ulang Aggregator. Consumer ini memakai binary Notifier dengan durable dan volume miliknya sendiri.
-\terminalfigure{p5-third-start}{Menjalankan consumer tambahan melalui profile demo.}{fig:p5-third-start}
+\terminalfigure{p5-third-start}{Cuplikan awal dan akhir command startup Third Consumer melalui profil demo; bagian tengah log build tidak ditampilkan.}{fig:p5-third-start}
 
 Pada sesi tersebut, snapshot monitoring menunjukkan durable baru telah mencapai ACK 192, sama dengan posisi stream dan kedua durable lainnya. Karena consumer baru memakai DeliverAll, pesan yang masih tersimpan sebelum ia dibuat juga tersedia untuk dibaca; producer tidak perlu mengirim ulang secara khusus kepadanya.
 \terminalfigure{p5-third}{Durable baru membaca stream yang sama sampai posisi ACK yang ditampilkan broker.}{fig:p5-third}
@@ -98,4 +102,4 @@ P5.5 & Pilihan fan-out, at-least-once, dan transaksi inbox idempoten dijelaskan 
 \section{Batasan}
 Consumer dapat mengejar backlog selama event yang dibutuhkannya masih tersedia di stream. Durable mempertahankan posisi baca, tetapi tidak memperpanjang retention. Jika consumer berhenti melewati batas retention, event yang sudah kedaluwarsa tidak dapat diambil kembali dari broker.
 
-Konfigurasi satu replica juga belum menyediakan failover antarmesin. Di sisi consumer, idempotensi bergantung pada riwayat inbox yang tersimpan di volume lokal. Jika volume tersebut dihapus, consumer kehilangan catatan pesan yang pernah diolah. Retention broker dan keberlangsungan volume karena itu menjadi bagian dari batas jaminan pengiriman pada M1.
+Konfigurasi satu replica juga belum menyediakan failover antarmesin. Di sisi consumer, idempotensi bergantung pada riwayat inbox yang tersimpan di volume lokal. Jika volume tersebut dihapus, consumer kehilangan catatan pesan yang pernah diolah. Retention broker dan keberlangsungan volume karena itu menjadi bagian dari batas jaminan pengiriman pada milestone 1.

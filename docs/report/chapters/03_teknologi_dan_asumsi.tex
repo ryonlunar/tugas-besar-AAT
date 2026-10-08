@@ -1,62 +1,72 @@
-\chapter{Teknologi, Asumsi, dan Cara Menjalankan}
-\section{Pemilihan teknologi}
-Teknologi dipilih untuk mendukung polling terpisah, perubahan atribut data, dan distribusi event ke consumer independen pada M1.
-\begin{table}[H]
-\centering\small
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3.3cm}Y}
-\toprule
-Komponen / teknologi & Alasan pemilihan \\
-\midrule
-Service aplikasi: Go & Goroutine yang ringan mendukung worker polling terpisah dan request concurrent pada P2 \cite{go}. Aplikasi dapat dibangun menjadi binary statis dan dijalankan dalam image \texttt{scratch} tanpa interpreter. Hal ini memudahkan pengemasan serta deployment tiap service. \\
-Canonical Store: PostgreSQL 16, JSONB & Kolom bertipe menjaga identitas dan constraint, sedangkan JSONB menampung atribut tambahan \cite{pg}. Dibanding schema yang menjadikan setiap atribut sebagai kolom, JSONB menerima field baru tanpa migrasi tabel. Data utama, riwayat revisi, dan outbox juga dapat disimpan dalam satu transaksi PostgreSQL. \\
-Broker: NATS 2.10 JetStream & NATS ringan dari sisi deployment: routing dan JetStream tersedia dalam satu executable \texttt{nats-server} tanpa runtime eksternal \cite{nats}. Satu stream dan durable consumer menyediakan fan-out, backlog, ACK, serta replay P5. RabbitMQ fan-out memerlukan queue dan binding per consumer; replay setelah ACK pada queue biasa memerlukan mekanisme seperti RabbitMQ Streams \cite{rabbitmq}. Kafka juga mendukung replay, tetapi pengelolaan partition belum diperlukan untuk pembagian beban M1 \cite{kafka}. JetStream dipilih karena deployment dan konfigurasi integrasinya sederhana untuk beberapa consumer pada satu host. \\
-State lokal: SQLite & Penyimpanan di memory akan kehilangan sesi refresh dan inbox saat restart. SQLite menyediakan persistence dan transaksi sebagai library di dalam aplikasi, tanpa database server tambahan \cite{sqlite}. Pilihan ini cukup untuk satu instance per service pada M1; jika beberapa replica perlu berbagi state dan menulis bersamaan, database server seperti PostgreSQL lebih sesuai. \\
-Orchestration: Docker Compose & M1 dijalankan pada satu host. Compose menyatukan konfigurasi container, jaringan, dan volume dalam satu berkas \cite{compose}. Dibanding Kubernetes, kebutuhan saat ini dapat dipenuhi tanpa menyiapkan cluster. Opsi \texttt{--no-deps} mendukung penggantian satu service secara terpisah pada P4. \\
-Kontrak: JSON Schema & Berkas schema mendefinisikan aturan HazardEvent, ringkasan Media, dan envelope event untuk digunakan kembali dalam test. Dibanding pemeriksaan field secara manual, aturan tipe dan field wajib lebih mudah dijaga konsisten ketika kontrak berubah \cite{schema}. \\
-\bottomrule
-\end{tabularx}
-\caption{Alasan pemilihan teknologi untuk kebutuhan M1.}
-\end{table}
+\chapter{TEKNOLOGI DAN ASUMSI}
 
-PostgreSQL dan NATS digunakan dalam konfigurasi satu node pada M1. Konfigurasi ini sesuai untuk eksperimen lokal, tetapi belum menyediakan failover jika host atau storage utama berhenti.
+\section{Teknologi Terpilih}
+Implementasi menggunakan Go dengan modul minimum Go 1.23. Driver PostgreSQL adalah \texttt{pgx/v5}, broker diakses melalui \texttt{nats.go}, dan validasi fixture kontrak memakai JSON Schema Draft 2020-12. Compose memilih PostgreSQL 16 dan NATS 2.10; tag tersebut belum mengunci image digest. Auth menggunakan library JWT dan SQLite, sedangkan masing-masing consumer memiliki SQLite privat. Pilihan ini memisahkan canonical data dari state autentikasi dan idempotensi consumer.
 
-\section{Asumsi implementasi}
-Rancangan dan pengujian menggunakan asumsi berikut. Asumsi ini membatasi cara hasil uji ditafsirkan, terutama ketika sistem dikembangkan untuk volume atau jumlah instance yang lebih besar.
+Go dipakai untuk HTTP, parsing JSON, goroutine, dan pembatalan melalui \texttt{context}. PostgreSQL menyediakan transaksi untuk perubahan hazard, riwayat, dan outbox; JSONB menjaga atribut dinamis tanpa mengubah kolom kanonik [3,4,5]. JetStream menyediakan persistent stream dan durable consumer, bukan jaminan exactly-once menyeluruh [6,7]. Docker Compose mengelola service terpisah pada satu host [9].
+
+\section{Alternatif Teknologi}
+\begin{itemize}
+\item \textbf{PostgreSQL + JSONB}: kolom bertipe menjaga identitas dan constraint, sedangkan atribut aditif tetap berupa dokumen. Dibanding seluruh atribut menjadi kolom, tambahan field tidak membutuhkan migrasi; dibanding document store terpisah, transaksi latest/history/outbox tetap berada pada satu store.
+\item \textbf{JetStream}: menambahkan persistence, replay, dan posisi durable pada NATS. NATS Core tidak menyimpan backlog untuk consumer offline. Kafka atau RabbitMQ juga dapat mendukung distribusi event, tetapi menambah pilihan konfigurasi yang belum diperlukan untuk demonstrasi satu host ini.
+\item \textbf{SQLite privat}: sesi refresh dan inbox tetap tersimpan saat restart, tanpa server database tambahan. Penyimpanan memory lebih sederhana tetapi kehilangan state; beberapa replica yang harus berbagi state memerlukan rancangan database dan koordinasi berbeda.
+\item \textbf{Docker Compose}: cukup untuk container, network, dan volume pada satu host. Kubernetes belum diperlukan untuk cakupan demo; konfigurasi Compose ini juga tidak memberikan failover lintas mesin.
+\end{itemize}
+
+\section{Asumsi dan Batas Implementasi}
 \begin{enumerate}
-\item Kedua sumber merupakan mock yang memulai sedikitnya 20 record dan menambah record setiap 10 detik. Lokasi gunung berasal dari fixture sintetis Tamriel, sehingga tidak mewakili lokasi operasional PVMBG.
-\item Pasangan \texttt{(source, source\_ref\_id)} tetap menjadi identitas data sumber. Jika isi record berubah, sistem membuat revisi dari hazard yang sama, bukan hazard baru.
-\item Polling dilakukan setiap 5 detik dengan mengambil snapshot sumber yang dibatasi 1 MiB. Cara ini memungkinkan perubahan pada record lama ikut ditemukan, dengan biaya transfer yang meningkat seiring pertumbuhan data.
-\item Perubahan schema yang didukung adalah penambahan atribut. Perubahan nama, tipe, atau makna field wajib perlu ditangani melalui perubahan mapper. Timestamp harus memiliki timezone dan dinormalisasi ke UTC.
-\item Media memiliki scope \texttt{hazards:summary}, sedangkan Tim Lapangan dan BNPB internal memiliki \texttt{hazards:summary hazards:raw}. Access token berlaku 60 detik dan sesi refresh memiliki batas umur 24 jam.
-\item Waktu antarservice diusahakan sinkron. Latency diukur dengan timer monotonic agar perubahan jam host tidak mengubah durasi pengukuran, tetapi expiry JWT dan umur data tetap bergantung pada wall clock.
-\item Setiap aplikasi, PostgreSQL, dan NATS berjalan sebagai satu instance. Karena belum ada replica untuk failover, hasil M1 tidak menyatakan bahwa sistem tetap tersedia ketika host atau storage utama mati.
-\item Secret disediakan melalui environment dan file key lokal. Komunikasi HTTP internal belum menggunakan TLS; jaringan Compose membatasi hubungan antarcontainer, tetapi administrator host tetap dapat mengakses container dan volume.
+\item Mock menggunakan fixture sintetis, bukan data produksi BMKG/PVMBG. Nama dan koordinat gunung pada referensi Aggregator diberi label simulasi Tamriel; tidak mewakili lokasi gunung sebenarnya.
+\item Dua loop polling independen berjalan segera saat startup, lalu mengikuti interval default 5 detik. Satu sumber hanya memiliki satu siklus aktif; tick saat sibuk dilewati. BMKG mengambil seismic dan warning secara concurrent.
+\item Baseline ingest menggunakan full snapshot, bukan cursor \texttt{since}. Endpoint mock tetap mendukung \texttt{since}; full snapshot dipilih agar warning terlambat dan perubahan field pada ID lama tidak terlewat. Biaya baca bertambah bersama riwayat sumber.
+\item Hanya perubahan aditif yang didukung otomatis. Field wajib hilang, tipe salah, enum tak dikenal, duplicate JSON key, atau volcano ID tak dikenal ditolak per record; record valid tetap diproses.
+\item Baseline memakai satu Aggregator, satu database, dan satu node broker. Replikasi, failover lintas host, TLS produksi, dan exactly-once global berada di luar klaim implementasi ini.
 \end{enumerate}
 
-\section{Cara menjalankan sistem}
-Persiapan dilakukan dari root repo. Salin \texttt{.env.example} menjadi \texttt{.env}, isi credential yang berbeda untuk setiap sumber dan client, lalu buat pasangan key RSA di \texttt{.secrets/}. Script berikut memasukkan private key dan public key ke dua volume terpisah sebelum stack dijalankan:
-\begin{lstlisting}
-python3 scripts/setup-jwt-keys.py
+\section{Konfigurasi dan Observabilitas}
+Repository menyediakan \texttt{.env.example} tanpa secret aktif; credential lokal tidak masuk Git. Setiap service menerima subset konfigurasi miliknya. API key BMKG, token PVMBG, internal key Aggregator, dan token NATS dipisahkan.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.47\textwidth} >{\raggedright\arraybackslash}X}
+\toprule
+Parameter Aggregator & Default implementasi \\
+\midrule
+Interval poll / stale threshold & 5 s / 15 s \\
+Timeout HTTP BMKG / PVMBG & 1 s / 4 s \\
+Batas respons sumber / envelope event & 1 MiB / 64 KiB \\
+Pool baca / tulis BMKG / tulis PVMBG / relay & 10 / 2 / 2 / 2 koneksi \\
+Deadline query baca / transaksi tulis & 200 ms / 2 s \\
+Admission API internal & 128 request data aktif \\
+Relay poll / batch / pending maksimum & 500 ms / 20 pesan / 10.000 pesan \\
+Timeout publish / rentang retry & 2 s / 1--30 s dengan jitter \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Nilai tersebut merupakan konfigurasi awal, bukan hasil benchmark. \texttt{/health} menunjukkan liveness; \texttt{/ready} menilai dependency sesuai peran service. Kegagalan sumber atau broker tidak dengan sendirinya membuat API baca Aggregator unready selama database masih dapat dibaca. Log terstruktur menyertakan operasi, correlation ID, durasi, dan status tanpa payload mentah atau credential. Saat shutdown, context dibatalkan dan worker poller serta relay ditunggu sebelum resource ditutup.
+
+\section{Kontrak Mock dan Data Awal}
+BMKG melayani \texttt{/seismic-events} dan \texttt{/tsunami-warnings} dengan header \texttt{X-BMKG-Key}; delay default 100 ms. PVMBG melayani \texttt{/volcanic-reports} dengan Bearer token dan delay acak 500--3.000 ms. Endpoint admin \texttt{/admin/schema-version}, \texttt{/admin/outage}, serta tambahan \texttt{/admin/delay} menggunakan credential PVMBG yang sama. Credential diperiksa sebelum delay.
+
+Kedua mock memulai dengan 20 record historis dan menambah record setiap 10 detik pada konfigurasi default. ID memuat run ID agar restart mock tidak menimpa riwayat lama. Toggle PVMBG v2 menambahkan \texttt{confidence\_level} pada serialisasi seluruh laporan; outage memberi 503 untuk data, tetapi endpoint admin dan liveness tetap dapat diakses.
+
+\section{Menjalankan dan Memverifikasi}
+Definisi Compose di repository sudah mencakup sembilan service utama; consumer ketiga tersedia melalui profil demo. Setup mencakup secret berbeda dan key JWT sebelum menjalankan \texttt{docker compose up --build}. Pengujian deployment penuh dan tes komponen native memakai lingkungan berbeda.
+
+Komponen diverifikasi dengan tes unit/HTTP, race detector, build, vet, smoke kedua mock, serta tes Store dan publisher terhadap PostgreSQL/NATS disposable. Pemeriksaan terbaru pada commit \texttt{19beead} lulus. Dependency native yang dipakai adalah PostgreSQL 18.6 dan NATS 2.10.24; karena Compose menargetkan PostgreSQL 16, hasil ini bukan pengganti verifikasi image Compose. Rincian mapping dan storage ada pada Bab 4 dan 7. Evidence stack Compose dan pengujian lintas layanan tersedia pada lingkungan berbeda [10]. Bukti tersebut dipisahkan dari tes native; keberadaan evidence tidak berarti seluruh acceptance telah diulang pada commit main atau setiap profil volume data.
+
+\subsection{Urutan Menjalankan Demo}
+Dari root repository, salin \texttt{.env.example} menjadi \texttt{.env}, isi credential yang berbeda untuk setiap domain dan client, serta tentukan \texttt{COMPOSE\_PROJECT\_NAME}. Parameter biasa dapat memakai default Compose. Buat pasangan RSA pada \texttt{.secrets/}, lalu muat ke volume private/public yang terpisah. Langkah lengkap berada di \texttt{scripts/README.md}; jangan mengganti key yang sudah dipakai tanpa mempertimbangkan token aktif.
+\begin{quote}\small\ttfamily
+python3 scripts/setup-jwt-keys.py\\
+docker compose config --quiet\\
 docker compose up --build -d --wait
-\end{lstlisting}
-Opsi \texttt{--wait} menunggu service mencapai kondisi siap berdasarkan healthcheck. Setelah stack berjalan, seluruh skenario integrasi dapat dijalankan dengan:
-\begin{lstlisting}
-python3 scripts/verify-integration.py --scenario all \
-  --output docs/evidence/integration-trial.json
-\end{lstlisting}
-Script tersebut menjalankan pengujian, termasuk mengubah schema, memicu outage, dan menghentikan consumer. Oleh karena itu, pengujian dilakukan pada stack lokal yang digunakan khusus untuk eksperimen. Langkah persiapan lengkap tersedia di README root dan \path{scripts/README.md}.
+\end{quote}
+Healthcheck menilai kesiapan startup, bukan seluruh acceptance. Login dilakukan ke Auth dengan identitas client yang sesuai sebelum mengakses API. Untuk menambahkan consumer ketiga tanpa membangun ulang producer:
+\begin{quote}\small\ttfamily
+docker compose --profile demo up -d --no-deps third-consumer
+\end{quote}
+Pengujian integrasi dijalankan melalui \texttt{scripts/verify-integration.py} dengan opsi \texttt{--scenario all}. Script tersebut mengubah schema/outage, menghentikan service sementara, dan membangun ulang consumer; gunakan stack khusus eksperimen. Demo console dapat membantu operator menjalankan command, tetapi hanya tersedia di branch tooling demo dan tidak diperlukan untuk jalur CLI.
 
-Credential service dimuat dari \texttt{.env} ke environment shell sebelum command pengujian dijalankan:
-\begin{lstlisting}
-set -a
-. ./.env
-set +a
-\end{lstlisting}
-Access token client diperoleh melalui login ke Auth menggunakan identitas dan secret client masing-masing.
+\subsection{Lingkungan Evidence}
+Evidence mencatat trial 5 Oktober 2026 pada commit \texttt{071b32d}, yaitu branch tooling demo, bukan HEAD main \texttt{19beead} [10]. Lingkungan trial adalah WSL2 Linux, 12 CPU logical, Docker 27.0.3, Compose 2.28.1, PostgreSQL 16.14, dan NATS 2.10.29. Build image aplikasi memakai Go 1.23; pemeriksaan lokal menggunakan Go 1.26.4. Port host API sampai Auth memakai 8280--8284. Seed 20 record, interval event 10 detik, polling 5 detik, serta deadline write 2 detik tetap merupakan profil awal, bukan jaminan skalabilitas.
 
-Consumer ketiga dapat dijalankan melalui profile \texttt{demo}. Setelah pengujian selesai, gunakan \texttt{docker compose --profile demo stop} untuk menghentikan container tanpa menghapus data pada volume.
-
-\section{Lingkungan pengujian}
-Pengujian menggunakan port host 8280--8284 untuk API, BMKG, PVMBG, Aggregator, dan Auth. Seed, interval polling, TTL, dan batas koneksi tetap memakai nilai default M1. Khusus pengujian P2, delay PVMBG diubah sementara menjadi 3000 ms.
-
-Load test pada 5 Oktober 2026 berjalan di WSL2 Linux dengan 12 CPU logical dan RAM sekitar 15,6 GiB, menggunakan Docker 27.0.3 serta Compose 2.28.1. Image aplikasi dibangun dengan Go 1.23, sedangkan test kode lokal dijalankan dengan Go 1.26.4. Rincian konfigurasi yang tidak mengandung secret tersimpan di \path{evidence/environment.json}.

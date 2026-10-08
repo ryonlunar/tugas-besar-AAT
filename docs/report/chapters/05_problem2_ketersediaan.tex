@@ -1,4 +1,8 @@
-\chapter{Problem 2: Concurrency, Availability, \& Graceful Degradation}
+\chapter{PROBLEM 2}
+\begin{center}\large\bfseries CONCURRENCY, AVAILABILITY, DAN GRACEFUL DEGRADATION\end{center}
+Bukti runtime pada bab ini mencakup trial 5 Oktober dan tangkapan command 7 Oktober 2026, yang merupakan sesi pengujian berbeda [10].
+
+
 \section{Isolasi request dan polling}
 Jalur request client dipisahkan dari pengambilan data sumber. Client API membaca data yang telah tersimpan melalui Aggregator, sehingga request tidak harus menunggu mock PVMBG yang dapat terlambat 3 detik. Sementara itu, loop polling BMKG dan PVMBG berjalan sendiri-sendiri; fetch seismic dan warning BMKG juga dapat dilakukan paralel. HTTP client menggunakan kembali koneksi untuk mengurangi biaya pembukaan koneksi pada request berikutnya.
 
@@ -48,7 +52,31 @@ wait "$tcp_pid"
 Hasil load test tersimpan di \path{docs/report/evidence/load.json}. Field yang diperiksa meliputi jumlah worker, durasi pengujian, p95 BMKG, throughput, dan persentase error.
 \terminalfigure{p2-load}{Membaca hasil load test 5 Oktober dari berkas pengukuran yang disimpan.}{fig:p2-load}
 
-\input{evidence/load-results}
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{lrr}
+\toprule
+Metrik & BMKG & PVMBG \\
+\midrule
+Request terkirim & 44.510 & 43.828 \\
+Respons sukses & 44.494 & 43.814 \\
+Error selain 429 & 16 & 14 \\
+HTTP 429 pada API & 0 & 0 \\
+p50 sukses (ms) & 52,07 & 52,64 \\
+p95 sukses (ms) & 124,52 & 125,24 \\
+p99 sukses (ms) & 190,71 & 194,30 \\
+p95 seluruh respons (ms) & 124,76 & 125,44 \\
+\bottomrule
+\end{tabular}
+\caption{Hasil beban simultan selama 90,09 detik. p50/p95/p99 sukses dihitung dari 2xx; p95 seluruh respons juga ditampilkan.}
+\label{tab:load}
+\end{table}
+Dari 88.338 request yang dikirim, 88.308 mendapat respons sukses. Throughput-nya mencapai 980,26 respons sukses per detik, sedangkan 30 request lainnya menghasilkan HTTP 503, sebagaimana dicatat dalam \path{docs/report/evidence/load-statuses.json}. Dengan demikian, error selain 429 sebesar 0,034\%, masih di bawah batas 1\%.
+
+API tidak menghasilkan 429 pada pengujian ini. Auth menghasilkan 18 respons 429 selama login dan refresh, tetapi retry berhasil sehingga tidak ada sesi worker yang gagal. Angka Auth tersebut dilaporkan terpisah agar pembatasan request terkendali tidak tercampur dengan error pada pembacaan hazard.
+
+Delay langsung dari sumber PVMBG terukur 3.004,46 ms, sementara p95 respons sukses BMKG sebesar 124,52 ms. Hasil ini memenuhi batas 300 ms ketika kedua sumber dibaca bersamaan. Sampel TCP juga menunjukkan sedikitnya 50 koneksi pada interval 89,00 detik, melebihi syarat 60 detik. Karena collector mengambil sampel sekitar sekali per detik, kesimpulan mengenai koneksi mengikuti resolusi pengukuran tersebut.
+
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/p2-tcp.pdf}
