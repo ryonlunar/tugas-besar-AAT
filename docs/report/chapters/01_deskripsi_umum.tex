@@ -16,7 +16,7 @@ milestone 1 dibatasi pada mock BMKG dan PVMBG, BNPB sebagai node koordinasi, ser
 Aktor/komponen & Tanggung jawab & Batas akses \\
 \midrule
 Mock BMKG & Menyediakan event gempa dan peringatan tsunami sesuai kontrak simulasi. & Endpoint data memakai kredensial BMKG; port demo terikat ke loopback host. \\
-Mock PVMBG & Menyediakan laporan gunung api, perubahan skema aditif, dan kontrol outage. & Endpoint data dan admin memakai kredensial PVMBG yang berbeda; port demo terikat ke loopback host. \\
+Mock PVMBG & Menyediakan laporan gunung api, perubahan skema aditif, dan kontrol outage. & Endpoint data dan admin memakai token PVMBG yang sama, terpisah dari kredensial BMKG dan client; port demo terikat ke loopback host. \\
 BNPB Aggregator & Polling, validasi, korelasi, pemetaan ke HazardEvent, riwayat revisi, API internal, dan relay outbox. & Satu-satunya pemilik dan pengakses langsung Canonical Store. \\
 Client-Facing API dan Auth/Token & Menyediakan akses client, menerbitkan/mengecek token, dan menegakkan scope di server. & Tidak membuka koneksi langsung ke Canonical Store. \\
 Consumer downstream & Memproses event secara independen, misalnya pembaruan dashboard dan notifikasi. & Berlangganan stream; tidak dipanggil langsung oleh producer. \\
