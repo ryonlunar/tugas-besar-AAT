@@ -109,8 +109,9 @@ class Trials:
         subject = "$JS.API.CONSUMER.DELETE." + self.env.get("NATS_STREAM_NAME", "HAZARD_EVENTS") + "." + durable
         # One local NATS API request via nc; credentials travel through stdin only.
         frames = f"CONNECT {connect}\r\nSUB {reply} 1\r\nPUB {subject} {reply} 0\r\n\r\nPING\r\n".encode()
-        response = subprocess.check_output(["docker", "compose", "exec", "-T", "nats", "nc", "-w", "2", "127.0.0.1", "4222"], input=frames, timeout=10)
-        assert any(json.loads(line).get("success") is True for line in response.splitlines() if line.startswith(b"{")), "temporary durable cleanup failed"
+        subprocess.check_output(["docker", "compose", "exec", "-T", "nats", "nc", "-w", "2", "127.0.0.1", "4222"], input=frames, timeout=10)
+        # nc can miss the API reply even after deletion succeeds.
+        eventually(lambda: durable not in self.broker_consumers(), timeout=10)
 
     def smoke(self):
         identities = ["media", "field-team", "bnpb-internal"]
