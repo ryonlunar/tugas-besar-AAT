@@ -507,13 +507,23 @@ func (s *Store) SourceStates(ctx context.Context, sources []mapper.Source, now t
 	result := make(map[mapper.Source]SourceState, len(sources))
 	for _, source := range sources {
 		var lastSuccess, failureSince sql.NullTime
-		err := s.readDB.QueryRowContext(ctx, `SELECT last_success_at,failure_since FROM source_state WHERE source=$1`, string(source)).Scan(&lastSuccess, &failureSince)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && !lastSuccess.Valid) {
+		var hasPartialData bool
+		err := s.readDB.QueryRowContext(ctx, `SELECT last_success_at,failure_since,last_success_at IS NULL AND EXISTS(SELECT 1 FROM hazard_events WHERE source=$1) FROM source_state WHERE source=$1`, string(source)).Scan(&lastSuccess, &failureSince, &hasPartialData)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !lastSuccess.Valid && !hasPartialData) {
 			result[source] = SourceState{Status: "unavailable"}
 			continue
 		}
 		if err != nil {
 			return nil, err
+		}
+		if !lastSuccess.Valid {
+			// A partial first poll can commit valid records without a full success.
+			state := SourceState{Status: "stale"}
+			if failureSince.Valid {
+				state.StaleSince = timePointer(failureSince.Time)
+			}
+			result[source] = state
+			continue
 		}
 		state := SourceState{Status: "fresh", LastSuccessAt: timePointer(lastSuccess.Time)}
 		threshold := lastSuccess.Time.Add(s.staleAfter)
