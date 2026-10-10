@@ -1,0 +1,14 @@
+$ PVMBG_REF=$(curl -sS -H "Authorization: Bearer $PVMBG_TOKEN" \
+>   http://127.0.0.1:8282/volcanic-reports | jq -r '.[0].report_id')
+> curl -sS -H "Authorization: Bearer $PVMBG_TOKEN" \
+>   http://127.0.0.1:8282/volcanic-reports \
+>   | jq --arg id "$PVMBG_REF" '.[] | select(.report_id == $id)'
+> 
+{
+  "report_id": "sim-19ac08b49fd13778-report-001",
+  "volcano_id": "sim-tamriel-red-mountain",
+  "alert_level": "Normal",
+  "eruption_count_24h": 1,
+  "ash_column_height_m": 125,
+  "reported_at": "2026-10-07T03:58:29.494743062Z"
+}

@@ -1,0 +1,5 @@
+$ docker compose stop dashboard-consumer
+ Container aat-report-revision-dashboard-consumer-1  Stopping
+ Container aat-report-revision-dashboard-consumer-1  Stopped
+
+$ sleep 15

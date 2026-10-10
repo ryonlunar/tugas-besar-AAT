@@ -1,0 +1,9 @@
+$ go run -mod=readonly docs/report/evidence/validate-records.go
+PVMBG v1 mapping: HazardEvent schema valid
+PVMBG revision 1: HazardEvent schema valid
+PVMBG revision 2: HazardEvent schema valid
+BMKG mapping: HazardEvent schema valid
+7 Oktober, p1-bmkg-canonical: HazardEvent schema valid
+7 Oktober, p1-pvmbg-canonical: HazardEvent schema valid
+7 Oktober, PVMBG revision 1: HazardEvent schema valid
+7 Oktober, PVMBG revision 2: HazardEvent schema valid

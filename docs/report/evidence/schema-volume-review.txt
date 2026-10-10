@@ -1,0 +1,4 @@
+Source: notes/demo-console-review.md
+Historical review, prior to the fresh report trial. Not a new load measurement.
+
+The revised console correctly shows PVMBG schema v2 in the source response, but this long-running review stack did not persist revision 2 for `sim-b88bf41c4991aaf2-report-1881`. Repeated Aggregator `POLL_FAILED` logs occur during v2; returning to v1 restores normal polling/publication. This is not just a missing polling wait. The full-snapshot schema update now touches roughly 1,000 retained source records; the configured 2-second DB write timeout is a likely cause, inferred from code and timing. No Aggregator code or timeout was changed. Source defaults were restored. Diagnose this separately before collecting final P1/P4 evidence.

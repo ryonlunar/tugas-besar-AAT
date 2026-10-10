@@ -1,0 +1,16 @@
+$ BMKG_REF=$(curl -sS -H "X-BMKG-Key: $BMKG_API_KEY" \
+>   http://127.0.0.1:8281/seismic-events | jq -r '.[0].event_id')
+> curl -sS -H "X-BMKG-Key: $BMKG_API_KEY" \
+>   http://127.0.0.1:8281/seismic-events \
+>   | jq --arg id "$BMKG_REF" '.[] | select(.event_id == $id)'
+> 
+{
+  "event_id": "sim-60f75b621ea2f87f-event-001",
+  "magnitude": 4.2,
+  "depth_km": 7,
+  "epicenter_lat": -9.8,
+  "epicenter_lon": 105.25,
+  "region_name": "Wilayah Simulasi 01",
+  "occurred_at": "2026-10-07T04:17:29.565895838Z",
+  "potential_tsunami": false
+}

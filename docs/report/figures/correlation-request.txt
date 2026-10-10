@@ -1,0 +1,6 @@
+$ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+>   -H "Authorization: Bearer $NEW_ACCESS_TOKEN" \
+>   -H 'X-Correlation-ID: report-command-correlation' \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'
+> 
+HTTP 200

@@ -1,0 +1,199 @@
+\chapter{ARSITEKTUR SISTEM}
+
+\section{Diagram Arsitektur}
+Sistem memiliki dua jalur utama: penyediaan data melalui API dan distribusi perubahan melalui event. Keduanya berawal dari data yang diambil Aggregator, tetapi berjalan terpisah setelah data tersimpan. Dengan pemisahan ini, client dapat membaca data terakhir tanpa menunggu polling, sementara setiap consumer mengolah event sesuai kecepatannya sendiri.
+
+Gambar~\ref{fig:architecture} merangkum service, storage, dan jalur komunikasinya.
+
+\usetikzlibrary{fit,positioning,shapes.geometric,shapes.multipart}
+\definecolor{archink}{HTML}{31465B}
+\definecolor{archlight}{HTML}{F0F3F6}
+\definecolor{archwarm}{HTML}{FBF4E6}
+\definecolor{archevent}{HTML}{986114}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  app/.style={draw=archink,rounded corners=2pt,fill=white,align=center,text width=4cm,minimum height=1.85cm,font=\fontsize{10}{12}\selectfont,inner sep=5pt},
+  infra/.style={app,fill=archlight},
+  store/.style={cylinder,shape border rotate=90,aspect=0.25,draw=archink,fill=archlight,align=center,text width=3.8cm,minimum height=1.85cm,font=\fontsize{9}{11}\selectfont,inner sep=4pt},
+  group/.style={draw=archink!45,dashed,rounded corners=4pt,inner sep=8pt},
+  heading/.style={font=\fontsize{9}{11}\selectfont\bfseries,text=archink,fill=white,inner sep=2pt},
+  actor/.style={app,fill=archlight,text width=14.2cm,minimum height=0.9cm},
+  req/.style={-{Straight Barb[length=2mm,width=1.6mm]},draw=archink,line width=0.7pt},
+  event/.style={-{Straight Barb[length=2mm,width=1.6mm]},draw=archevent,line width=1pt},
+  lab/.style={font=\fontsize{9}{11}\selectfont,fill=white,inner sep=1pt,align=center}
+]
+\node[actor] (client) at (5.2,0) {\textbf{Client}\quad Media/Pers, Tim Lapangan, BNPB Pusat/Internal};
+\node[app] (api) at (5.2,-2.6) {\textbf{Client-Facing API}\\HTTP :8080\\Verifikasi JWT / scope\\JWT public key (volume)};
+\node[app] (auth) at (10.4,-2.6) {\textbf{Auth / Token Service}\\HTTP :8084\\Private key (volume)\\SQLite: auth-data};
+\node[app] (bmkg) at (0,-3.5) {\textbf{Mock BMKG}\\HTTP :8081 / API key\\Gempa / tsunami};
+\node[app] (pvmbg) at (0,-5.9) {\textbf{Mock PVMBG}\\HTTP :8082\\Bearer token\\Laporan vulkanik v1 / v2};
+\node[app] (agg) at (5.2,-5.9) {\textbf{Aggregator}\\HTTP :8083\\Polling / mapping\\Query / relay\\Pemilik Canonical Store};
+\node[store] (pg) at (10.4,-5.9) {\textbf{PostgreSQL :5432}\\Canonical Store / outbox\\Volume: postgres-data};
+\node[infra,fill=archwarm,double,double distance=1pt] (nats) at (5.2,-9.0) {\textbf{NATS JetStream}\\NATS :4222\\\texttt{HAZARD\_EVENTS}\\Volume: nats-data};
+\node[app] (dash) at (0,-12.1) {\textbf{Dashboard Consumer}\\Durable: dashboard-v1\\SQLite: dashboard-data\\Inbox / state dashboard};
+\node[app] (notify) at (5.2,-12.1) {\textbf{Notifier Consumer}\\Durable: notifier-v1\\SQLite: notifier-data\\Inbox / alert};
+\node[app,dashed] (third) at (10.4,-12.1) {\textbf{Third Consumer}\\Profil demo (opsional)\\Durable tersendiri\\SQLite: volume privat};
+\node[draw=archink,rounded corners=2pt,fit=(pg),inner sep=4pt] (pgcontainer) {};
+\node[group,fit=(api)(auth)] (accessgroup) {};
+\node[heading,anchor=south] at (accessgroup.north) {Akses dan autentikasi};
+\node[group,fit=(bmkg)(pvmbg)] (sourcegroup) {};
+\node[heading,anchor=south west] at (sourcegroup.north west) {Sumber simulasi};
+\node[group,fit=(agg)(pgcontainer)] (ingestgroup) {};
+\node[heading,anchor=center] at ([xshift=0.5cm]ingestgroup.north) {Ingest dan penyimpanan kanonik};
+\node[group,fit=(nats)(dash)(notify)(third)] (eventgroup) {};
+\node[heading,anchor=north] at (eventgroup.south) {Distribusi event dan pemrosesan};
+\draw[req] (client.south -| api.north) -- node[lab,left]{HTTP\\Bearer JWT} (api.north);
+\draw[req] (client.south -| auth.north) -- node[lab,right]{HTTP\\login / refresh} (auth.north);
+\draw[req] (api.south) -- node[lab,right]{HTTP / internal key} (agg.north);
+\draw[req] ([yshift=0.3cm]agg.west) -- (2.6,-5.6) |- (bmkg.east);
+\node[lab] at (2.6,-4.7) {HTTP};
+\draw[req] (agg.west) -- node[lab,above]{HTTP} (pvmbg.east);
+\draw[req] (agg.east) -- node[lab,above]{SQL} (pgcontainer.west |- agg.east);
+\draw[event] (agg.south) -- node[lab,right]{NATS / publish} (nats.north);
+\draw[event] ([xshift=-1.2cm]nats.south) -- ++(0,-0.6) -| (dash.north);
+\draw[event] (nats.south) -- node[lab,right]{NATS\\event} (notify.north);
+\draw[event] ([xshift=1.2cm]nats.south) -- ++(0,-0.6) -| (third.north);
+\node[lab] at (0,-10.5) {NATS / event};
+\node[lab] at (10.4,-10.5) {NATS / event};
+\end{tikzpicture}
+\caption{Kotak menunjukkan batas container; bingkai putus-putus mengelompokkan tanggung jawab. Silinder menunjukkan database dan kotak ganda menunjukkan broker. Panah hitam menunjukkan arah request; panah berwarna menunjukkan pengiriman event ke consumer.}
+\label{fig:architecture}
+\end{figure}
+
+\section{Komponen dan Tanggung Jawab}
+Setiap service mengelola satu bagian dari alur data, sehingga perubahan dan gangguan dapat dibatasi pada bagian tersebut. Dua mock mewakili instansi sumber: BMKG menyediakan gempa dan warning, sedangkan PVMBG menyediakan laporan vulkanik. Keduanya bersifat pasif dan hanya mengirim data sebagai respons terhadap polling. Endpoint admin mendukung simulasi perubahan schema, delay, dan outage.
+
+Aggregator menjadi penghubung antara kontrak sumber dan kontrak BNPB. Service ini memvalidasi payload, menghubungkan warning dengan gempa, lalu memetakan hasilnya ke HazardEvent. Aggregator juga mengelola Canonical Store dan menyediakan API internal agar service lain dapat meminta data tanpa bergantung pada struktur tabelnya.
+
+Akses client ditangani oleh Client-Facing API dan Auth. Auth memeriksa identitas dan menerbitkan token dengan scope yang sesuai. Setelah itu, Client API memverifikasi token dan menyaring field yang boleh dibaca. Dengan demikian, pengambilan data dari sumber tetap terpisah dari aturan penyajiannya kepada client.
+
+Untuk distribusi perubahan, NATS JetStream menyimpan event yang diterbitkan Aggregator. Dashboard Consumer mengolahnya menjadi state dashboard, sedangkan Notifier Consumer mencatat alert. Setiap consumer memiliki posisi baca dan database sendiri, sehingga berhentinya satu consumer tidak menghentikan consumer lain.
+
+\section{Alasan Pembagian Service}
+Pembagian service mengikuti perbedaan tanggung jawab, kebutuhan akses, dan kepemilikan data. Bagian yang mengelola data yang sama tetap digabung, sedangkan bagian yang perlu berubah atau pulih secara independen dipisahkan. Pertimbangan ini menghasilkan batas berikut.
+
+Polling, mapping, query internal, dan relay ditempatkan dalam Aggregator karena semuanya menggunakan Canonical Store yang sama. Loop dan pool koneksi dipisahkan untuk mengisolasi pekerjaan di dalam service tersebut. Alternatifnya, ingest tiap instansi dapat menjadi service sendiri, tetapi perlu antarmuka serta koordinasi storage tambahan. Pilihan satu Aggregator lebih sederhana untuk M1, dengan konsekuensi semua pekerjaan ingest berhenti jika containernya mati.
+
+Client API dipisahkan dari Aggregator agar perubahan hak akses dan format respons tidak mengharuskan rebuild jalur ingest. Auth menjadi service tersendiri untuk menjaga private key penandatanganan token, sementara API cukup memegang public key. Verifikasi JWT dilakukan secara lokal di API, sehingga request dengan token yang masih valid tetap dapat dilayani ketika Auth berhenti. Login dan refresh tetap membutuhkan Auth.
+
+Dashboard dan Notifier dipisahkan karena masing-masing menghasilkan state aplikasi yang berbeda. Container, database, dan durable consumer tersendiri memungkinkan keduanya dipulihkan secara independen. Third Consumer digunakan untuk menguji penambahan aplikasi pembaca: consumer ini memakai binary Notifier, tetapi memiliki durable dan volume sendiri. Dengan kontrak event yang sama, producer tidak perlu diubah ketika pembaca baru ditambahkan.
+
+\clearpage
+\section{Model Kelas Data}
+Untuk menyatukan data kedua instansi, Aggregator menggunakan HazardEvent sebagai kontrak bersama. Gambar~\ref{fig:domain-model} memperlihatkan model data sumber, hasil pemetaan ke HazardEvent, serta envelope yang membawanya ke broker. Gempa dan warning dihubungkan melalui identifier sumber; informasi warning memperkaya kejadian gempa yang terkait. Laporan vulkanik dipetakan melalui jalur tersendiri ke format kanonik yang sama.
+
+\usetikzlibrary{shapes.multipart}
+\begin{figure}[h]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  cls/.style={rectangle split,rectangle split parts=2,rectangle split part fill={archlight,white},draw=archink,align=left,text width=4.35cm,font=\fontsize{8}{10}\selectfont,inner sep=5pt,anchor=north},
+  mapping/.style={dashed,-{Straight Barb[length=1.8mm,width=1.5mm]},draw=archink,line width=0.6pt},
+  association/.style={draw=archink,line width=0.6pt},
+  lab/.style={font=\fontsize{8}{9}\selectfont,fill=white,inner sep=1.5pt}
+]
+\node[cls] (seismic) at (-5.3,0) {\textbf{SeismicEvent}\nodepart{second}\ttfamily
+ event\_id: String\\
+ magnitude: Real\\
+ depth\_km: Real\\
+ epicenter\_lat: Real\\
+ epicenter\_lon: Real\\
+ region\_name: String\\
+ occurred\_at: DateTime\\
+ potential\_tsunami: Boolean};
+\node[cls] (warning) at (0,0) {\textbf{TsunamiWarning}\nodepart{second}\ttfamily
+ warning\_id: String\\
+ related\_event\_id: String\\
+ threat\_level: String\\
+ affected\_zones: String [0..*]\\
+ estimated\_arrival: DateTime};
+\node[cls] (volcano) at (5.3,0) {\textbf{VolcanicReport}\nodepart{second}\ttfamily
+ report\_id: String\\
+ volcano\_id: String\\
+ alert\_level: String\\
+ eruption\_count\_24h: Integer\\
+ ash\_column\_height\_m: Real\\
+ reported\_at: DateTime\\
+ confidence\_level: Real [0..1]};
+\node[cls,text width=6.1cm] (hazard) at (-3.0,-5.1) {\textbf{HazardEvent}\nodepart{second}\ttfamily
+ hazard\_id: UUID\\
+ source: Source\\
+ source\_ref\_id: String\\
+ hazard\_type: HazardType\\
+ severity: Severity\\
+ area\_name: String\\
+ latitude: Real\\
+ longitude: Real\\
+ occurred\_at: DateTime\\
+ ingested\_at: DateTime\\
+ attributes: Map<String, JSONValue>};
+\node[cls,text width=4.85cm] (envelope) at (4.0,-5.1) {\textbf{Envelope}\nodepart{second}\ttfamily
+ schema\_version: Integer\\
+ event\_type: String\\
+ message\_id: String\\
+ correlation\_id: String\\
+ published\_at: DateTime\\
+ producer: String\\
+ revision: Integer\\
+ data: HazardEvent};
+\draw[association] (seismic.north) -- ++(0,0.75) -| (warning.north);
+\node[lab,left] at (-5.3,0.22) {1};
+\node[lab,right] at (0,0.22) {0..*};
+\node[lab,above] at (-2.65,0.75) {related\_event\_id};
+\draw[mapping] (seismic.south) -- node[lab,left]{\guillemotleft map\guillemotright} (hazard.north -| seismic.south);
+\draw[mapping] (warning.south) -- (0,-4.0) -- node[lab,above]{\guillemotleft enrich\guillemotright} (-3,-4.0) -- (hazard.north);
+\draw[mapping] (volcano.south) -- (5.3,-4.65) -- node[lab,above]{\guillemotleft map\guillemotright} (-0.7,-4.65) -- (hazard.north -| -0.7,0);
+\draw[association,-{Straight Barb[length=1.8mm,width=1.5mm]}] ([yshift=-1.7cm]envelope.north west) -- node[lab,above]{data} node[lab,below,pos=0.8]{1} ([yshift=-1.7cm]hazard.north east);
+\end{tikzpicture}%
+}
+\caption{Model data dan pemetaannya. Satu warning merujuk satu gempa; satu gempa dapat mempunyai banyak warning. Field \texttt{confidence\_level} bersifat opsional dan muncul pada PVMBG v2. Envelope membawa satu snapshot HazardEvent.}
+\label{fig:domain-model}
+\end{figure}
+
+Beberapa field HazardEvent menggunakan nilai yang dibatasi agar client dapat menafsirkan data secara konsisten. Field \texttt{source} membedakan BMKG dan PVMBG, sedangkan \texttt{hazard\_type} membedakan SEISMIC dan VOLCANIC. Tingkat keparahan dinyatakan melalui \texttt{severity}, dengan pilihan NORMAL, WASPADA, SIAGA, dan AWAS. Informasi khusus sumber disimpan dalam \texttt{attributes}. Pada diagram, \texttt{JSONValue} mewakili nilai JSON, dan \texttt{DateTime} mewakili timestamp yang diserialisasikan sebagai string.
+
+HazardEvent mewakili kejadian, sementara envelope memuat metadata untuk pengiriman, seperti identitas pesan, revisi, dan correlation ID. Pemisahan ini memungkinkan consumer mengenali perubahan dan pengiriman ulang tanpa mengubah kontrak kejadian. Warning yang gempa terkaitnya belum tersedia tetap menunggu kecocokan pada polling berikutnya; warning tersebut tidak dipetakan menjadi hazard mandiri.
+
+
+\section{Protokol dan Alur Komunikasi}
+Komunikasi sistem mengikuti dua alur: pembaruan data dari sumber dan pembacaan data oleh client. Alur pembaruan juga menghasilkan event untuk consumer. Urutannya adalah sebagai berikut.
+
+\textbf{Pembaruan data dan distribusi event.} Aggregator melakukan polling HTTP dengan credential milik masing-masing sumber. Untuk BMKG, endpoint \texttt{/seismic-events} dan \texttt{/tsunami-warnings} diambil secara concurrent; PVMBG diambil melalui \texttt{/volcanic-reports} pada loop independen. Setelah validasi dan pemetaan, Aggregator menyimpan data terbaru, revisi, serta pesan outbox dalam satu transaksi PostgreSQL.
+
+Outbox merupakan catatan event yang perlu dikirim. Relay membacanya dan menerbitkan envelope melalui protokol NATS. Setelah menerima PubAck dari JetStream, relay menandai pesan telah terpublikasi. Dashboard dan Notifier kemudian meminta pesan dari stream melalui durable pull consumer masing-masing, mengolahnya ke database lokal, lalu mengirim ACK. Mekanisme outbox dan pengiriman ulang dijelaskan pada Bab 8.
+
+\textbf{Pembacaan oleh client.} Client terlebih dahulu login ke Auth melalui HTTP untuk memperoleh token. Pada request data berikutnya, client mengirim Bearer JWT ke Client API. API memverifikasi token secara lokal, memeriksa scope, lalu meminta data ke API internal Aggregator menggunakan key tersendiri. Aggregator membaca Canonical Store, dan Client API mengembalikan field yang diizinkan untuk identitas tersebut. Jalur ini tidak menunggu request baru ke BMKG atau PVMBG.
+
+\section{Kepemilikan Storage dan Container}
+Setiap service mengakses data persisten melalui storage yang menjadi tanggung jawabnya. Canonical Store berada di PostgreSQL dan hanya diakses langsung oleh Aggregator. Store ini memuat data terbaru pada \texttt{hazard\_events}, riwayat pada \texttt{hazard\_versions}, status sumber pada \texttt{source\_state}, serta pesan pada \texttt{outbox}. Service lain menggunakan API atau kontrak event untuk memperoleh data.
+
+Auth menyimpan state refresh token dalam SQLite privat. Dashboard dan Notifier juga memiliki SQLite masing-masing untuk mencatat pesan yang sudah diproses dan hasil olahannya. Sementara itu, NATS menyimpan stream pada volume broker. Seluruh storage tersebut menggunakan volume persisten agar penggantian container tidak menghapus state. Sembilan service utama berjalan dalam container terpisah melalui Compose; Third Consumer ditambahkan hanya untuk pengujian melalui profil demo.
+
+\section{Alur Permintaan dan Kegagalan}
+Dalam kondisi normal, request client melewati Client API dan Aggregator untuk membaca data yang sudah tersimpan. Polling berjalan di background untuk memperbarui data tersebut. Karena kedua pekerjaan terpisah, delay PVMBG tidak membuat request client menunggu respons PVMBG dan tidak menghalangi polling BMKG.
+
+Saat PVMBG mengalami outage, Aggregator tetap menyediakan record terakhir yang berhasil disimpan, dengan penanda \textit{stale} untuk menunjukkan bahwa data belum diperbarui. Jika belum ada record yang dapat dilayani, request khusus sumber tersebut memperoleh status unavailable. Ketika sumber pulih, polling berikutnya memperbarui data dan status freshness tanpa perlu restart. Perilaku serta batas ketersediaannya diuji pada Bab 5.
+
+Pada jalur event, kegagalan broker membuat pesan tetap menunggu di outbox untuk dicoba kembali. Jika hanya consumer yang berhenti, broker tetap menyimpan event dan consumer lain tetap dapat membacanya. Consumer yang pulih melanjutkan pembacaan menggunakan posisi durable selama pesan yang dibutuhkan masih berada dalam retention. Pemisahan ini tidak menyediakan failover untuk Aggregator, PostgreSQL, atau broker yang masing-masing masih menggunakan satu instance.
+
+\subsection{Batas Jaringan}
+Jaringan Compose membatasi jalur komunikasi sesuai kebutuhan service. Pemisahan terpenting adalah Canonical Store: hanya Aggregator yang perlu terhubung langsung ke PostgreSQL. Keanggotaan jaringan dirangkum pada Tabel~\ref{tab:networks}.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.8cm}YY}
+\toprule
+Jaringan & Anggota & Tujuan \\
+\midrule
+\texttt{source-net} & Mock BMKG, mock PVMBG, Aggregator & Polling dan autentikasi ke sumber. \\
+\texttt{api-net} & Client API, Auth, Aggregator & Login/refresh dari client dan pembacaan melalui API internal. \\
+\texttt{store-net} & Aggregator, PostgreSQL & Akses SQL privat ke Canonical Store. \\
+\texttt{event-net} & Aggregator, NATS, seluruh consumer & Publish, pull, dan ACK event. \\
+\bottomrule
+\end{tabularx}
+\caption{Pemisahan jaringan pada Docker Compose.}
+\label{tab:networks}
+\end{table}
+
+Jaringan \texttt{store-net} dan \texttt{event-net} bersifat internal; PostgreSQL dan NATS tidak memublikasikan port ke host. Port aplikasi yang diperlukan untuk demo terikat ke \texttt{127.0.0.1}. Konfigurasi ini membatasi akses dari luar host, tetapi komunikasi internal masih menggunakan HTTP tanpa TLS.

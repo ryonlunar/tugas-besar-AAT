@@ -1,0 +1,12 @@
+$ FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/field-team.json)
+> jq -r .access_token .secrets/report-session/field-team.json \
+>   | jq -R 'split(".")[1] | @base64d | fromjson | {iat, exp, ttl: (.exp-.iat)}'
+> curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+>   -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'
+{
+  "iat": 1791349941,
+  "exp": 1791350001,
+  "ttl": 60
+}
+HTTP 200

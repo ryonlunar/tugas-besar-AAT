@@ -1,0 +1,26 @@
+$ docker compose logs --no-color --no-log-prefix --since 2m \
+>   client-api aggregator \
+>   | jq -R 'fromjson? | select(.correlation_id == "report-command-correlation")
+>       | {service, correlation_id, operation, status, duration_ms}'
+> 
+{
+  "service": "aggregator",
+  "correlation_id": "report-command-correlation",
+  "operation": "GET /internal/v1/hazards",
+  "status": 200,
+  "duration_ms": 2
+}
+{
+  "service": "client-api",
+  "correlation_id": "report-command-correlation",
+  "operation": "aggregator_read",
+  "status": 200,
+  "duration_ms": 3
+}
+{
+  "service": "client-api",
+  "correlation_id": "report-command-correlation",
+  "operation": "GET /v1/hazards",
+  "status": 200,
+  "duration_ms": 4
+}

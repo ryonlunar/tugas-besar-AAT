@@ -1,0 +1,13 @@
+$ MEDIA_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/media.json)
+> curl -sS -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&limit=1' \
+>   | jq '.data[0] | keys'
+[
+  "area_name",
+  "hazard_id",
+  "hazard_type",
+  "ingested_at",
+  "occurred_at",
+  "severity",
+  "source"
+]

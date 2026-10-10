@@ -1,0 +1,11 @@
+$ umask 077
+> curl -sS --fail-with-body \
+>   -H 'Content-Type: application/json' \
+>   --data "{\"client_id\":\"media\",\"client_secret\":\"$MEDIA_CLIENT_SECRET\"}" \
+>   http://127.0.0.1:8284/v1/auth/login -o .secrets/report-session/media.json
+> jq '{token_type, expires_in, scope}' .secrets/report-session/media.json
+{
+  "token_type": "Bearer",
+  "expires_in": 60,
+  "scope": "hazards:summary"
+}

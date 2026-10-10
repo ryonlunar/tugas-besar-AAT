@@ -1,0 +1,9 @@
+$ curl -sS --fail-with-body \
+>   -H "Authorization: Bearer $PVMBG_TOKEN" \
+>   -H 'Content-Type: application/json' --data '{"enabled":true}' \
+>   http://127.0.0.1:8282/admin/outage | jq .
+{
+  "enabled": true
+}
+
+$ sleep 10

@@ -1,0 +1,26 @@
+$ docker compose exec -T nats wget -qO- \
+>   'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \
+>   | jq '.account_details[].stream_detail[]
+>       | {name, last_seq: .state.last_seq,
+>           consumers: [.consumer_detail[]
+>             | select(.name == "dashboard-v1" or .name == "notifier-v1")
+>             | {name, ack: .ack_floor.stream_seq,
+>                 pending: .num_pending, inflight: .num_ack_pending}]}'
+{
+  "name": "HAZARD_EVENTS",
+  "last_seq": 311,
+  "consumers": [
+    {
+      "name": "dashboard-v1",
+      "ack": 308,
+      "pending": 3,
+      "inflight": 0
+    },
+    {
+      "name": "notifier-v1",
+      "ack": 311,
+      "pending": 0,
+      "inflight": 0
+    }
+  ]
+}

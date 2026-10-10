@@ -1,0 +1,77 @@
+{
+  "source_credentials": [
+    {
+      "source": "BMKG",
+      "credential": "BMKG_API_KEY",
+      "status": 200
+    },
+    {
+      "source": "BMKG",
+      "credential": "PVMBG_TOKEN",
+      "status": 401
+    },
+    {
+      "source": "PVMBG",
+      "credential": "PVMBG_TOKEN",
+      "status": 200
+    },
+    {
+      "source": "PVMBG",
+      "credential": "BMKG_API_KEY",
+      "status": 401
+    }
+  ],
+  "media": {
+    "status": 200,
+    "fields": [
+      "area_name",
+      "hazard_id",
+      "hazard_type",
+      "ingested_at",
+      "occurred_at",
+      "severity",
+      "source"
+    ],
+    "full_status": 403,
+    "raw_fields_status": 403
+  },
+  "networks": {
+    "aggregator": [
+      "aat-report-m1_api-net",
+      "aat-report-m1_event-net",
+      "aat-report-m1_source-net",
+      "aat-report-m1_store-net"
+    ],
+    "auth": [
+      "aat-report-m1_api-net"
+    ],
+    "bmkg-mock": [
+      "aat-report-m1_source-net"
+    ],
+    "client-api": [
+      "aat-report-m1_api-net"
+    ],
+    "dashboard-consumer": [
+      "aat-report-m1_event-net"
+    ],
+    "nats": [
+      "aat-report-m1_event-net"
+    ],
+    "notifier-consumer": [
+      "aat-report-m1_event-net"
+    ],
+    "postgres": [
+      "aat-report-m1_store-net"
+    ],
+    "pvmbg-mock": [
+      "aat-report-m1_source-net"
+    ],
+    "third-consumer": [
+      "aat-report-m1_event-net"
+    ]
+  },
+  "private_ports": {
+    "nats": {},
+    "postgres": {}
+  }
+}

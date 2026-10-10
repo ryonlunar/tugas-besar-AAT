@@ -1,0 +1,21 @@
+$ curl -sS -H "X-Internal-Key: $AGGREGATOR_API_KEY" \
+>   'http://127.0.0.1:8283/internal/v1/hazards?source=BMKG&view=full&limit=100' \
+>   | jq --arg id "$BMKG_REF" '.data[] | select(.source_ref_id == $id)'
+> 
+{
+  "hazard_id": "c10e114a-2f04-400c-b3a0-110aaf9cc120",
+  "source": "BMKG",
+  "source_ref_id": "sim-60f75b621ea2f87f-event-001",
+  "hazard_type": "SEISMIC",
+  "severity": "NORMAL",
+  "area_name": "Wilayah Simulasi 01",
+  "latitude": -9.8,
+  "longitude": 105.25,
+  "occurred_at": "2026-10-07T04:17:29.565895+00:00",
+  "ingested_at": "2026-10-07T04:55:41.058969+00:00",
+  "attributes": {
+    "depth_km": 7,
+    "magnitude": 4.2,
+    "potential_tsunami": false
+  }
+}

@@ -1,0 +1,10 @@
+$ NEW_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/refreshed.json)
+> curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+>   -H "Authorization: Bearer $NEW_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'
+HTTP 200
+
+$ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
+>   -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1'
+HTTP 401

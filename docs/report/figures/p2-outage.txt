@@ -1,0 +1,21 @@
+$ FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/report-session/field-team.json)
+> curl -sS -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=PVMBG&view=full&limit=5' \
+>   | jq '{records: (.data | length), source: .meta.sources.PVMBG}'
+{
+  "records": 5,
+  "source": {
+    "status": "stale",
+    "last_success_at": "2026-10-07T05:15:29.209971Z",
+    "stale_since": "2026-10-07T05:15:31.341025Z"
+  }
+}
+
+$ curl -sS -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+>   'http://127.0.0.1:8280/v1/hazards?source=BMKG&view=full&limit=1' \
+>   | jq '.meta.sources.BMKG'
+{
+  "status": "fresh",
+  "last_success_at": "2026-10-07T05:15:36.44186Z",
+  "stale_since": null
+}
