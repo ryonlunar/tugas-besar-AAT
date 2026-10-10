@@ -1,39 +1,34 @@
-# bmkg-mock
+# BMKG Mock
 
-Pemilik: Hazim. Mock BMKG ini sudah dapat dijalankan sebagai service HTTP mandiri; ia menyediakan data simulasi, bukan data BMKG produksi.
+Menyediakan gempa dan peringatan tsunami sintetis untuk simulasi. Data ini bukan data BMKG produksi.
 
-## Implementasi
+## Menjalankan
 
-- `GET /seismic-events?since=<RFC3339>` dan `GET /tsunami-warnings?since=<RFC3339>` memakai header `X-BMKG-Key`.
-- `GET /health` untuk liveness dan `GET /ready` untuk readiness; keduanya tanpa autentikasi.
-- Credential diperiksa sebelum delay tetap (default 100 ms). Timestamp `since` inklusif; parameter tak dikenal atau timestamp invalid ditolak.
-- Fixture JSON memuat 20 gempa sintetis; sebagian memiliki warning terkait. `MOCK_SEED_COUNT` (min. 20, default 20, max. 1000) dapat menambah seed simulasi; waktu relatif terhadap startup. ID memuat run ID acak. Satu event baru ditambahkan setiap `MOCK_EVENT_INTERVAL` (default 10 detik). Katalog mempertahankan fixture dan paling banyak 1000 event terbaru yang dihasilkan, sehingga snapshot penuh tetap terbatas.
-- Katalog aman untuk request bersamaan. Warning memakai waktu publikasi internal untuk filter `since`; waktu tersebut tidak muncul pada respons.
+Memerlukan Go 1.23 atau lebih baru. Jalankan dari root repo:
 
-## Jalankan lokal
-
-```bash
+```sh
 BMKG_API_KEY='local-demo-key' go run ./services/bmkg-mock/cmd/server
 ```
 
-Port default `8081`. Untuk mencoba:
+Port default 8081, dengan delay tetap 100 ms. `BMKG_DELAY_MS` dapat diatur antara 50 dan 150 ms. Katalog awal berisi 20 gempa dan menambah satu gempa setiap 10 detik; jumlah seed dan interval diatur melalui `MOCK_SEED_COUNT` dan `MOCK_EVENT_INTERVAL`.
 
-```bash
-curl -H 'X-BMKG-Key: local-demo-key' 'http://localhost:8081/seismic-events'
-curl -H 'X-BMKG-Key: local-demo-key' 'http://localhost:8081/tsunami-warnings'
-curl 'http://localhost:8081/health'
-curl 'http://localhost:8081/ready'
+## Endpoint
+
+| Endpoint | Fungsi |
+|---|---|
+| `GET /seismic-events` | Daftar gempa |
+| `GET /tsunami-warnings` | Daftar peringatan tsunami |
+| `GET /health` | Status proses |
+| `GET /ready` | Kesiapan service |
+
+Kedua endpoint data memerlukan header `X-BMKG-Key` dan menerima parameter `since` dalam format RFC3339; data dengan timestamp yang sama juga disertakan.
+
+```sh
+curl -H 'X-BMKG-Key: local-demo-key' http://localhost:8081/seismic-events
 ```
 
-`BMKG_API_KEY` wajib; `BMKG_DELAY_MS` hanya boleh 50–150 ms. Gunakan key contoh hanya untuk simulasi lokal.
+## Pengujian
 
-## Build/test
-
-```bash
+```sh
 go test ./services/bmkg-mock/...
-go build ./services/bmkg-mock/cmd/server
-# Build image dengan root repo sebagai build context:
-docker build -f services/bmkg-mock/Dockerfile -t aat/bmkg-mock .
 ```
-
-Kontrak, fixture, dan acceptance: [contract](../../docs/contract.md), [testing plan](../../docs/testing-plan.md).

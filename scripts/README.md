@@ -1,8 +1,10 @@
-# Script pengujian
+# Setup dan pengujian
 
-## Setup kunci dan trial integrasi
+Command berikut dijalankan dari root repo menggunakan Bash. Siapkan `.env` sesuai [README utama](../README.md#menjalankan-aplikasi).
 
-Isi `.env`, termasuk `COMPOSE_PROJECT_NAME`, dengan secret lokal yang berbeda untuk setiap domain/client. Buat pasangan RSA sekali, lalu muat ke volume terpisah. Volume key dikelola oleh setup, tetap ada saat Compose dihapus, dan tidak masuk build context atau Git:
+## Setup kunci
+
+Memerlukan Docker, Python 3, dan OpenSSL. Buat pasangan kunci RSA sekali, lalu muat ke volume Auth dan Client API:
 
 ```bash
 mkdir -p .secrets
@@ -12,59 +14,83 @@ if [ ! -e .secrets/jwt-private.pem ] && [ ! -e .secrets/jwt-public.pem ]; then
   openssl pkey -in .secrets/jwt-private.pem -pubout -out .secrets/jwt-public.pem
 fi
 python3 scripts/setup-jwt-keys.py
-docker compose up --build -d --wait
+```
+
+Jika pasangan kunci sudah ada, cukup jalankan `setup-jwt-keys.py`. Volume kunci tetap tersimpan setelah `docker compose down`.
+
+## Pengujian integrasi
+
+Jalankan pada stack lokal yang sudah aktif:
+
+```bash
 python3 scripts/verify-integration.py --scenario all --output docs/evidence/integration-trial.json
 ```
 
-Jika pasangan key sudah ada, jalankan hanya `setup-jwt-keys.py` tanpa membuat pasangan baru.
+Script membaca `.env` dan menyimpan hasil dalam JSON. Skenario dapat dijalankan terpisah dengan mengganti `all`:
 
-Trial memakai Python 3, OpenSSL, dan Docker Compose. Jalankan dari root repo pada stack demo lokal: script mengubah kontrol PVMBG, menghentikan Auth/dashboard sementara, membangun ulang dashboard, dan menambah durable ketiga. Kontrol sumber dikembalikan; service yang dihentikan dinyalakan kembali. Pilihan `smoke`, `tokens`, dan `events` dapat dijalankan terpisah. Evidence berisi hasil/commit, tanpa token atau secret. Trial schema menyimpan contoh pemetaan, riwayat v1/v2, ledger migrasi, dan waktu mulai container. Trial consumer mencatat sequence publish dan ACK.
+| Skenario | Pemeriksaan |
+|---|---|
+| `smoke` | Pemetaan data, hak akses, outage sumber, dan perubahan skema |
+| `tokens` | Kedaluwarsa dan refresh token |
+| `events` | Consumer berhenti dan catch-up, rebuild container, serta consumer ketiga |
+
+Pengujian mengubah kontrol PVMBG dan menghentikan beberapa service sementara. Setelah selesai, script mengembalikan kontrol sumber dan menyalakan kembali service tersebut.
 
 ## Load test P2
 
-`load/hazards.js` memakai profil k6 P2: 30 VU BMKG dan 30 VU PVMBG selama 90 detik, HTTP keep-alive, field-team dengan full view/limit 50, serta refresh token sekitar detik ke-50. Worker hazard tidak memakai think time.
+Profil pengujian menggunakan 30 worker per sumber selama 90 detik, HTTP keep-alive, akses Field Team dengan `view=full`, dan refresh token sebelum kedaluwarsa. Gunakan TTL access token default 60 detik.
 
-Setelah sumber berstatus fresh, set delay PVMBG menjadi 3000 ms melalui `POST /admin/delay` dengan Bearer token PVMBG dan body `{"min_ms":3000,"max_ms":3000}`. Catat latency `/volcanic-reports`, tunggu satu siklus polling, lalu jalankan dari PowerShell:
+Setelah kedua sumber berstatus fresh, muat environment dan atur delay PVMBG menjadi 3000 ms:
 
-```powershell
-$env:FIELD_TEAM_CLIENT_SECRET = '<secret-lokal>'
-$tcpJob = Start-Job { .\scripts\load\capture-tcp-connections.ps1 -Seconds 95 -OutputPath docs\evidence\p2-01\tcp.json }
-k6 run --summary-export docs\evidence\p2-01\k6-summary.json .\scripts\load\hazards.js
-$loadExit = $LASTEXITCODE
-$tcpJob | Wait-Job | Receive-Job -ErrorAction Stop
-if ($loadExit -ne 0) { throw "k6 thresholds failed" }
+```bash
+set -a
+. ./.env
+set +a
+export API_URL="http://127.0.0.1:${API_HTTP_PORT:-8080}"
+export AUTH_URL="http://127.0.0.1:${AUTH_HTTP_PORT:-8084}"
+curl -fsS -X POST "http://127.0.0.1:${PVMBG_MOCK_HTTP_PORT:-8082}/admin/delay" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"min_ms":3000,"max_ms":3000}'
+sleep 5
 ```
 
-Set `AUTH_URL` atau `API_URL` bila port loopback berbeda. Ringkasan memisahkan attempts, success, controlled 429, dan unexpected error; setiap trend menampilkan p50/p95/p99, sedangkan threshold BMKG p95 adalah <300 ms. Script TCP mengukur koneksi established ke remote port API pada steady state, jadi bukti bukan hanya jumlah VU. Credential tidak ditulis ke script atau evidence.
-
-Untuk Linux, jalankan collector pada host yang sama dengan k6. Isi secret melalui environment, bukan argumen CLI:
+Di Linux, jalankan load test dan pencatatan koneksi TCP bersamaan pada host yang sama. Collector memerlukan `ss`:
 
 ```bash
 mkdir -p docs/evidence/p2-01
-read -rs -p 'Field Team secret: ' FIELD_TEAM_CLIENT_SECRET; echo
-export FIELD_TEAM_CLIENT_SECRET
-python3 scripts/load/capture-tcp-connections.py --api-url "${API_URL:-http://127.0.0.1:8080}" --output docs/evidence/p2-01/tcp.json &
+python3 scripts/load/capture-tcp-connections.py --api-url "$API_URL" \
+  --seconds 110 --output docs/evidence/p2-01/tcp.json &
 tcp_pid=$!
-k6 run --summary-export docs/evidence/p2-01/k6-summary.json scripts/load/hazards.js
+python3 scripts/load/hazards-monotonic.py --output docs/evidence/p2-01/monotonic-summary.json
 load_exit=$?
-wait "$tcp_pid"; tcp_exit=$?
+wait "$tcp_pid"
+tcp_exit=$?
 test "$load_exit" -eq 0 && test "$tcp_exit" -eq 0
 ```
 
-`hazard_iterations` mencatat workload yang diminta; `hazard_attempts` hanya request yang dikirim setelah token tersedia. Kegagalan login/refresh menggagalkan threshold. Kedua sumber wajib memiliki request sukses; semua-429 bukan hasil lulus. Trend `*_duration` mencatat seluruh respons, sedangkan `*_success_duration` hanya 2xx. Threshold BMKG memakai `bmkg_success_duration`; `auth_duration` terpisah. Laporkan throughput, error noncontrolled, dan jumlah 429. Periksa sampel TCP selama steady state: minimal 50 koneksi selama minimal 60 detik, bukan hanya 60 VU.
+Load test memakai timer monotonic dan mengukur latency sampai seluruh body respons diterima. Ringkasan memuat p50/p95/p99, throughput, respons 429, dan error. Kriteria lulus mencakup BMKG p95 <300 ms dan error di luar 429 <1%; bukti TCP diperiksa terpisah untuk memastikan sedikitnya 50 koneksi selama 60 detik.
 
-Jika export memuat durasi negatif, pengukuran tidak valid. Alternatif dengan timer monotonic dan profil yang sama:
+Jika menggunakan k6, ganti command load test dengan:
 
 ```bash
-python3 scripts/load/hazards-monotonic.py --output docs/evidence/p2-01/monotonic-summary.json
+k6 run --summary-export docs/evidence/p2-01/k6-summary.json scripts/load/hazards.js
 ```
 
-Jalankan collector TCP bersamaan seperti di atas. Alternatif ini memakai 30 worker per sumber selama 90 detik, HTTP keep-alive, sesi Field Team terpisah, dan refresh sebelum expiry. Latency mencakup request hingga seluruh body diterima, termasuk setup koneksi; percentile memakai nearest rank.
+Hasil latency negatif tidak valid. Setelah pengujian, kembalikan delay PVMBG melalui endpoint yang sama dengan body `{"min_ms":500,"max_ms":3000}`.
 
-Regression script: `node scripts/load/hazards.test.cjs`.
+Untuk Windows, gunakan collector berikut di terminal PowerShell terpisah selama load test; sesuaikan `-ApiPort` jika port API berubah:
 
-Script smoke yang tersedia:
+```powershell
+.\scripts\load\capture-tcp-connections.ps1 -ApiPort 8080 -Seconds 110 -IntervalSeconds 1 -OutputPath docs\evidence\p2-01\tcp.json
+```
 
-- `bash scripts/smoke-source-mocks.sh` membangun dan menjalankan dua mock pada port lokal sementara; memeriksa seed BMKG, penolakan tanpa credential, toggle schema PVMBG v1/v2 dengan ID stabil, dan outage 503. Script memakai fixture/credential sintetis dan membersihkan prosesnya saat keluar.
+## Pengujian mock
 
-Script ini tidak menguji Aggregator, Canonical Store, JetStream, Auth/API, consumer, atau acceptance P1–P5 secara penuh. Hasil trial integrasi dan load test ada di [docs/evidence](../docs/evidence/).
+Memerlukan Go 1.23 atau lebih baru:
+
+```bash
+bash scripts/smoke-source-mocks.sh
+```
+
+Script menjalankan kedua mock pada port sementara untuk memeriksa autentikasi, seed data, perubahan skema PVMBG, dan outage. Proses mock dibersihkan saat script selesai.
