@@ -126,11 +126,33 @@ export API_URL="http://127.0.0.1:${API_HTTP_PORT:-8080}"
 export AUTH_URL="http://127.0.0.1:${AUTH_HTTP_PORT:-8084}"
 export BMKG_URL="http://127.0.0.1:${BMKG_MOCK_HTTP_PORT:-8081}"
 export PVMBG_URL="http://127.0.0.1:${PVMBG_MOCK_HTTP_PORT:-8082}"
+export AGGREGATOR_URL="http://127.0.0.1:${AGGREGATOR_HTTP_PORT:-8083}"
 EVIDENCE_DIR="docs/evidence/private/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$EVIDENCE_DIR"
 ```
 
 Hasil baru disimpan di `$EVIDENCE_DIR`, terpisah dari bukti pengukuran yang sudah ada di laporan. Jalankan skenario secara berurutan; beberapa pengujian mengubah kontrol mock atau menghentikan service sementara.
+
+Setiap problem menyediakan trial otomatis dan langkah manual mengikuti bukti laporan. Jalankan langkah manual satu per satu, tanpa menjalankan trial bersamaan. Command memakai port dari `.env`; screenshot laporan menggunakan port 8280–8284.
+
+<a id="login-manual"></a>
+
+<details>
+<summary>Login Tim Lapangan untuk command API manual</summary>
+
+Jalankan login ini sebelum pemeriksaan API pada P2, P4, atau log. Ulangi jika token sudah expired; access token berlaku 60 detik. File sesi disimpan di `.secrets/` dan tidak masuk Git.
+
+```bash
+umask 077
+mkdir -p .secrets/demo-session
+jq -n '{client_id:"field-team", client_secret:env.FIELD_TEAM_CLIENT_SECRET}' \
+  | curl -fsS -H 'Content-Type: application/json' --data-binary @- \
+      "$AUTH_URL/v1/auth/login" -o .secrets/demo-session/field-team.json
+jq '{token_type, expires_in, scope}' .secrets/demo-session/field-team.json
+FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/demo-session/field-team.json)
+```
+
+</details>
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -213,7 +235,7 @@ export API_URL="http://127.0.0.1:$API_HTTP_PORT"
 curl -fsS "$API_URL/ready"
 ```
 
-Sesuaikan juga `AUTH_URL`, `BMKG_URL`, atau `PVMBG_URL` bila portnya berubah. Sebelum mengulang pengujian laporan, kembalikan polling ke 5 detik dan port API ke 8080, lalu terapkan kembali:
+Sesuaikan juga `AUTH_URL`, `BMKG_URL`, `PVMBG_URL`, atau `AGGREGATOR_URL` bila portnya berubah. Sebelum mengulang pengujian laporan, kembalikan polling ke 5 detik dan port API ke 8080, lalu terapkan kembali:
 
 ```bash
 sed -i 's/^SOURCE_POLL_INTERVAL=.*/SOURCE_POLL_INTERVAL=5s/; s/^API_HTTP_PORT=.*/API_HTTP_PORT=8080/' .env
@@ -247,22 +269,94 @@ python3 scripts/verify-integration.py --scenario smoke --output "$EVIDENCE_DIR/s
 jq '{passed, results}' "$EVIDENCE_DIR/smoke.json"
 ```
 
-Hasil yang diharapkan: `passed: true`, pemetaan BMKG/PVMBG sesuai sumber, dan record PVMBG mempunyai revisi sebelum serta sesudah penambahan `confidence_level` ke `attributes`. Trial memicu perubahan melalui `/admin/schema-version`, lalu membandingkan ID hazard, daftar migration, dan kondisi container untuk memastikan tidak ada restart atau redeploy. Skema dikembalikan ke versi awal setelah trial.
-
-Trial `smoke` juga memeriksa outage P2 dan hak akses P3. Setiap pemeriksaan dicatat terpisah dalam `results`.
+Trial harus menghasilkan `passed: true`: pemetaan sesuai sumber dan revisi v1/v2 terbaca tanpa migration atau restart. `smoke` juga memeriksa outage P2 dan hak akses P3, lalu memulihkan skema awal.
 
 <details>
-<summary>Memicu perubahan skema secara manual</summary>
+<summary>Manual: pemetaan data dan perubahan skema</summary>
 
-Aktifkan versi 2 agar `confidence_level` muncul. Tunggu hingga polling berikutnya selesai, lalu jalankan `store-audit` pada P4 untuk memeriksa jumlah revisi yang tersimpan. Setelah pemeriksaan, kembalikan ke versi 1 dengan mengganti body menjadi `{"version":1}` pada command yang sama.
+**1. Bandingkan gempa sumber dan hasil kanonik.** Source reference, region, koordinat, magnitude, dan waktu harus sesuai; severity mengikuti batas magnitude pada laporan.
+
+```bash
+curl -fsS -H "X-BMKG-Key: $BMKG_API_KEY" "$BMKG_URL/seismic-events" \
+  > "$EVIDENCE_DIR/bmkg-source.json"
+BMKG_REF=$(jq -r '[.[] | select(.potential_tsunami == false)][-1].event_id' \
+  "$EVIDENCE_DIR/bmkg-source.json")
+jq --arg id "$BMKG_REF" '.[] | select(.event_id == $id)' "$EVIDENCE_DIR/bmkg-source.json"
+sleep 10
+curl -fsS -H "X-Internal-Key: $AGGREGATOR_API_KEY" \
+  "$AGGREGATOR_URL/internal/v1/hazards?source=BMKG&view=full&limit=100" \
+  | jq -e --arg id "$BMKG_REF" '.data[] | select(.source_ref_id == $id)'
+```
+
+**2. Ambil record PVMBG baru pada skema v1** agar audit revisi 1/2 dapat diulang. Jeda menunggu event baru dan polling dengan interval default.
 
 ```bash
 curl -fsS -X POST "$PVMBG_URL/admin/schema-version" \
   -H "Authorization: Bearer $PVMBG_TOKEN" \
-  -H 'Content-Type: application/json' -d '{"version":2}' | jq .
+  -H 'Content-Type: application/json' -d '{"version":1}' | jq .
+LAST_PVMBG_REF=$(curl -fsS -H "Authorization: Bearer $PVMBG_TOKEN" \
+  "$PVMBG_URL/volcanic-reports" | jq -r '.[-1].report_id')
+sleep 12
+curl -fsS -H "Authorization: Bearer $PVMBG_TOKEN" "$PVMBG_URL/volcanic-reports" \
+  > "$EVIDENCE_DIR/pvmbg-source.json"
+PVMBG_REF=$(jq -r '.[-1].report_id' "$EVIDENCE_DIR/pvmbg-source.json")
+test "$PVMBG_REF" != "$LAST_PVMBG_REF"
+jq --arg id "$PVMBG_REF" '.[] | select(.report_id == $id)' "$EVIDENCE_DIR/pvmbg-source.json"
+sleep 10
+curl -fsS -H "X-Internal-Key: $AGGREGATOR_API_KEY" \
+  "$AGGREGATOR_URL/internal/v1/hazards?source=PVMBG&view=full&limit=100" \
+  | jq -e --arg id "$PVMBG_REF" '.data[] | select(.source_ref_id == $id)'
 ```
 
-Tidak ada restart, rebuild, atau migration pada langkah ini. Trial `smoke` memeriksa seluruh bukti tersebut secara otomatis.
+Ulangi langkah 2 jika `test` gagal atau hasil kanonik belum tersedia. Severity mengikuti alert level, lokasi memakai fixture gunung, dan `attributes` belum memuat `confidence_level`.
+
+**3. Catat container dan migration, lalu aktifkan skema v2 tanpa restart.**
+
+```bash
+docker inspect $(docker compose ps -q) \
+  | jq -S 'sort_by(.Name) | map({name:.Name, id:.Id,
+      started_at:.State.StartedAt, restarts:.RestartCount})' \
+  > "$EVIDENCE_DIR/schema-before.json"
+docker compose exec -T aggregator /aggregator store-audit \
+  | jq '[.migrations[].version]' > "$EVIDENCE_DIR/migrations-before.json"
+curl -fsS -X POST "$PVMBG_URL/admin/schema-version" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"version":2}' | jq .
+sleep 10
+```
+
+**4. Audit revisi 1/2.** Confidence hanya muncul pada revisi 2; ID hazard tetap sama.
+
+```bash
+docker compose exec -T aggregator /aggregator history-audit \
+  --source PVMBG --source-ref-id "$PVMBG_REF" --revisions 1,2 \
+  | tee "$EVIDENCE_DIR/schema-history.json" \
+  | jq '{hazard_id, source_ref_id,
+      versions:[.versions[] | {revision, attributes:.data.attributes}],
+      migrations:[.migrations[].version]}'
+jq '[.migrations[].version]' "$EVIDENCE_DIR/schema-history.json" \
+  > "$EVIDENCE_DIR/migrations-after.json"
+diff -s "$EVIDENCE_DIR/migrations-before.json" "$EVIDENCE_DIR/migrations-after.json"
+docker inspect $(docker compose ps -q) \
+  | jq -S 'sort_by(.Name) | map({name:.Name, id:.Id,
+      started_at:.State.StartedAt, restarts:.RestartCount})' \
+  > "$EVIDENCE_DIR/schema-after.json"
+diff -s "$EVIDENCE_DIR/schema-before.json" "$EVIDENCE_DIR/schema-after.json"
+```
+
+Kedua `diff` harus menunjukkan file identik. Kembalikan skema ke v1:
+
+```bash
+curl -fsS -X POST "$PVMBG_URL/admin/schema-version" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"version":1}' | jq .
+```
+
+Validasi JSON Schema untuk delapan record pada bukti laporan:
+
+```bash
+go run -mod=readonly docs/report/evidence/validate-records.go
+```
 
 </details>
 
@@ -270,10 +364,12 @@ Tidak ada restart, rebuild, atau migration pada langkah ini. Trial `smoke` memer
 
 ### P2: Concurrency, Availability, & Graceful Degradation
 
-Pada hasil `smoke`, pemeriksaan `live PVMBG outage` harus menunjukkan HTTP 200 dengan data terakhir berstatus `stale`; BMKG tetap dilayani. Trial memulihkan PVMBG dan menunggu status kembali `fresh` tanpa restart.
+Pada trial `smoke`, outage PVMBG harus menghasilkan data terakhir berstatus `stale` dengan HTTP 200. BMKG tetap dilayani, dan PVMBG kembali `fresh` setelah pulih tanpa restart.
 
 <details>
 <summary>Memicu dan memulihkan outage secara manual</summary>
+
+Jalankan [login Tim Lapangan](#login-manual), lalu aktifkan outage:
 
 ```bash
 curl -fsS -X POST "$PVMBG_URL/admin/outage" \
@@ -281,16 +377,33 @@ curl -fsS -X POST "$PVMBG_URL/admin/outage" \
   -H 'Content-Type: application/json' -d '{"enabled":true}' | jq .
 curl -sS -o /dev/null -w 'PVMBG saat outage: %{http_code}\n' \
   -H "Authorization: Bearer $PVMBG_TOKEN" "$PVMBG_URL/volcanic-reports"
+sleep 10
+```
+
+Request langsung ke sumber harus mendapat 503; API tetap menyajikan data PVMBG `stale` dan BMKG `fresh`:
+
+```bash
+curl -fsS -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=PVMBG&view=full&limit=5" \
+  | jq '{records:(.data | length), source:.meta.sources.PVMBG}'
+curl -fsS -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1" | jq '.meta.sources.BMKG'
+```
+
+Pulihkan PVMBG: status harus kembali `fresh` dan `stale_since` null.
+
+```bash
 curl -fsS -X POST "$PVMBG_URL/admin/outage" \
   -H "Authorization: Bearer $PVMBG_TOKEN" \
   -H 'Content-Type: application/json' -d '{"enabled":false}' | jq .
+sleep 10
+curl -fsS -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=PVMBG&view=full&limit=1" | jq '.meta.sources.PVMBG'
 ```
-
-Request langsung ke sumber harus menerima 503 saat outage. Biarkan outage aktif hingga polling mencatat kegagalan jika ingin memeriksa stale data melalui Client API; command terakhir memulihkan sumber. Kriteria respons Client API diperiksa oleh trial `smoke`.
 
 </details>
 
-Untuk pengukuran beban, atur delay sumber tepat 3 detik dan ukur respons langsung dari mock:
+Atur delay PVMBG 3 detik dan ukur respons sumber:
 
 ```bash
 curl -fsS -X POST "$PVMBG_URL/admin/delay" \
@@ -301,7 +414,7 @@ curl -fsS -o /dev/null -w 'HTTP %{http_code}, durasi %{time_total} detik\n' \
 sleep 5
 ```
 
-Respons langsung PVMBG harus 200 dengan durasi sekitar 3 detik. Jalankan 30 worker BMKG dan 30 worker PVMBG selama 90 detik sambil mencatat koneksi TCP setiap detik:
+Respons harus 200 dalam sekitar 3 detik. Jalankan 30 worker per sumber selama 90 detik, dengan sampel TCP setiap detik:
 
 ```bash
 python3 scripts/load/capture-tcp-connections.py --api-url "$API_URL" \
@@ -317,9 +430,9 @@ jq '{passed, profile, sources, hazard_successes_per_second, hazard_unexpected_er
   "$EVIDENCE_DIR/load.json"
 ```
 
-Hasil yang diharapkan: `passed: true`, p95 respons sukses BMKG <300 ms, error selain 429 <1%, dan kedua sumber menerima request sukses. Output memuat p50/p95/p99, throughput, serta jumlah 429 pada API dan Auth. Pengukuran menggunakan timer monotonic sampai seluruh body respons diterima.
+Hasil harus `passed: true`, p95 BMKG <300 ms, dan error selain 429 <1%. Output mencakup p50/p95/p99, throughput, dan jumlah 429.
 
-Periksa durasi koneksi TCP dengan menghitung rangkaian sampel berurutan yang mempunyai sedikitnya 50 koneksi:
+Hitung durasi sampel berurutan dengan sedikitnya 50 koneksi TCP:
 
 ```bash
 jq '.sampling_interval_seconds as $interval
@@ -336,7 +449,7 @@ jq '.sampling_interval_seconds as $interval
   "$EVIDENCE_DIR/tcp.json" | tee "$EVIDENCE_DIR/tcp-assessment.json"
 ```
 
-`seconds_at_least_50` harus sedikitnya 60 detik dan `passed` harus `true`. Jumlah worker saja tidak cukup untuk membuktikan jumlah koneksi TCP.
+Hasil harus `passed: true` dengan `seconds_at_least_50` ≥60 detik; jumlah worker bukan bukti jumlah koneksi.
 
 Kembalikan delay setelah pengujian:
 
@@ -350,7 +463,7 @@ curl -fsS -X POST "$PVMBG_URL/admin/delay" \
 
 ### P3: Service-to-Service Authentication & Trust
 
-Bandingkan credential sumber secara langsung. Dua command pertama harus menghasilkan 200; dua berikutnya harus ditolak dengan 401/403:
+Bandingkan credential: dua request pertama harus 200, dua berikutnya 401/403.
 
 ```bash
 curl -sS -o /dev/null -w 'BMKG dengan key BMKG: %{http_code}\n' \
@@ -363,7 +476,7 @@ curl -sS -o /dev/null -w 'PVMBG dengan token BMKG: %{http_code}\n' \
   -H "Authorization: Bearer $BMKG_API_KEY" "$PVMBG_URL/volcanic-reports"
 ```
 
-Pemeriksaan `client access` pada hasil `smoke` menunjukkan Media menerima tepat tujuh field ringkasan dan ditolak saat meminta `view=full`. Field Team serta BNPB internal menerima full view. Jalankan juga tes penolakan field raw dan trial expiry/refresh:
+Trial `smoke` memeriksa ringkasan Media dan full view Tim Lapangan/BNPB internal. Uji juga penolakan raw, expiry, dan refresh:
 
 ```bash
 go test ./services/client-api/... ./services/auth/...
@@ -372,44 +485,128 @@ python3 scripts/verify-integration.py --scenario tokens --output "$EVIDENCE_DIR/
 jq '{passed, results}' "$EVIDENCE_DIR/tokens.json"
 ```
 
-Hasil yang diharapkan: JWT yang masih valid tetap dapat dipakai saat Auth berhenti; setelah expiry alami 60 detik, token lama menerima 401. Refresh menghasilkan token baru yang menerima 200 tanpa login ulang. Token lama tetap ditolak, dan penggunaan ulang refresh token membatalkan keluarga sesi terkait. Trial menjalankan kembali Auth setelah pemeriksaan outage.
+Trial harus lulus: JWT valid bekerja saat Auth mati, token expired ditolak, refresh menghasilkan token baru, dan replay refresh membatalkan keluarga sesi. Auth dijalankan kembali setelah trial.
 
-Secret dihasilkan lokal pada setup. `.env` dan kunci privat diabaikan Git; `.env.example` hanya memuat nilai secret kosong.
+Secret berada di `.env` dan `.secrets/` yang diabaikan Git; nilai secret pada `.env.example` kosong.
+
+<details>
+<summary>Manual: hak akses Media, expiry, dan refresh</summary>
+
+**1. Login Media dan periksa field ringkasan.**
+
+```bash
+umask 077
+mkdir -p .secrets/demo-session
+jq -n '{client_id:"media", client_secret:env.MEDIA_CLIENT_SECRET}' \
+  | curl -fsS -H 'Content-Type: application/json' --data-binary @- \
+      "$AUTH_URL/v1/auth/login" -o .secrets/demo-session/media.json
+jq '{token_type, expires_in, scope}' .secrets/demo-session/media.json
+MEDIA_ACCESS_TOKEN=$(jq -r .access_token .secrets/demo-session/media.json)
+curl -fsS -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&limit=1" | jq '.data[0] | keys'
+```
+
+Media hanya menerima tujuh field ringkasan. Kedua permintaan raw berikut harus ditolak dengan 403:
+
+```bash
+curl -sS -o /dev/null -w 'Media meminta full view: %{http_code}\n' \
+  -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" "$API_URL/v1/hazards?view=full"
+curl -sS -o /dev/null -w 'Media meminta attributes: %{http_code}\n' \
+  -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" "$API_URL/v1/hazards?fields=attributes"
+```
+
+**2. Jalankan kembali [login Tim Lapangan](#login-manual)**, lalu periksa TTL dan akses:
+
+```bash
+jq -r .access_token .secrets/demo-session/field-team.json \
+  | jq -R 'split(".")[1] | @base64d | fromjson | {iat, exp, ttl:(.exp-.iat)}'
+curl -sS -o /dev/null -w 'Sebelum expiry: %{http_code}\n' \
+  -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+```
+
+TTL harus 60 detik dan respons API 200. Decode hanya membaca claim; API memverifikasi signature. Tunggu expiry token yang sama:
+
+```bash
+ACCESS_EXP=$(jq -r .access_token .secrets/demo-session/field-team.json \
+  | jq -R 'split(".")[1] | @base64d | fromjson | .exp')
+while [ "$(date +%s)" -le "$ACCESS_EXP" ]; do sleep 1; done
+curl -sS -o /dev/null -w 'Setelah expiry: %{http_code}\n' \
+  -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+```
+
+Respons harus 401.
+
+**3. Refresh sesi tanpa login ulang**, lalu bandingkan token baru dan lama:
+
+```bash
+jq '{refresh_token}' .secrets/demo-session/field-team.json \
+  | curl -fsS -H 'Content-Type: application/json' --data-binary @- \
+      "$AUTH_URL/v1/auth/refresh" -o .secrets/demo-session/refreshed.json
+jq '{token_type, expires_in, scope}' .secrets/demo-session/refreshed.json
+NEW_ACCESS_TOKEN=$(jq -r .access_token .secrets/demo-session/refreshed.json)
+curl -sS -o /dev/null -w 'Token baru: %{http_code}\n' \
+  -H "Authorization: Bearer $NEW_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+curl -sS -o /dev/null -w 'Token lama: %{http_code}\n' \
+  -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+```
+
+Token baru harus 200 dan token lama 401 karena expired. Refresh tidak mencabut access JWT yang masih valid.
+
+</details>
 
 <a id="problem-4"></a>
 
 ### P4: Arsitektur Microservice & Flexible Storage
 
-Periksa tipe kolom, migration, riwayat, dan outbox melalui service pemilik Canonical Store:
+Periksa JSONB, migration, outbox, dan akses Canonical Store:
 
 ```bash
 docker compose exec -T aggregator /aggregator store-audit \
   | jq . | tee "$EVIDENCE_DIR/store-audit.json"
-docker compose config --format json \
-  | jq '{store_network: .networks["store-net"],
-         owners: [.services | to_entries[]
-           | select(.value.networks | has("store-net")) | .key],
-         postgres_ports: (.services.postgres.ports // [])}'
+docker network inspect "${COMPOSE_PROJECT_NAME}_store-net" \
+  | jq '.[0].Containers | [.[] | .Name] | sort'
+docker inspect $(docker compose ps -q postgres) \
+  --format '{{json .NetworkSettings.Ports}}'
 ```
 
-Output harus menunjukkan kolom dokumen bertipe JSONB, hanya Aggregator dan PostgreSQL berada di `store-net`, serta PostgreSQL tidak memublikasikan port ke host. Trial P1 membuktikan revisi v1/v2 tetap terbaca dengan migration yang sama.
-
-Pemeriksaan rebuild dijalankan bersama P5 melalui skenario `events` di bawah. Hasil `consumer rebuild while API remains available` harus menunjukkan seluruh request API menerima 200 dan kondisi container lain tetap sama.
+Kolom dokumen harus JSONB; `store-net` hanya memuat Aggregator dan PostgreSQL, tanpa port database ke host. Revisi v1/v2 dibuktikan pada P1; rebuild dan ketersediaan API diuji melalui `events` pada P5.
 
 <details>
 <summary>Menghentikan dan membangun ulang satu service secara manual</summary>
 
-Gunakan Dashboard sebagai contoh komponen yang tidak dibutuhkan Client API:
+Catat container lain, lalu hentikan dan build Dashboard:
 
 ```bash
+docker inspect $(docker compose ps -q) \
+  | jq -S 'map(select(.Config.Labels["com.docker.compose.service"] != "dashboard-consumer"))
+      | sort_by(.Name) | map({name:.Name, id:.Id,
+          started_at:.State.StartedAt, restarts:.RestartCount})' \
+  > "$EVIDENCE_DIR/rebuild-before.json"
 docker compose stop dashboard-consumer
-curl -fsS "$API_URL/ready"
 docker compose build dashboard-consumer
-docker compose up --detach --no-deps --force-recreate --wait dashboard-consumer
-docker compose ps
 ```
 
-`build` hanya membangun image Dashboard; `up --no-deps` membuat ulang container Dashboard tanpa menjalankan ulang NATS atau service lain. Jika tidak ada perubahan kode/config, cukup gunakan `docker compose start dashboard-consumer` setelah `stop`. Trial `events` membandingkan ID/waktu mulai container lain dan memeriksa request API selama rebuild.
+Setelah build, ulangi [login Tim Lapangan](#login-manual). Request data API harus mendapat 200 saat Dashboard mati:
+
+```bash
+curl -sS -o /dev/null -w 'API saat Dashboard berhenti: %{http_code}\n' \
+  -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+docker compose up --detach --no-deps --force-recreate --wait dashboard-consumer
+docker compose ps
+docker inspect $(docker compose ps -q) \
+  | jq -S 'map(select(.Config.Labels["com.docker.compose.service"] != "dashboard-consumer"))
+      | sort_by(.Name) | map({name:.Name, id:.Id,
+          started_at:.State.StartedAt, restarts:.RestartCount})' \
+  > "$EVIDENCE_DIR/rebuild-after.json"
+diff -s "$EVIDENCE_DIR/rebuild-before.json" "$EVIDENCE_DIR/rebuild-after.json"
+```
+
+`diff` harus menunjukkan ID, waktu mulai, dan restart count container lain tetap sama. `--no-deps` menjaga dependency tidak dijalankan ulang. Tanpa perubahan kode/config, cukup `docker compose start dashboard-consumer` setelah `stop`.
 
 </details>
 
@@ -417,7 +614,7 @@ docker compose ps
 
 ### P5: Fan-out Event Distribution/Pub-Sub
 
-Jalankan trial penghentian consumer, recovery, rebuild P4, dan penambahan durable baru:
+Uji consumer mati, recovery, rebuild P4, dan penambahan durable baru:
 
 ```bash
 python3 scripts/verify-integration.py --scenario events --output "$EVIDENCE_DIR/events.json" \
@@ -425,28 +622,84 @@ python3 scripts/verify-integration.py --scenario events --output "$EVIDENCE_DIR/
 jq '{passed, results}' "$EVIDENCE_DIR/events.json"
 ```
 
-Hasil yang diharapkan: Notifier dan producer terus berjalan saat Dashboard berhenti; setelah Dashboard hidup kembali, ACK-nya mencapai sequence target dari periode gangguan. Consumer ketiga membaca event yang masih tersimpan tanpa perubahan container Aggregator. Trial memakai durable baru setiap kali dijalankan, lalu menghapus durable sementara dan mengembalikan Third Consumer ke konfigurasi demo.
+Trial harus menghasilkan `passed: true`: producer/Notifier tetap berjalan, Dashboard menyusul backlog, dan consumer baru menerima event tanpa perubahan producer. Durable sementara dibersihkan setelah trial.
 
-Untuk menambahkan consumer demo secara manual pada stack yang sudah aktif:
+<details>
+<summary>Manual: backlog, recovery, dan penambahan consumer</summary>
 
-```bash
-docker compose --profile demo up --build --detach --no-deps --wait third-consumer
-```
-
-Third Consumer memakai durable `third-consumer-v1`; menjalankan command ini kembali melanjutkan durable yang sama. Trial `events` memakai durable baru untuk membuktikan penambahan subscriber baru pada setiap pengujian. Command `stop`/`start` pada P4 juga dapat digunakan untuk mengamati backlog Dashboard melalui pemeriksaan berikut.
-
-Periksa posisi stream dan durable serta inbox lokal masing-masing consumer:
+**1. Catat posisi awal.** `last_seq`: sequence terakhir; `ack`: ACK floor dalam sequence stream; `pending`: belum dikirim; `inflight`: belum di-ACK.
 
 ```bash
 docker compose exec -T nats wget -qO- \
   'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \
-  | jq '.account_details[].stream_detail[] | {name, state, consumer_detail}'
-docker compose exec -T dashboard-consumer /dashboard-consumer inspect | jq .
-docker compose exec -T notifier-consumer /notifier-consumer inspect | jq .
-docker compose exec -T third-consumer /notifier-consumer inspect | jq .
+  | jq '.account_details[].stream_detail[] | select(.name == env.NATS_STREAM_NAME)
+      | {name, last_seq:.state.last_seq, consumers:[.consumer_detail[]
+          | {name, ack:.ack_floor.stream_seq, pending:.num_pending, inflight:.num_ack_pending}]}' \
+  | tee "$EVIDENCE_DIR/broker-before.json"
 ```
 
-Durable memiliki posisi ACK sendiri. Inbox setiap consumer harus terisi dan `quarantine_count` harus nol pada data mock normal. Recovery dibuktikan dengan ACK yang melewati target gangguan; `pending: 0` saja belum cukup karena masih mungkin ada pesan menunggu ACK.
+**2. Hentikan Dashboard selama 15 detik**, lalu baca posisi yang sama:
+
+```bash
+docker compose stop dashboard-consumer
+sleep 15
+docker compose exec -T nats wget -qO- \
+  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \
+  | jq '.account_details[].stream_detail[] | select(.name == env.NATS_STREAM_NAME)
+      | {name, last_seq:.state.last_seq, consumers:[.consumer_detail[]
+          | {name, ack:.ack_floor.stream_seq, pending:.num_pending, inflight:.num_ack_pending}]}' \
+  | tee "$EVIDENCE_DIR/broker-stopped.json"
+RECOVERY_TARGET=$(jq -r .last_seq "$EVIDENCE_DIR/broker-stopped.json")
+```
+
+Sequence stream dan ACK Notifier harus bertambah; ACK Dashboard tertahan dan backlog bertambah. `RECOVERY_TARGET` menandai sequence saat gangguan.
+
+**3. Jalankan kembali Dashboard.** Tunggu 35 detik untuk backlog dan redelivery; AckWait default 30 detik.
+
+```bash
+docker compose start dashboard-consumer
+sleep 35
+docker compose exec -T nats wget -qO- \
+  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \
+  | jq '.account_details[].stream_detail[] | select(.name == env.NATS_STREAM_NAME)
+      | {name, last_seq:.state.last_seq, consumers:[.consumer_detail[]
+          | {name, ack:.ack_floor.stream_seq, pending:.num_pending, inflight:.num_ack_pending}]}' \
+  | tee "$EVIDENCE_DIR/broker-recovered.json"
+jq --arg durable "$NATS_DASHBOARD_DURABLE" --argjson target "$RECOVERY_TARGET" \
+  '.consumers[] | select(.name == $durable)
+    | {name, ack, target:$target, caught_up:(.ack >= $target)}' \
+  "$EVIDENCE_DIR/broker-recovered.json"
+docker compose exec -T dashboard-consumer /dashboard-consumer inspect \
+  | jq '{inbox_count, quarantine_count}'
+docker compose exec -T notifier-consumer /notifier-consumer inspect \
+  | jq '{inbox_count, quarantine_count}'
+```
+
+Hasil harus `caught_up: true` dan quarantine nol. Jika belum, tunggu dan periksa lagi; pending nol saja belum membuktikan recovery.
+
+**4. Tambahkan Third Consumer.** Command memakai durable `third-consumer-v1`; jika sudah ada, durablenya dilanjutkan. Trial `events` memakai durable baru pada setiap pengujian.
+
+```bash
+docker inspect $(docker compose ps -q aggregator) \
+  | jq -S '.[0] | {id:.Id, started_at:.State.StartedAt, restarts:.RestartCount}' \
+  > "$EVIDENCE_DIR/producer-before.json"
+docker compose --profile demo up --build --detach --no-deps --wait third-consumer
+docker compose exec -T nats wget -qO- \
+  'http://127.0.0.1:8222/jsz?streams=true&consumers=true' \
+  | jq '.account_details[].stream_detail[] | select(.name == env.NATS_STREAM_NAME)
+      | {name, last_seq:.state.last_seq, consumers:[.consumer_detail[]
+          | {name, ack:.ack_floor.stream_seq, pending:.num_pending, inflight:.num_ack_pending}]}'
+docker compose exec -T third-consumer /notifier-consumer inspect \
+  | jq '{inbox_count, quarantine_count}'
+docker inspect $(docker compose ps -q aggregator) \
+  | jq -S '.[0] | {id:.Id, started_at:.State.StartedAt, restarts:.RestartCount}' \
+  > "$EVIDENCE_DIR/producer-after.json"
+diff -s "$EVIDENCE_DIR/producer-before.json" "$EVIDENCE_DIR/producer-after.json"
+```
+
+Inbox harus terisi, quarantine nol, dan file producer identik. Jumlah inbox dapat berbeda dari snapshot broker karena event terus masuk.
+
+</details>
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
@@ -471,6 +724,20 @@ Untuk menelusuri request trial lewat correlation ID:
 docker compose logs --no-color aggregator client-api auth bmkg-mock pvmbg-mock \
   | grep 'm1-integration-trial' | tee "$EVIDENCE_DIR/correlation.log"
 ```
+
+Untuk mengikuti contoh request ber-correlation ID pada laporan, jalankan kembali [login Tim Lapangan](#login-manual), lalu kirim satu request dan baca log kedua service:
+
+```bash
+curl -sS -o /dev/null -w 'Request dengan correlation ID: %{http_code}\n' \
+  -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" \
+  -H 'X-Correlation-ID: demo-command-correlation' \
+  "$API_URL/v1/hazards?source=BMKG&view=full&limit=1"
+docker compose logs --no-color --no-log-prefix --since 2m client-api aggregator \
+  | jq -R 'fromjson? | select(.correlation_id == "demo-command-correlation")
+      | {service, correlation_id, operation, status, duration_ms}'
+```
+
+Respons harus 200 dan log Client API serta Aggregator memuat ID yang sama.
 
 Log polling mencatat latency panggilan keluar dan correlation ID yang diteruskan ke mock. Periksa satu alur polling dengan ID dari log Aggregator:
 
