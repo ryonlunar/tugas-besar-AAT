@@ -25,6 +25,7 @@
     <li><a href="#arsitektur">Arsitektur</a></li>
     <li><a href="#menjalankan-aplikasi">Menjalankan aplikasi</a></li>
     <li><a href="#variabel-konfigurasi">Variabel konfigurasi</a></li>
+    <li><a href="#mengubah-konfigurasi">Mengubah konfigurasi</a></li>
     <li><a href="#pengujian-per-problem">Pengujian per problem</a>
       <ul>
         <li><a href="#problem-1">P1: Arsitektur &amp; Interoperabilitas Data</a></li>
@@ -169,6 +170,64 @@ Hasil baru disimpan di `$EVIDENCE_DIR`, terpisah dari bukti pengukuran yang suda
 
 Jika port service berubah, sesuaikan base URL internalnya. Compose menetapkan alamat PostgreSQL/NATS serta path kunci dan state; nilai variabel tersebut di `.env.example` juga menjadi acuan saat menjalankan binary langsung.
 
+### Mengubah konfigurasi
+
+Ubah `.env`, muat ulang environment terminal, lalu buat ulang container yang memakai nilai tersebut. `restart` hanya menjalankan ulang container dengan konfigurasi lama; `up --force-recreate --no-deps` menerapkan konfigurasi baru tanpa menjalankan ulang dependency.
+
+Contoh mempercepat polling menjadi 2 detik, dengan hanya membuat ulang Aggregator:
+
+```bash
+sed -i 's/^SOURCE_POLL_INTERVAL=.*/SOURCE_POLL_INTERVAL=2s/' .env
+set -a
+. ./.env
+set +a
+docker compose up --detach --no-deps --force-recreate --wait aggregator
+docker inspect "$(docker compose ps -q aggregator)" \
+  | jq -r '.[0].Config.Env[] | select(startswith("SOURCE_POLL_INTERVAL="))'
+```
+
+Output harus menunjukkan `SOURCE_POLL_INTERVAL=2s`. Muat ulang environment setiap selesai mengedit `.env`, karena Compose mendahulukan nilai yang sudah diekspor di terminal daripada nilai dalam file.
+
+| Perubahan | Container yang perlu dibuat ulang |
+|---|---|
+| Interval polling, timeout sumber | `aggregator` |
+| Interval event atau jumlah seed | `bmkg-mock pvmbg-mock`; katalog mock dimulai ulang |
+| TTL token atau secret client | `auth`; TTL berlaku untuk token yang baru diterbitkan |
+| Port BMKG/PVMBG dan base URL terkait | Mock terkait dan `aggregator` |
+| Port Aggregator dan `AGGREGATOR_BASE_URL` | `aggregator client-api` |
+| Port Client API atau Auth | `client-api` atau `auth` |
+| Credential sumber | Mock terkait dan `aggregator` |
+| `AGGREGATOR_API_KEY` | `aggregator client-api` |
+| `JWT_ISSUER`, `JWT_AUDIENCE` | `auth client-api` |
+| `NATS_TOKEN` | `nats aggregator` dan seluruh consumer yang aktif |
+
+Perubahan port harus mencakup listener dan alamat pemanggilnya. Misalnya, `BMKG_MOCK_HTTP_PORT=8091` perlu dipasangkan dengan `BMKG_BASE_URL=http://bmkg-mock:8091`. Untuk mengganti port Client API menjadi 8088:
+
+```bash
+sed -i 's/^API_HTTP_PORT=.*/API_HTTP_PORT=8088/' .env
+set -a
+. ./.env
+set +a
+docker compose up --detach --no-deps --force-recreate --wait client-api
+export API_URL="http://127.0.0.1:$API_HTTP_PORT"
+curl -fsS "$API_URL/ready"
+```
+
+Sesuaikan juga `AUTH_URL`, `BMKG_URL`, atau `PVMBG_URL` bila portnya berubah. Sebelum mengulang pengujian laporan, kembalikan polling ke 5 detik dan port API ke 8080, lalu terapkan kembali:
+
+```bash
+sed -i 's/^SOURCE_POLL_INTERVAL=.*/SOURCE_POLL_INTERVAL=5s/; s/^API_HTTP_PORT=.*/API_HTTP_PORT=8080/' .env
+set -a
+. ./.env
+set +a
+docker compose up --detach --no-deps --force-recreate --wait aggregator client-api
+export API_URL="http://127.0.0.1:$API_HTTP_PORT"
+```
+
+Konfigurasi yang tersimpan sebagai state mempunyai aturan berbeda: mengganti environment PostgreSQL tidak mengubah user/password pada volume yang sudah diinisialisasi. Aggregator juga memvalidasi konfigurasi stream JetStream yang sudah ada, bukan memperbarui retention-nya secara otomatis.
+
+Skema, outage, dan delay PVMBG untuk P1/P2 diubah melalui endpoint admin di bawah, tanpa membuat ulang container.
+
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
 ---
@@ -192,11 +251,44 @@ Hasil yang diharapkan: `passed: true`, pemetaan BMKG/PVMBG sesuai sumber, dan re
 
 Trial `smoke` juga memeriksa outage P2 dan hak akses P3. Setiap pemeriksaan dicatat terpisah dalam `results`.
 
+<details>
+<summary>Memicu perubahan skema secara manual</summary>
+
+Aktifkan versi 2 agar `confidence_level` muncul. Tunggu hingga polling berikutnya selesai, lalu jalankan `store-audit` pada P4 untuk memeriksa jumlah revisi yang tersimpan. Setelah pemeriksaan, kembalikan ke versi 1 dengan mengganti body menjadi `{"version":1}` pada command yang sama.
+
+```bash
+curl -fsS -X POST "$PVMBG_URL/admin/schema-version" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"version":2}' | jq .
+```
+
+Tidak ada restart, rebuild, atau migration pada langkah ini. Trial `smoke` memeriksa seluruh bukti tersebut secara otomatis.
+
+</details>
+
 <a id="problem-2"></a>
 
 ### P2: Concurrency, Availability, & Graceful Degradation
 
 Pada hasil `smoke`, pemeriksaan `live PVMBG outage` harus menunjukkan HTTP 200 dengan data terakhir berstatus `stale`; BMKG tetap dilayani. Trial memulihkan PVMBG dan menunggu status kembali `fresh` tanpa restart.
+
+<details>
+<summary>Memicu dan memulihkan outage secara manual</summary>
+
+```bash
+curl -fsS -X POST "$PVMBG_URL/admin/outage" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"enabled":true}' | jq .
+curl -sS -o /dev/null -w 'PVMBG saat outage: %{http_code}\n' \
+  -H "Authorization: Bearer $PVMBG_TOKEN" "$PVMBG_URL/volcanic-reports"
+curl -fsS -X POST "$PVMBG_URL/admin/outage" \
+  -H "Authorization: Bearer $PVMBG_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}' | jq .
+```
+
+Request langsung ke sumber harus menerima 503 saat outage. Biarkan outage aktif hingga polling mencatat kegagalan jika ingin memeriksa stale data melalui Client API; command terakhir memulihkan sumber. Kriteria respons Client API diperiksa oleh trial `smoke`.
+
+</details>
 
 Untuk pengukuran beban, atur delay sumber tepat 3 detik dan ukur respons langsung dari mock:
 
@@ -304,6 +396,23 @@ Output harus menunjukkan kolom dokumen bertipe JSONB, hanya Aggregator dan Postg
 
 Pemeriksaan rebuild dijalankan bersama P5 melalui skenario `events` di bawah. Hasil `consumer rebuild while API remains available` harus menunjukkan seluruh request API menerima 200 dan kondisi container lain tetap sama.
 
+<details>
+<summary>Menghentikan dan membangun ulang satu service secara manual</summary>
+
+Gunakan Dashboard sebagai contoh komponen yang tidak dibutuhkan Client API:
+
+```bash
+docker compose stop dashboard-consumer
+curl -fsS "$API_URL/ready"
+docker compose build dashboard-consumer
+docker compose up --detach --no-deps --force-recreate --wait dashboard-consumer
+docker compose ps
+```
+
+`build` hanya membangun image Dashboard; `up --no-deps` membuat ulang container Dashboard tanpa menjalankan ulang NATS atau service lain. Jika tidak ada perubahan kode/config, cukup gunakan `docker compose start dashboard-consumer` setelah `stop`. Trial `events` membandingkan ID/waktu mulai container lain dan memeriksa request API selama rebuild.
+
+</details>
+
 <a id="problem-5"></a>
 
 ### P5: Fan-out Event Distribution/Pub-Sub
@@ -317,6 +426,14 @@ jq '{passed, results}' "$EVIDENCE_DIR/events.json"
 ```
 
 Hasil yang diharapkan: Notifier dan producer terus berjalan saat Dashboard berhenti; setelah Dashboard hidup kembali, ACK-nya mencapai sequence target dari periode gangguan. Consumer ketiga membaca event yang masih tersimpan tanpa perubahan container Aggregator. Trial memakai durable baru setiap kali dijalankan, lalu menghapus durable sementara dan mengembalikan Third Consumer ke konfigurasi demo.
+
+Untuk menambahkan consumer demo secara manual pada stack yang sudah aktif:
+
+```bash
+docker compose --profile demo up --build --detach --no-deps --wait third-consumer
+```
+
+Third Consumer memakai durable `third-consumer-v1`; menjalankan command ini kembali melanjutkan durable yang sama. Trial `events` memakai durable baru untuk membuktikan penambahan subscriber baru pada setiap pengujian. Command `stop`/`start` pada P4 juga dapat digunakan untuk mengamati backlog Dashboard melalui pemeriksaan berikut.
 
 Periksa posisi stream dan durable serta inbox lokal masing-masing consumer:
 
@@ -337,12 +454,33 @@ Durable memiliki posisi ACK sendiri. Inbox setiap consumer harus terisi dan `qua
 
 ## Log dan menghentikan sistem
 
+Periksa health semua container melalui `docker compose ps`. Endpoint HTTP `/health` dan `/ready` tersedia pada setiap service aplikasi; untuk consumer yang tidak memublikasikan port, gunakan healthcheck bawaan:
+
+```bash
+curl -fsS "$BMKG_URL/health" | jq .
+curl -fsS "$PVMBG_URL/health" | jq .
+docker compose exec -T dashboard-consumer /dashboard-consumer healthcheck
+docker compose exec -T notifier-consumer /notifier-consumer healthcheck
+```
+
+Healthcheck binary mengembalikan exit code 0 bila siap. `/health` menunjukkan proses hidup; `/ready` dapat gagal bila dependency yang diperlukan belum tersedia.
+
 Untuk menelusuri request trial lewat correlation ID:
 
 ```bash
 docker compose logs --no-color aggregator client-api auth bmkg-mock pvmbg-mock \
   | grep 'm1-integration-trial' | tee "$EVIDENCE_DIR/correlation.log"
 ```
+
+Log polling mencatat latency panggilan keluar dan correlation ID yang diteruskan ke mock. Periksa satu alur polling dengan ID dari log Aggregator:
+
+```bash
+docker compose logs --no-color --no-log-prefix aggregator \
+  | jq -R 'fromjson? | select(.operation == "source_read")
+    | {source, path, correlation_id, duration_ms, status, outcome}'
+```
+
+Untuk menelusurinya di kedua service, cari nilai `correlation_id` yang sama pada log Aggregator dan mock terkait dengan `docker compose logs --no-color aggregator bmkg-mock pvmbg-mock | grep '<correlation_id>'`.
 
 Hentikan seluruh stack, termasuk consumer demo, dengan tetap menyimpan volume data:
 
