@@ -1,28 +1,65 @@
 \chapter{DESKRIPSI UMUM SISTEM}
 
 \section{Latar Belakang}
-BMKG dan PVMBG mengelola data dari domain serta skema yang berbeda, sedangkan BNPB perlu menyajikannya secara konsisten kepada beberapa jenis client. Pada milestone 1, kelompok mengimplementasikan platform koordinasi terdistribusi yang mengambil data kedua sumber, menormalkannya ke model kanonik, menyimpan hasilnya, dan mendistribusikan event baru tanpa membuat producer bergantung langsung pada consumer.
+Sistem ini dibangun untuk memenuhi tugas besar IF4031 Arsitektur Aplikasi Terdistribusi, yang mengangkat kebutuhan pertukaran data kebencanaan antarinstansi. BMKG menyediakan informasi gempa dan peringatan tsunami, sedangkan PVMBG menyediakan laporan aktivitas gunung api. BNPB berperan sebagai simpul koordinasi yang menyatukan informasi tersebut untuk Media, Tim Lapangan, dan kebutuhan internal. Karena setiap instansi memiliki format data dan mekanisme akses sendiri, pertukaran data ini membutuhkan perantara yang dapat menangani perbedaan tersebut [1,2].
+
+Pada Milestone 1 (M1), kebutuhan tersebut diwujudkan melalui sistem agregasi dan distribusi data. Sistem mengambil data dari mock BMKG dan PVMBG, mengubahnya ke format bersama (canonical), lalu menyediakannya melalui API dan distribusi event. Selain fungsi integrasi, implementasi harus tetap dapat melayani client ketika salah satu sumber lambat atau tidak tersedia, serta membatasi data sesuai hak akses client.
 
 \section{Tujuan}
-Tujuan sistem adalah: (1) mengintegrasikan sumber seismik dan vulkanik tanpa mengubah kontrak mock; (2) tetap melayani data BMKG ketika PVMBG lambat atau tidak tersedia; (3) memisahkan kredensial sumber dan hak akses client; (4) memisahkan komponen agar dapat dijalankan dan dipulihkan secara independen; serta (5) mendistribusikan event baru melalui pub/sub. Fitur dan ambang pengujian dijelaskan per problem pada Bab 4--8.
+Lima problem pada M1 menjadi dasar perancangan dan pengujian sistem:
+\begin{enumerate}
+  \item Menyatukan data seismik dan vulkanik, termasuk menerima tambahan field sumber tanpa restart.
+  \item Menjaga layanan baca tetap responsif ketika PVMBG lambat atau mengalami outage.
+  \item Memisahkan credential antarinstansi dan menegakkan hak akses setiap client.
+  \item Memisahkan komponen agar satu service dapat diganti tanpa menjalankan ulang seluruh sistem, sekaligus menjaga kepemilikan storage.
+  \item Mendistribusikan event ke beberapa consumer yang dapat berhenti dan pulih secara independen.
+\end{enumerate}
+Rancangan, pertimbangan, batasan, dan bukti untuk setiap tujuan dibahas pada Bab 4--8.
 
 \section{Ruang Lingkup}
-milestone 1 dibatasi pada mock BMKG dan PVMBG, BNPB sebagai node koordinasi, serta dua tipe bahaya: seismik dan vulkanik. Client downstream adalah Media/Pers, Tim Lapangan, dan BNPB Pusat/Internal; seluruh akses client bersifat baca-saja. Pelaporan dari lapangan, kebakaran hutan, dan jenis bahaya lain berada di luar cakupan milestone 1 [1,2]. Notifier mencatat alert pada storage lokal sebagai simulasi, bukan mengirim SMS sungguhan. Demo console adalah alat operator, bukan Dashboard Consumer dan bukan prasyarat menjalankan service.
+Implementasi M1 menggunakan mock BMKG dan PVMBG sebagai sumber data, dengan BNPB sebagai node koordinasi. Data yang ditangani terbatas pada bahaya seismik dan vulkanik. Kedua mock menyediakan data sintetis dan kontrol untuk menguji perubahan schema, delay, serta outage.
 
-\section{Aktor dan Batas Sistem}
-\begin{center}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.22\textwidth}>{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+Ketiga client hanya membaca data. Pelaporan dari lapangan, kebakaran hutan, serta jenis bahaya lain belum termasuk cakupan M1 [1,2]. Dua consumer memperagakan pembaruan dashboard dan notifikasi, dengan notifikasi dicatat di storage lokal sebagai simulasi.
+
+\section{Komponen BNPB dan Client}
+Spesifikasi membagi sistem BNPB menjadi enam komponen [1]. Tabel~\ref{tab:bnpb-components} merangkum peran setiap komponen. Mock BMKG dan PVMBG berada di sisi sumber data dan berkomunikasi dengan sistem ini melalui HTTP.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4cm}Y}
 \toprule
-Aktor/komponen & Tanggung jawab & Batas akses \\
+Komponen BNPB & Peran dalam sistem \\
 \midrule
-Mock BMKG & Menyediakan event gempa dan peringatan tsunami sesuai kontrak simulasi. & Endpoint data memakai kredensial BMKG; port demo terikat ke loopback host. \\
-Mock PVMBG & Menyediakan laporan gunung api, perubahan skema aditif, dan kontrol outage. & Endpoint data dan admin memakai token PVMBG yang sama, terpisah dari kredensial BMKG dan client; port demo terikat ke loopback host. \\
-BNPB Aggregator & Polling, validasi, korelasi, pemetaan ke HazardEvent, riwayat revisi, API internal, dan relay outbox. & Satu-satunya pemilik dan pengakses langsung Canonical Store. \\
-Client-Facing API dan Auth/Token & Menyediakan akses client, menerbitkan/mengecek token, dan menegakkan scope di server. & Tidak membuka koneksi langsung ke Canonical Store. \\
-Consumer downstream & Memproses event secara independen, misalnya pembaruan dashboard dan notifikasi. & Berlangganan stream; tidak dipanggil langsung oleh producer. \\
+Gateway / Aggregator & Mengambil data kedua sumber, melakukan validasi dan pemetaan, lalu menyimpan hasil serta menyiapkan event untuk diterbitkan. \\
+Canonical Store & Menyimpan data dalam format bersama, riwayat perubahan, status sumber, dan antrean event yang akan dikirim. Storage ini dikelola Aggregator. \\
+Client-Facing API & Menyediakan jalur baca bagi client dan menegakkan pembatasan data sesuai token. \\
+Auth / Token Service & Memeriksa identitas client, menerbitkan access token, dan mengelola refresh token. \\
+Message Broker & Menyimpan event dan menyalurkannya ke consumer dengan posisi baca yang independen. \\
+Event Consumer ($\geq 2$) & Mengolah event untuk kebutuhan masing-masing aplikasi. Implementasi menggunakan Dashboard dan Notifier. \\
 \bottomrule
 \end{tabularx}
-\end{center}
+\caption{Enam komponen BNPB sesuai spesifikasi M1.}
+\label{tab:bnpb-components}
+\end{table}
+
+Client mengakses data melalui Client-Facing API, dengan identitas yang dibedakan oleh Auth. Hak aksesnya mengikuti kontrak pada Tabel~\ref{tab:client-access}; pembatasan tersebut diterapkan di server.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4cm}Y}
+\toprule
+Client & Hak akses \\
+\midrule
+Media / Pers & Ringkasan kejadian tanpa koordinat presisi, identifier sumber, atau atribut raw. \\
+Tim Lapangan & Seluruh field, termasuk koordinat dan atribut raw, dengan access token berumur pendek yang dapat diperbarui melalui refresh. \\
+BNPB Pusat / Internal & Seluruh field sebagai baseline hak akses tertinggi. \\
+\bottomrule
+\end{tabularx}
+\caption{Tiga identitas client dan batas data yang dapat dibaca.}
+\label{tab:client-access}
+\end{table}
 
 \section{Istilah dan Data Kanonik}
-\texttt{SeismicEvent} dan \texttt{TsunamiWarning} berasal dari BMKG; warning diambil lewat endpoint terpisah dan dikorelasikan memakai \texttt{related\_event\_id}. \texttt{VolcanicReport} berasal dari PVMBG. Aggregator memetakan keduanya ke \texttt{HazardEvent}, yang memisahkan field ringkasan dari data mentah. Atribut spesifik sumber atau field baru seperti \texttt{confidence\_level} ditempatkan dalam \texttt{attributes}; aturan lengkapnya ada di Bab 4.
+Rincian pemetaan dibahas pada Bab 4. Istilah \textit{kanonik} merujuk pada format bersama untuk mewakili kejadian dari kedua sumber. Format ini bernama \texttt{HazardEvent}, dengan identitas, jenis bahaya, severity, lokasi, waktu, dan atribut sumber.
+
+BMKG menyediakan \texttt{SeismicEvent} dan \texttt{TsunamiWarning}, yang dihubungkan melalui \texttt{related\_event\_id}. PVMBG menyediakan \texttt{VolcanicReport}. Aggregator memetakan kedua sumber ke HazardEvent, dengan rincian khusus sumber dan field baru, seperti \texttt{confidence\_level}, disimpan dalam \texttt{attributes}.

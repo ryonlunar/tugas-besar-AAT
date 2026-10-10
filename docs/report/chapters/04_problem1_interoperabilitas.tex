@@ -1,59 +1,77 @@
 \chapter{PROBLEM 1}
-\begin{center}\large\bfseries ARSITEKTUR DAN INTEROPERABILITAS DATA\end{center}
+\begin{center}\large\bfseries ARSITEKTUR \& INTEROPERABILITAS DATA\end{center}
 
-\section{Masalah dan Kriteria}
-BMKG memisahkan gempa dan warning tsunami, sedangkan PVMBG memakai laporan gunung api tanpa koordinat langsung. Aggregator perlu menghasilkan model kanonik yang konsisten dan tetap memproses laporan ketika PVMBG menambah \texttt{confidence\_level}, tanpa restart atau perubahan tabel [1]. Normalisasi tidak boleh membuang field tambahan atau menyamarkan record invalid sebagai data valid.
+\section{Rancangan Solusi dan Mekanisme}
+Problem 1 berfokus pada penyatuan format data serta penanganan penambahan field dari sumber [1]. BMKG menyediakan gempa dan warning tsunami pada endpoint terpisah, sedangkan PVMBG menyediakan laporan gunung api tanpa koordinat langsung. Untuk mengatasi perbedaan tersebut, Aggregator memetakan data ke HazardEvent dengan aturan per sumber. Field wajib tetap divalidasi, sementara informasi tambahan dipertahankan sebagai atribut.
 
-\section{Solusi yang Diimplementasikan}
-Mapper membaca field sebagai \texttt{json.RawMessage}, memvalidasi field wajib, lalu mempertahankan nilai dinamis menggunakan \texttt{json.Number}. Output \texttt{HazardEvent} memiliki sebelas field: ID hazard, source, source reference, tipe, severity, area, latitude, longitude, waktu kejadian, waktu ingest, dan attributes. Metadata delivery ditempatkan pada envelope, bukan ditambahkan ke entity.
+\subsection{Model kanonik dan pemetaan sumber}
+HazardEvent memberi client bentuk data yang konsisten untuk kedua jenis bahaya. Sebelas field-nya mencakup identitas, sumber, tipe, severity, lokasi, waktu, dan \texttt{attributes}, seperti pada model data di Bab 2. Mapper membaca field sumber sebagai \texttt{json.RawMessage} agar field yang belum dikenal tetap dapat dipertahankan. Field wajib kemudian divalidasi, dan nilai angka dinamis menggunakan \texttt{json.Number} agar presisinya terjaga.
 
-Untuk BMKG, \texttt{event\_id} menjadi \texttt{source\_ref\_id}, region dan koordinat episentrum dipertahankan, dan tipe menjadi \texttt{SEISMIC}. Warning divalidasi secara mandiri sebelum dikelompokkan berdasarkan \texttt{related\_event\_id}. Warning rusak menandai siklus degraded tanpa menggugurkan gempa valid. Warning hanya terpasang pada gempa dengan \texttt{potential\_tsunami=true}; jika ada beberapa warning, severity tertinggi dipilih dan seluruh warning valid disimpan terurut dalam attributes.
+Untuk BMKG, \texttt{event\_id} menjadi \texttt{source\_ref\_id}, region dan koordinat episentrum dipertahankan, serta jenis bahaya diisi \texttt{SEISMIC}. Warning divalidasi terpisah, lalu dikelompokkan melalui \texttt{related\_event\_id} untuk dihubungkan dengan gempa. Jika ada warning rusak, gempa valid tetap diproses, tetapi siklus polling ditandai degraded karena belum berhasil penuh.
 
-Tanpa warning, magnitude di bawah 5,0 menjadi NORMAL; 5,0 hingga kurang dari 6,5 menjadi WASPADA; dan mulai 6,5 menjadi SIAGA. Untuk PVMBG, \texttt{report\_id} menjadi source reference, \texttt{reported\_at} menjadi waktu kejadian, dan enum alert dipetakan secara eksplisit ke enum kanonik. Area dan koordinat diambil dari referensi sintetis Tamriel berdasarkan \texttt{volcano\_id}; ID tak dikenal ditolak, bukan diberi koordinat nol.
+Severity gempa mengikuti warning jika \texttt{potential\_tsunami=true} dan warning terkait tersedia. Apabila ada beberapa warning, tingkat tertinggi dipilih dan seluruh warning valid disimpan terurut dalam \texttt{attributes}. Tanpa warning, magnitude di bawah 5,0 menjadi NORMAL, 5,0 hingga kurang dari 6,5 menjadi WASPADA, dan mulai 6,5 menjadi SIAGA.
 
-Identitas permanen mengikuti pasangan \texttt{(source, source\_ref\_id)}. Data pertama memperoleh UUIDv4; perubahan isi mempertahankan UUID dan menghasilkan revisi baru. Full snapshot memungkinkan warning yang baru tersedia memengaruhi hazard lama pada poll berikutnya. Poll identik hanya memajukan freshness sumber dan tidak membuat event/outbox duplikat.
+Untuk PVMBG, \texttt{report\_id} menjadi source reference dan \texttt{reported\_at} menjadi waktu kejadian. Alert level dipetakan ke enum severity kanonik, sedangkan area dan koordinat diambil dari tabel referensi sintetis Tamriel berdasarkan \texttt{volcano\_id}. Laporan dengan ID gunung yang tidak dikenal ditolak karena lokasinya tidak dapat ditentukan secara valid.
 
-\subsection{Ringkasan Pemetaan Sumber}
+Identitas hazard perlu tetap sama ketika sumber memperbarui record lama. Karena itu, Aggregator mengidentifikasi kejadian dengan menggabungkan \texttt{source} dan \texttt{source\_ref\_id}. Record pertama memperoleh UUIDv4; perubahan berikutnya mempertahankan UUID dan menambah revisi. Polling full snapshot memungkinkan warning yang baru tersedia ikut memperbarui hazard lama. Jika isi record tidak berubah, polling hanya memperbarui freshness sumber tanpa menambah revisi atau pesan outbox.
+
+\subsection{Ringkasan pemetaan sumber}
+Tabel berikut memperlihatkan padanan field utama dari setiap sumber. Informasi yang tidak mempunyai field kanonik tersendiri ditempatkan dalam \texttt{attributes}, sehingga rincian sumber tetap tersimpan.
 \begin{center}\small
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.23\textwidth} >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.23\textwidth}YY}
 \toprule
 Field kanonik & BMKG & PVMBG \\
 \midrule
 \texttt{source\_ref\_id} & \texttt{event\_id} & \texttt{report\_id} \\
 \texttt{hazard\_type} & SEISMIC & VOLCANIC \\
-Area dan koordinat & Region dan episentrum sumber & Lookup fixture berdasarkan ID gunung \\
-Waktu kejadian & \texttt{occurred\_at} & \texttt{reported\_at} \\
-Severity & Batas magnitude atau warning terkait & Alert level ke enum kanonik \\
-Attributes & Magnitude, kedalaman, potensi tsunami, warning, extension & ID gunung, erupsi, tinggi abu, confidence jika tersedia, extension \\
+\texttt{area\_name} & \texttt{region\_name} & Nama gunung hasil lookup \texttt{volcano\_id} \\
+\texttt{latitude}, \texttt{longitude} & \texttt{epicenter\_lat}, \texttt{epicenter\_lon} & Koordinat dari fixture referensi gunung \\
+\texttt{occurred\_at} & \texttt{occurred\_at} & \texttt{reported\_at} \\
+\texttt{severity} & Batas magnitude atau warning terkait & Alert level ke enum kanonik \\
+\texttt{attributes} & Magnitude, kedalaman, potensi tsunami, warning, field tambahan & ID gunung, erupsi, tinggi abu, confidence jika tersedia, field tambahan \\
 \bottomrule
 \end{tabularx}
 \end{center}
 ID hazard dibuat pada ingest pertama, sedangkan waktu ingest mencatat saat data diterima. Timestamp dinormalisasi ke UTC; bentuk serialisasi \texttt{Z} dan \texttt{+00:00} menunjukkan timezone yang sama.
 
-\section{Evolusi Skema dan Trade-off}
-Field tambahan yang tidak mempunyai padanan kanonik disimpan dalam \texttt{attributes}; collision dengan atribut hasil turunan dipertahankan dalam \texttt{source\_extras}. Penambahan \texttt{confidence\_level} tidak memerlukan migrasi tabel. Field wajib hilang, perubahan tipe, enum invalid, duplicate key, dan JSON invalid ditolak; siklus degraded tidak menaikkan waktu sukses terakhir.
+\subsection{Penanganan perubahan schema}
+Perubahan yang diuji adalah penambahan \texttt{confidence\_level} pada PVMBG v2. Karena field tersebut belum mempunyai padanan kanonik, mapper meneruskannya ke \texttt{attributes}, yang disimpan sebagai JSONB. Dengan demikian, field baru dapat masuk tanpa perubahan kolom atau restart. Jika nama field sumber bertabrakan dengan atribut hasil turunan, nilainya dipertahankan dalam \texttt{source\_extras}.
 
-Decode langsung ke struct lebih sederhana, tetapi dapat mengabaikan field tambahan. RawMessage dan validasi eksplisit dipilih agar evolusi aditif tidak menghilangkan data [4]. Full snapshot lebih mudah menjaga korelasi dan update record lama daripada cursor incremental, dengan trade-off biaya baca yang bertambah. Fleksibilitas JSONB tidak menggantikan validasi domain [5].
+Fleksibilitas tersebut tetap dibatasi oleh kontrak wajib. Record dengan field wajib yang hilang, tipe atau enum salah, duplicate key, maupun JSON invalid ditolak. Record valid tetap diproses, tetapi siklus degraded tidak memperbarui waktu sukses terakhir sumber.
+
+\section{Alasan Keputusan dan Trade-off}
+Pilihan parsing ditentukan oleh kebutuhan menerima field baru tanpa kehilangan data. Decode langsung ke struct dengan field tetap lebih sederhana, tetapi field tambahan dapat terabaikan. RawMessage dan validasi eksplisit dipilih agar kontrak wajib tetap diperiksa sekaligus mempertahankan field yang belum dikenal [4]. Konsekuensinya, mapper perlu menangani validasi dan benturan nama atribut secara eksplisit.
+
+Untuk polling, cursor incremental dapat mengurangi volume baca, tetapi belum tentu menangkap perubahan pada ID lama atau warning yang datang belakangan. Full snapshot dipilih agar kedua kasus dapat dibaca kembali pada siklus berikutnya. Trade-off-nya adalah ukuran dan biaya pemrosesan snapshot terus bertambah. JSONB membantu penyimpanan atribut dinamis, sementara validasi domain tetap menjadi tanggung jawab mapper [5].
 
 \section{Batasan yang Disadari}
-Field baru disimpan tanpa otomatis menjadi field ringkasan atau mengubah severity. Rename atau penghapusan field wajib membutuhkan perubahan kontrak. Fixture Tamriel hanya untuk simulasi. Jalur warning terlambat tersedia, tetapi pengujian khusus dari poller sampai revisi PostgreSQL belum dijalankan sebagai satu skenario acceptance terpisah.
+Dukungan perubahan schema dibatasi pada penambahan field. Field baru disimpan tanpa otomatis masuk ke ringkasan atau mengubah severity, karena keduanya mengikuti aturan domain dan hak akses. Rename, penghapusan, atau perubahan tipe field wajib membutuhkan pembaruan kontrak; mapper tidak menebak makna field pengganti agar hasil kanonik tidak keliru.
+
+Pemetaan lokasi PVMBG menggunakan fixture Tamriel untuk simulasi dan belum menjadi referensi geografis nyata. Jalur warning terlambat sudah ditangani oleh rancangan full snapshot, tetapi belum diuji sebagai satu skenario acceptance tersendiri dari poller sampai revisi PostgreSQL.
+
+Polling masih menggunakan full snapshot tanpa pagination atau batch ingest. Pilihan ini memudahkan korelasi dan pembaruan record lama, tetapi biaya pemrosesan bertambah saat data sumber membesar. Ingest pada snapshot besar masih dapat gagal, sehingga dukungan perubahan schema pada volume tersebut belum dapat dinyatakan andal.
 
 \section{Bukti Penyelesaian}
+Pengujian P1 memeriksa dua hal: ketepatan hasil pemetaan dan kelanjutan ingest ketika field baru ditambahkan. Tes komponen memeriksa aturan mapper serta penyimpanan, sedangkan trial integrasi menunjukkan perilakunya pada stack yang berjalan.
+
 Tes mapper lulus untuk batas magnitude, prioritas dan korelasi warning, preservasi field dinamis, bentuk PVMBG v1/v2, serta penolakan enum/ID/duplicate key invalid. Tes poller lulus untuk warning rusak yang terkait maupun tidak terkait: gempa valid tetap diteruskan dan siklus ditandai degraded.
 
-Smoke HTTP terbaru membuktikan seed 20 record, penolakan akses tanpa credential dengan 401, PVMBG v1 tanpa dan v2 dengan \texttt{confidence\_level}, ID laporan tetap sama setelah toggle, serta respons 503 saat outage. Tes PostgreSQL membuktikan ID hazard tetap, revisi dan outbox tidak bertambah pada payload identik, dan snapshot riwayat sebelum/sesudah field baru tetap dapat dibaca. Ini merupakan bukti komponen pada commit \texttt{19beead}, bukan klaim bahwa seluruh acceptance P1 sudah diuji end-to-end.
+Smoke HTTP pada commit \texttt{19beead} memeriksa seed 20 record, penolakan akses tanpa credential dengan 401, perubahan PVMBG v1/v2, serta respons 503 saat outage. ID laporan tetap sama setelah toggle. Pada pengujian PostgreSQL, ID hazard juga tetap, revisi dan outbox tidak bertambah untuk payload identik, serta snapshot sebelum dan sesudah field baru tetap dapat dibaca.
 
 \subsection{Bukti Integrasi}
-Evidence berikut berasal dari trial dan tangkapan command yang disertakan dalam repository [10]. Trial 5 Oktober memakai commit \texttt{071b32d}; command 7 Oktober menyediakan contoh pemetaan dan audit schema tambahan.
+Pengujian integrasi membandingkan hasil pemetaan dengan kontrak HazardEvent, lalu memeriksa perubahan schema melalui riwayat revisi dan kondisi container [10].
 
-Pada contoh BMKG 7 Oktober, magnitude 4,2 tanpa potensi tsunami menjadi severity NORMAL; region dan koordinat dipertahankan pada field kanonik. Contoh PVMBG v1 mempunyai alert Normal, menjadi VOLCANIC/NORMAL, dan ID Red Mountain dipetakan ke koordinat sintetis $(-7,108)$. Source reference pada masing-masing hasil tetap menunjuk record sumber yang dipilih. Log validasi draft mencatat delapan record HazardEvent valid: empat dari trial 5 Oktober dan empat dari command 7 Oktober. Pernyataan ini mengenai record yang diperiksa, bukan seluruh kemungkinan input.
+Pada contoh BMKG, magnitude 4,2 tanpa potensi tsunami menghasilkan severity NORMAL, dengan region dan koordinat yang sama seperti sumber. Contoh PVMBG v1 dengan alert Normal menghasilkan VOLCANIC/NORMAL, dan ID Red Mountain dipetakan ke koordinat sintetis $(-7,108)$. Source reference tetap menunjuk record asal. Validasi kontrak lulus untuk delapan contoh HazardEvent dari trial integrasi dan pemeriksaan melalui command.
 
-Pengujian schema memakai \texttt{POST /admin/schema-version} dengan versi 2, lalu membaca \texttt{history-audit --revisions 1,2} melalui binary Aggregator. Revisi pertama tidak memiliki confidence; revisi kedua memiliki nilai 0,58. Keduanya mempertahankan ID hazard dan source reference yang sama. Daftar migrasi tetap dua migrasi awal; confidence disimpan sebagai tambahan atribut JSONB.
+Pengujian perubahan schema dimulai dengan mencatat kondisi container dan daftar migrasi. Selanjutnya, \texttt{curl} mengirim body \texttt{\{"version":2\}} ke \texttt{POST /admin/schema-version} dengan token PVMBG. Respons \texttt{version: 2} menunjukkan bahwa perubahan telah diterapkan pada mock. Jeda 10 detik memberi kesempatan Aggregator membaca schema baru melalui polling.
+\terminalfigure{p1-schema-toggle}{Mencatat kondisi awal dan memicu schema PVMBG v2 saat sistem berjalan.}{fig:p1-schema-toggle}
+
+Setelah perubahan dipicu, \texttt{history-audit --revisions 1,2} dijalankan melalui binary Aggregator untuk membandingkan hasil penyimpanan. Revisi pertama tidak memiliki confidence, sedangkan revisi kedua memiliki nilai 0,58. Keduanya mempertahankan ID hazard dan source reference yang sama. Daftar migrasi tetap dua migrasi awal karena confidence disimpan sebagai tambahan atribut JSONB.
 
 \begin{center}\begin{minipage}{\textwidth}\makeatletter\def\@captype{figure}\makeatother
 \centering
 \includegraphics[width=0.66\textwidth]{figures/refki-p1-schema.png}
-\caption{Audit schema dari command pada 7 Oktober: identitas hazard tetap, confidence muncul pada revisi kedua, dan daftar migrasi tidak bertambah [10].}
+\caption{Audit schema: identitas hazard tetap, confidence muncul pada revisi kedua, dan daftar migrasi tidak bertambah.}
 \label{fig:p1-refki-schema}
 \end{minipage}\end{center}
 
@@ -63,23 +81,25 @@ Pengujian schema memakai \texttt{POST /admin/schema-version} dengan versi 2, lal
 \caption{Perbandingan ID, waktu mulai, dan restart count container sebelum/sesudah toggle menghasilkan file identik pada sesi pengujian [10].}
 \label{fig:p1-refki-containers}
 \end{minipage}\end{center}
-Hasil audit dan perbandingan container mendukung bahwa tambahan confidence tersimpan tanpa migrasi baru atau restart pada sesi tersebut. Keduanya melengkapi tes komponen, tetapi tidak menggantikan pengujian volume besar atau warning terlambat sebagai skenario tersendiri.
+Hasil audit menunjukkan confidence masuk ke revisi baru dengan identitas hazard yang tetap. Perbandingan container juga menunjukkan bahwa perubahan tersebut berlangsung tanpa restart, sementara daftar migrasi membuktikan tidak ada perubahan schema tabel.
 
 \subsection{Pemetaan Bukti ke Kriteria}
+Hubungan hasil pengujian dengan kriteria P1 dirangkum berikut ini.
 \begin{center}\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{0.16\textwidth} >{\raggedright\arraybackslash}X}
 \toprule
 Kriteria & Bukti dan batas interpretasi \\
 \midrule
 P1.1 & Pemetaan kedua sumber: tes mapper, contoh command dan trial. \\
-P1.2--3 & Confidence v2, audit dua revisi, daftar migrasi, dan kondisi container pada Gambar~\ref{fig:p1-refki-schema}--\ref{fig:p1-refki-containers}. \\
+P1.2--3 & Pemicu schema v2, audit dua revisi, daftar migrasi, dan kondisi container pada Gambar~\ref{fig:p1-schema-toggle}--\ref{fig:p1-refki-containers}. \\
 P1.4 & Field tambahan/nested dan collision: tes mapper; validasi kontrak delapan record pada log pengujian. \\
-P1.5 & Mekanisme, alternatif decoding/snapshot, dan batas perubahan aditif dijelaskan pada bab ini. \\
+P1.5 & Mekanisme dan jenis perubahan schema yang didukung maupun tidak didukung pada Bagian~\ref{sec:p1-di-laporan}. \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\subsection{Temuan pada Volume Lebih Besar}
-Catatan review historis melaporkan toggle v2 pada stack yang telah menyimpan sekitar 1.000 record sumber. Respons mock sudah berubah, tetapi revisi baru untuk record yang diperiksa belum tersimpan; log Aggregator berulang kali menunjukkan \texttt{POLL\_FAILED}. Mengembalikan schema ke v1 memulihkan polling/publication. Catatan ini bukan pengukuran load baru dan tidak dibantah oleh keberhasilan trial dengan seed awal [10].
+\section{Jawaban atas Butir ``Di laporan''}
+\label{sec:p1-di-laporan}
+Mekanisme yang dipilih adalah JSON dengan kebijakan \textbf{additive-only}. Field wajib tetap divalidasi, sedangkan field tambahan diteruskan ke \texttt{attributes}; jika namanya bertabrakan dengan atribut turunan, nilainya ditempatkan pada \texttt{source\_extras}. Dengan demikian, field yang belum dikenal tidak hilang meskipun belum mempunyai aturan pemetaan tersendiri.
 
-Deadline write 2 detik diduga berpengaruh ketika satu snapshot memperbarui banyak record, tetapi penyebabnya belum dipastikan. Tidak ada perubahan kode atau timeout dalam catatan tersebut. Sebelum menyatakan dukungan schema pada volume yang terus tumbuh, perlu diagnosis serta pengukuran ulang; pagination, change feed, atau batch lebih kecil adalah opsi evaluasi, bukan fitur yang sudah diterapkan.
+Perubahan yang didukung adalah penambahan field, termasuk nilai nested, selama kontrak field wajib tetap terpenuhi. Penambahan \texttt{confidence\_level} pada PVMBG v2 menjadi contoh yang diuji. Sistem secara sadar tidak mendukung rename, penghapusan, atau perubahan tipe field wajib tanpa pembaruan kontrak. Field tambahan juga tidak otomatis mengubah severity atau ringkasan client, karena perubahan tersebut memerlukan keputusan domain.

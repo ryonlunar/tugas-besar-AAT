@@ -1,43 +1,79 @@
 \chapter{PROBLEM 4}
-\begin{center}\large\bfseries MICROSERVICE DAN FLEXIBLE STORAGE\end{center}
-Bukti runtime pada bab ini mencakup trial 5 Oktober dan tangkapan command 7 Oktober 2026, yang merupakan sesi pengujian berbeda [10].
+\begin{center}\large\bfseries ARSITEKTUR MICROSERVICE \& FLEXIBLE STORAGE\end{center}
 
+\section{Rancangan Solusi dan Mekanisme}
+P4 menguji dua bentuk kemandirian sistem: satu service dapat diganti tanpa restart seluruh stack, dan data dapat menerima atribut baru tanpa perubahan schema tabel. Rancangan memisahkan container berdasarkan tanggung jawab, menetapkan satu pemilik untuk setiap storage, dan memakai JSONB untuk atribut sumber yang dinamis.
 
-\section{Container dan ownership}
-Stack utama terdiri dari tujuh container aplikasi serta dua container infrastruktur, yaitu PostgreSQL dan NATS. Setiap aplikasi memiliki Dockerfile sendiri, sementara kedua komponen infrastruktur memakai image resmi. Third Consumer hanya dijalankan melalui profile demo. Compose membantu mengatur jaringan dan urutan startup, tetapi satu aplikasi tetap dapat dibangun dan diganti dengan \texttt{--no-deps} tanpa menjalankan ulang seluruh stack.
+\subsection{Container dan kepemilikan storage}
+Stack utama terdiri dari tujuh container aplikasi serta dua container infrastruktur, yaitu PostgreSQL dan NATS. Setiap aplikasi memiliki Dockerfile sendiri, sedangkan infrastruktur memakai image resmi. Compose mengatur jaringan dan startup bersama, sekaligus menyediakan operasi per service. Dengan \texttt{--no-deps}, satu aplikasi dapat dijalankan kembali tanpa ikut menjalankan ulang dependency-nya. Third Consumer tersedia melalui profil demo untuk menguji penambahan pembaca event.
 
-Canonical Store menjadi tanggung jawab Aggregator. Hanya Aggregator dan PostgreSQL yang terhubung ke \texttt{store-net}, dan PostgreSQL tidak membuka host port. Karena itu, Client API membaca data melalui HTTP Aggregator. Consumer memperoleh data melalui NATS, lalu menyimpan hasil olahan dalam database lokalnya sendiri. Perintah audit juga dijalankan melalui binary Aggregator agar inspeksi data tetap dilakukan oleh service pemiliknya.
+Canonical Store dikelola oleh Aggregator. Batas ini diterapkan pada jaringan: hanya Aggregator dan PostgreSQL yang terhubung ke \texttt{store-net}, dan PostgreSQL tidak memublikasikan port ke host. Client API membaca melalui HTTP Aggregator, sedangkan consumer memperoleh data melalui NATS. Hasil olahan setiap consumer disimpan pada database privatnya sendiri. Untuk audit riwayat canonical, perintah dijalankan melalui binary Aggregator sebagai pemilik store.
 
-Pembagian tersebut menghindari ketergantungan consumer pada schema tabel internal Aggregator. Sebagai konsekuensinya, tampilan consumer diperbarui secara eventual: perubahan canonical harus melewati outbox dan broker sebelum diterapkan pada database consumer. Shared database antarservice dapat mengurangi jumlah antarmuka HTTP, tetapi perubahan tabel akan mengikat beberapa aplikasi sekaligus dan tidak memenuhi ownership storage yang diminta spesifikasi.
+\subsection{Canonical Store}
+PostgreSQL menyimpan field kanonik dengan tipe dan constraint, serta atribut khusus sumber dalam JSONB [5]. Penyimpanan dibagi berdasarkan fungsi pada Tabel~\ref{tab:canonical-tables}, agar data terbaru, riwayat, status sumber, dan kebutuhan publish tetap dapat dikelola bersama.
 
-\section{Detail Implementasi Canonical Store}
-Aggregator menggunakan PostgreSQL dengan empat kelompok tabel. \texttt{hazard\_events} menyimpan state terbaru dan unique key sumber/reference; \texttt{hazard\_versions} menyimpan snapshot append-only per revisi; \texttt{source\_state} menyimpan percobaan, sukses, kegagalan, dan freshness; \texttt{outbox} menyimpan envelope immutable yang belum atau sudah dipublikasikan. Field kanonik memiliki tipe dan constraint, sedangkan atribut sumber memakai JSONB [5].
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4cm}Y}
+\toprule
+Tabel & Fungsi \\
+\midrule
+\texttt{hazard\_events} & State terbaru setiap hazard, dengan unique key pasangan sumber dan reference ID. \\
+\texttt{hazard\_versions} & Snapshot append-only untuk setiap revisi hazard. \\
+\texttt{source\_state} & Status percobaan polling, sukses, kegagalan, dan freshness sumber. \\
+\texttt{outbox} & Envelope event immutable beserta status pengirimannya ke broker. \\
+\bottomrule
+\end{tabularx}
+\caption{Pembagian data dalam Canonical Store milik Aggregator.}
+\label{tab:canonical-tables}
+\end{table}
 
-Perubahan latest hazard, penambahan versi, dan outbox ditulis dalam satu transaksi. Jika isi identik secara semantik, termasuk angka JSON yang ekuivalen, revisi tidak ditambah. Kapasitas pending outbox diperiksa secara atomik; snapshot yang melampaui batas tidak di-commit. Pool baca dipisahkan dari writer BMKG, writer PVMBG, dan relay sehingga request baca tidak menunggu delay sumber.
+Ketika hazard berubah, pembaruan data terbaru, penambahan versi, dan pencatatan outbox dilakukan dalam satu transaksi. Dengan demikian, revisi yang tersimpan juga memiliki catatan event untuk dikirim. Jika isinya identik secara semantik, termasuk angka JSON yang ekuivalen, revisi tidak ditambah. Kapasitas pending outbox diperiksa dalam transaksi yang sama; snapshot yang melampaui batas tidak di-commit.
 
-Migrasi versioned dijalankan Aggregator saat startup dengan advisory lock dan checksum. Schema v2 PVMBG hanya menambah key JSONB, bukan migrasi baru. CLI audit pada binary Aggregator membaca versi terpilih melalui adapter Store lokal; tidak tersedia endpoint history publik atau akses database untuk consumer.
+Migrasi schema dijalankan Aggregator saat startup dengan version, advisory lock, dan checksum. Penambahan \texttt{confidence\_level} pada PVMBG v2 hanya mengubah isi atribut JSONB, sehingga tidak memerlukan migrasi baru. Riwayat sebelum dan sesudah perubahan dapat dibaca melalui CLI \texttt{history-audit} pada binary Aggregator. Jalur ini menyediakan inspeksi melalui service pemilik data, sementara API publik tetap berfokus pada data terbaru.
 
-\section{Struktur Storage dan Alternatif}
-Field canonical yang stabil disimpan dalam kolom bertipe dengan constraint, sedangkan \texttt{attributes} memakai JSONB untuk menampung atribut yang dapat bertambah. Data terbaru berada di \texttt{hazard\_events} dan setiap revisinya dicatat dalam \texttt{hazard\_versions}. Dua tabel lain melengkapi alur ingest: \texttt{source\_state} menyimpan kondisi polling, sementara \texttt{outbox} mencatat pesan yang perlu dipublikasikan.
+\section{Alasan Keputusan dan Trade-off}
+Pemisahan service dipilih untuk menjaga independensi operasi dan akses data. Pilihan storage melengkapi batas tersebut dengan menyediakan fleksibilitas atribut serta transaksi dalam satu Canonical Store. Kedua keputusan ini dibandingkan dengan alternatifnya berikut.
 
-Dengan struktur ini, tambahan \texttt{confidence\_level} masuk ke dokumen atribut tanpa \texttt{ALTER TABLE}. Pilihan tersebut dibandingkan dengan dua alternatif pada tabel berikut.
+\subsection{Batas service}
+Batas service mengikuti bagian yang perlu berubah atau mengalami gangguan secara independen. Mock BMKG dan PVMBG dipisahkan agar delay, outage, dan credential setiap instansi dapat diuji sendiri. Menggabungkan keduanya dalam satu proses lebih sederhana, tetapi mengurangi isolasi kegagalan sumber.
 
-\begin{table}[htbp]
+Polling, mapping, query, dan relay tetap berada pada Aggregator karena mengelola Canonical Store yang sama. Memecah ingest per sumber memberi isolasi deployment tambahan, tetapi membutuhkan antarmuka dan koordinasi storage baru. Pada M1, loop serta pool koneksi dipisahkan di dalam satu service pemilik data.
+
+Client API dipisahkan agar perubahan penyajian dan hak akses tidak mengharuskan rebuild jalur ingest. Auth menjadi service tersendiri untuk menjaga private key penerbit token; API cukup memiliki public key. Dibanding satu unit deploy, pembagian ini menambah konfigurasi dan dependency jaringan, tetapi membatasi tanggung jawab serta material rahasia setiap service.
+
+Dashboard dan Notifier juga dipisahkan karena hasil olahannya berbeda. Container, durable, dan database privat memungkinkan satu consumer diganti ketika consumer lain tetap berjalan. Uraian alur antarservice terdapat pada Bab 2.
+
+Alternatif shared database dapat mengurangi kebutuhan antarmuka, tetapi membuat beberapa service bergantung pada schema tabel yang sama dan bertentangan dengan ownership yang diminta spesifikasi. API dan kontrak event dipilih untuk menjaga batas tersebut. Konsekuensinya, state consumer diperbarui secara eventual: perubahan data kanonik harus melewati outbox dan broker sebelum diterapkan di consumer.
+
+\subsection{Alternatif penyimpanan}
+Pilihan storage perlu memenuhi fleksibilitas atribut sekaligus konsistensi revisi dan event. PostgreSQL dengan JSONB mempertahankan constraint dan transaksi, sambil menerima tambahan field pada dokumen atribut. Tabel~\ref{tab:p4-storage-options} membandingkannya dengan kolom relasional tetap dan document store.
+
+\begin{table}[H]
 \centering\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{3cm}YY}
 \toprule
 Pilihan & Kelebihan & Konsekuensi \\
 \midrule
-PostgreSQL + JSONB (dipilih) & Constraint identitas, query canonical, dan transaksi outbox dalam satu store & Atribut dinamis tetap perlu validasi; query JSONB yang sering dipakai dapat membutuhkan index tambahan. \\
-Relasional dengan kolom tetap & Tipe setiap atribut jelas dan mudah di-query & Field baru membutuhkan migrasi; kurang sesuai perubahan schema langsung pada P4. \\
-Document store, misalnya MongoDB & Bentuk dokumen sumber mudah disimpan dan berubah & Aturan canonical, index, dan transaksi history/outbox tetap perlu dirancang; fleksibilitas dokumen saja tidak menjamin konsistensi. \\
+PostgreSQL + JSONB (dipilih) & Constraint identitas, query canonical, dan transaksi outbox dalam satu store. & Atribut dinamis tetap perlu validasi; query JSONB yang sering dipakai dapat membutuhkan index tambahan. \\
+Relasional dengan kolom tetap & Tipe setiap atribut jelas dan mudah di-query. & Field baru membutuhkan migrasi, sehingga kurang sesuai dengan perubahan schema langsung pada P4. \\
+Document store, misalnya MongoDB & Bentuk dokumen sumber mudah disimpan dan berubah. & Aturan canonical, index, dan transaksi history/outbox tetap perlu dirancang. \\
 \bottomrule
 \end{tabularx}
-\caption{Perbandingan pilihan penyimpanan. Fleksibilitas dokumen tidak menggantikan validasi kontrak.}
+\caption{Alternatif storage untuk atribut dinamis dan transaksi data.}
+\label{tab:p4-storage-options}
 \end{table}
 
-\section{Pengujian penggantian satu container}
-Pengujian menyimpan ID, waktu mulai, dan restart count container selain Dashboard sebelum melakukan rebuild. Dashboard dikecualikan dari daftar ini karena container itulah yang akan diganti.
+\section{Batasan yang Disadari}
+Isolasi diterapkan pada akses aplikasi dan operasi container. Administrator Docker tetap dapat mengakses container serta volume, sehingga administrator host berada di luar batas kontrol aplikasi. Aggregator dan PostgreSQL juga masih menggunakan satu instance; penggantian satu consumer tidak menjamin API tersedia jika salah satu pemilik jalur baca tersebut mati.
+
+History, inbox, dan outbox terpublikasi dipertahankan untuk audit serta deduplikasi selama pengujian. Pembersihan jangka panjang belum diterapkan, sehingga data lokal dapat terus bertambah. Kebijakan retention lokal dan penanganan snapshot besar pada P1 perlu disiapkan sebelum volume sistem ditingkatkan.
+
+\section{Bukti Penyelesaian}
+Pengujian P4 mengganti Dashboard sambil memantau API dan kondisi container lain, lalu memeriksa batas akses ke storage. Fleksibilitas JSONB diperiksa bersama perubahan schema pada P1. Buktinya ditunjukkan melalui command berikut dan hasil trial integrasi [10].
+
+\subsection{Penggantian satu container}
+Untuk membuktikan bahwa service lain tidak ikut dijalankan ulang, pengujian terlebih dahulu mencatat ID, waktu mulai, dan restart count seluruh container selain Dashboard. Catatan ini akan dibandingkan setelah Dashboard diganti.
 \terminalfigure{p4-state-before}{Mencatat kondisi container lain sebelum Dashboard dibangun ulang.}{fig:p4-state-before}
 
 Dashboard kemudian dihentikan dan image-nya dibangun kembali. Log build disimpan ke file, lalu \texttt{tail -n 6} membaca bagian akhir yang menunjukkan image berhasil dibangun. Log lengkap tersedia pada \path{evidence/dashboard-rebuild.log}.
@@ -46,16 +82,17 @@ Dashboard kemudian dihentikan dan image-nya dibangun kembali. Log build disimpan
 Saat Dashboard masih berhenti, request BMKG ke API menghasilkan 200. Dashboard kemudian dijalankan kembali dengan \texttt{--no-deps --force-recreate}; opsi pertama menjaga dependency tidak ikut dijalankan ulang, sedangkan opsi kedua memastikan container Dashboard diganti. \texttt{--wait} menunggu hasil healthcheck-nya siap.
 \terminalfigure{p4-api}{API tetap merespons saat Dashboard mati, lalu Dashboard diganti secara terpisah.}{fig:p4-api}
 
-Inspeksi diulang dengan proyeksi yang sama, kemudian \texttt{diff -s} membandingkan file sebelum dan sesudah. Keduanya identik dan berisi delapan container lain. Jadi, penggantian Dashboard tidak mengubah ID, waktu mulai, maupun restart count service lainnya. Trial integrasi 5 Oktober juga mencatat 10 request API sukses selama rebuild; rincian pengujian tersebut tetap tersedia di \texttt{integration.json}.
+Inspeksi diulang dengan proyeksi yang sama, kemudian \texttt{diff -s} membandingkan file sebelum dan sesudah. Keduanya identik dan berisi delapan container lain. Jadi, penggantian Dashboard tidak mengubah ID, waktu mulai, maupun restart count service lainnya. Trial integrasi juga mencatat 10 request API sukses selama rebuild; rincian pengujian tersebut tetap tersedia di \texttt{integration.json}.
 \terminalfigure{p4-container-state}{Delapan container lain tidak berubah setelah Dashboard diganti.}{fig:p4-container-state}
 
-\section{Pengujian ownership dan flexible storage}
-Inspeksi jaringan menunjukkan bahwa \texttt{store-net} hanya memuat Aggregator dan PostgreSQL. Inspeksi port PostgreSQL juga menunjukkan bahwa port database tidak dipublikasikan ke host. Hasil ini mendukung batas akses pada konfigurasi; kode Client API dan consumer tetap diperiksa untuk memastikan keduanya tidak membuka koneksi SQL ke Canonical Store.
+\subsection{Ownership dan flexible storage}
+Batas kepemilikan Canonical Store diperiksa melalui konfigurasi jaringan dan jalur akses pada kode. Inspeksi menunjukkan bahwa \texttt{store-net} hanya memuat Aggregator dan PostgreSQL, serta port database tidak dipublikasikan ke host. Kode Client API membaca melalui HTTP Aggregator, sedangkan consumer membaca dari NATS; keduanya tidak membuka koneksi SQL ke Canonical Store.
 \terminalfigure{p4-storage}{Anggota jaringan storage dan port PostgreSQL yang tidak dipublikasikan.}{fig:p4-storage}
 
 Fleksibilitas storage dibuktikan bersama pengujian P1 pada Gambar~\ref{fig:p1-refki-schema}. Snapshot revisi 1 dan 2 tetap terbaca dengan daftar migrasi yang sama. Pembacaan tersebut dilakukan melalui \texttt{/aggregator history-audit}, sehingga perubahan dokumen diperiksa oleh service pemilik storage.
 
-\begin{table}[htbp]
+Kriteria P4 dan bukti yang mendukungnya dirangkum pada tabel berikut.
+\begin{table}[H]
 \centering\small
 \begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}Y}
 \toprule
@@ -64,12 +101,16 @@ Kriteria & Bukti \\
 P4.1 & Rebuild, request API, dan perbandingan delapan container pada Gambar~\ref{fig:p4-state-before}--\ref{fig:p4-container-state}. \\
 P4.2 & Revisi v1/v2 dan daftar migrasi pada Gambar~\ref{fig:p1-refki-schema}. \\
 P4.3 & Anggota \texttt{store-net}, port privat, serta jalur baca pada kode; Gambar~\ref{fig:p4-storage}. \\
-P4.4 & Batas service pada Bab 2 dan perbandingan tiga pilihan storage pada bab ini. \\
+P4.4 & Alasan batas service pada Bagian~\ref{sec:p4-di-laporan} dan perbandingan tiga pilihan storage pada Tabel~\ref{tab:p4-storage-options}. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\section{Verifikasi Komponen Storage}
-Verifikasi native pada commit \texttt{19beead}, dengan PostgreSQL 18.6 dan NATS 2.10.24, lulus untuk UUID stabil, revisi/history, idempotensi, kapasitas outbox, presisi angka, dan round-trip JSONB ke JetStream. Tes normal dan race, build, vet, serta module verify lulus. Database disposable berakhiran \texttt{\_test} memakai reset opt-in, tanpa mengakses database aplikasi. Bukti ini melengkapi sesi Compose, tetapi bukan pengulangan deployment PostgreSQL 16 atau restart seluruh aplikasi.
-\section{Batasan}
-Pemisahan aplikasi/jaringan tidak membatasi administrator Docker. Rebuild satu consumer tidak membuktikan ketersediaan API ketika Aggregator atau PostgreSQL mati. History, inbox, dan outbox terpublikasi belum memiliki pembersihan jangka panjang; retention lokal dan batch snapshot besar pada P1 masih perlu ditangani sebelum peningkatan volume.
+\subsection{Verifikasi komponen storage}
+Tes storage pada commit \texttt{19beead} lulus untuk UUID stabil, revisi/history, idempotensi, kapasitas outbox, presisi angka, serta round-trip JSONB ke JetStream. Lingkungan native pengujiannya dicatat pada Bab 3.
+
+\section{Jawaban atas Butir ``Di laporan''}
+\label{sec:p4-di-laporan}
+Batas service mengikuti pemilik storage dan kebutuhan deploy independen. Dengan pembagian pada Bab 2, perubahan akses atau consumer tidak memerlukan deploy ulang ingest. Ingest per sumber belum dipisah karena menambah koordinasi storage, sedangkan shared database bertentangan dengan ownership yang disyaratkan.
+
+Dari tiga alternatif pada Tabel~\ref{tab:p4-storage-options}, PostgreSQL dengan JSONB dipilih untuk menerima atribut baru tanpa migrasi sekaligus menyediakan constraint dan transaksi data, history, serta outbox. Trade-off-nya adalah validasi atribut dinamis dan kemungkinan kebutuhan index tambahan.
