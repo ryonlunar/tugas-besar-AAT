@@ -1,0 +1,141 @@
+=== RUN   TestSchemasAndExamples
+=== RUN   TestSchemasAndExamples/accept/seismic_event
+=== RUN   TestSchemasAndExamples/accept/volcanic_v1_event
+=== RUN   TestSchemasAndExamples/accept/volcanic_v2_event
+=== RUN   TestSchemasAndExamples/accept/media_summary
+=== RUN   TestSchemasAndExamples/accept/hazard_envelope
+=== RUN   TestSchemasAndExamples/reject/schema/event_UUID_format
+=== RUN   TestSchemasAndExamples/reject/schema/date-time_format
+=== RUN   TestSchemasAndExamples/reject/schema/source_reference_character_contract
+=== RUN   TestSchemasAndExamples/reject/schema/source_and_hazard_type_relationship
+=== RUN   TestSchemasAndExamples/reject/schema/summary_UUID_format
+=== RUN   TestSchemasAndExamples/reject/schema/message_ID_shape
+=== RUN   TestSchemasAndExamples/reject/schema/event_type_and_revision_relationship
+=== RUN   TestSchemasAndExamples/reject/relationship/message_hazard_ID_mismatch
+=== RUN   TestSchemasAndExamples/reject/relationship/message_revision_mismatch
+--- PASS: TestSchemasAndExamples (0.01s)
+    --- PASS: TestSchemasAndExamples/accept/seismic_event (0.00s)
+    --- PASS: TestSchemasAndExamples/accept/volcanic_v1_event (0.00s)
+    --- PASS: TestSchemasAndExamples/accept/volcanic_v2_event (0.00s)
+    --- PASS: TestSchemasAndExamples/accept/media_summary (0.00s)
+    --- PASS: TestSchemasAndExamples/accept/hazard_envelope (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/event_UUID_format (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/date-time_format (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/source_reference_character_contract (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/source_and_hazard_type_relationship (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/summary_UUID_format (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/message_ID_shape (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/schema/event_type_and_revision_relationship (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/relationship/message_hazard_ID_mismatch (0.00s)
+    --- PASS: TestSchemasAndExamples/reject/relationship/message_revision_mismatch (0.00s)
+=== RUN   TestParseEnvelopeChecksWireAndCrossFieldRules
+=== RUN   TestParseEnvelopeChecksWireAndCrossFieldRules/id_mismatch
+=== RUN   TestParseEnvelopeChecksWireAndCrossFieldRules/extra_field
+=== RUN   TestParseEnvelopeChecksWireAndCrossFieldRules/invalid_event
+--- PASS: TestParseEnvelopeChecksWireAndCrossFieldRules (0.00s)
+    --- PASS: TestParseEnvelopeChecksWireAndCrossFieldRules/id_mismatch (0.00s)
+    --- PASS: TestParseEnvelopeChecksWireAndCrossFieldRules/extra_field (0.00s)
+    --- PASS: TestParseEnvelopeChecksWireAndCrossFieldRules/invalid_event (0.00s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/contracts	0.048s
+=== RUN   TestMapSeismicUsesMagnitudeThresholds
+--- PASS: TestMapSeismicUsesMagnitudeThresholds (0.00s)
+=== RUN   TestMapSeismicUsesHighestRelatedWarningAndPreservesExtras
+--- PASS: TestMapSeismicUsesHighestRelatedWarningAndPreservesExtras (0.00s)
+=== RUN   TestMapVolcanicPreservesV1V2AndDynamicFields
+--- PASS: TestMapVolcanicPreservesV1V2AndDynamicFields (0.00s)
+=== RUN   TestDefaultVolcanoLocationsAreSyntheticTamrielFixtures
+--- PASS: TestDefaultVolcanoLocationsAreSyntheticTamrielFixtures (0.00s)
+=== RUN   TestMapperRejectsUnknownVolcanoInvalidEnumsAndDuplicateKeys
+--- PASS: TestMapperRejectsUnknownVolcanoInvalidEnumsAndDuplicateKeys (0.00s)
+=== RUN   TestMapperRejectsTimestampWithoutTimezone
+--- PASS: TestMapperRejectsTimestampWithoutTimezone (0.00s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper	0.005s
+=== RUN   TestMediaGetsSummaryAndCannotRequestFull
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=request-1 duration_ms=1 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=request-1 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=eb9c6bc9a1f23e83863b40fc1aac06c7 duration_ms=0 status=403
+--- PASS: TestMediaGetsSummaryAndCannotRequestFull (0.05s)
+=== RUN   TestConcurrentReadsReuseUpstreamConnections
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=ce0b9462d60302dd4549b81f0900f82f duration_ms=1 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=ce0b9462d60302dd4549b81f0900f82f duration_ms=1 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=4ec7fdade1e58c5c2a440c5624f41b64 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=4ec7fdade1e58c5c2a440c5624f41b64 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=0f7006330e6b5ef75636295f59e2de38 duration_ms=1 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=7ce1d21bcf3ae2ac15499c7911935327 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=0f7006330e6b5ef75636295f59e2de38 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=2ebb05ae14d03ddee4facb3d85fef7cb duration_ms=1 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=7ce1d21bcf3ae2ac15499c7911935327 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=2ebb05ae14d03ddee4facb3d85fef7cb duration_ms=1 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=5c71a1069ae67881d92ce737289f71c2 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=b5a2b6e06b9770bdfadeb6f808973d26 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=5c71a1069ae67881d92ce737289f71c2 duration_ms=3 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=b5a2b6e06b9770bdfadeb6f808973d26 duration_ms=2 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=bcc5bff8f184bf76f1533ed60da82a9d duration_ms=2 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=bcc5bff8f184bf76f1533ed60da82a9d duration_ms=3 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=6e16388406905c08a57ed07b3c5cc38d duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=6e16388406905c08a57ed07b3c5cc38d duration_ms=1 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=cba6fdb91f3f2de72ded549379f69c21 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=cba6fdb91f3f2de72ded549379f69c21 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=457cd2237db0a7e13c316b70dfe6758a duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=457cd2237db0a7e13c316b70dfe6758a duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=59e744706e31b71940b4bf05ef19dddc duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=59e744706e31b71940b4bf05ef19dddc duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=b84887405e1487d862bfa00c1885b8df duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=031a83f8317db6505efcc3769e440f96 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=031a83f8317db6505efcc3769e440f96 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=b84887405e1487d862bfa00c1885b8df duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=12181143278c2c3752e374758f917887 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=12181143278c2c3752e374758f917887 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=936f0603662a0a629c7ff9f7c3904703 duration_ms=0 status=200
+2026/10/05 20:04:00 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=936f0603662a0a629c7ff9f7c3904703 duration_ms=0 status=200
+--- PASS: TestConcurrentReadsReuseUpstreamConnections (0.02s)
+=== RUN   TestProxyDoesNotSendInternalCredentialAcrossRedirect
+2026/10/05 20:04:01 WARN Aggregator read failed correlation_id=77942941795ed56ce311f348bc031ccb reason=UPSTREAM_REQUEST_FAILED
+2026/10/05 20:04:01 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=77942941795ed56ce311f348bc031ccb duration_ms=0 status=0
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=77942941795ed56ce311f348bc031ccb duration_ms=0 status=503
+--- PASS: TestProxyDoesNotSendInternalCredentialAcrossRedirect (0.12s)
+=== RUN   TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders
+=== RUN   TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/429
+2026/10/05 20:04:01 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=173fb71673036f0d5f362c4d7761b1ef duration_ms=1 status=429
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=173fb71673036f0d5f362c4d7761b1ef duration_ms=1 status=429
+=== RUN   TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/503
+2026/10/05 20:04:01 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=07c3f4d6c4fcd92a989c6e4a85983f97 duration_ms=1 status=503
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=07c3f4d6c4fcd92a989c6e4a85983f97 duration_ms=1 status=503
+=== RUN   TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/400
+2026/10/05 20:04:01 INFO Aggregator read complete service=client-api operation=aggregator_read correlation_id=54697de84a5a8093c3bb79275c2331eb duration_ms=1 status=400
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=54697de84a5a8093c3bb79275c2331eb duration_ms=1 status=400
+--- PASS: TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders (0.06s)
+    --- PASS: TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/429 (0.00s)
+    --- PASS: TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/503 (0.00s)
+    --- PASS: TestProxyPreservesRetryGuidanceWithoutCopyingOtherHeaders/400 (0.00s)
+=== RUN   TestRejectsInvalidIssuerAndScope
+2026/10/05 20:04:01 WARN access token rejected service=client-api correlation_id=9a0e8c76c2666ee31407aaea576f2824 reason=INVALID_TOKEN
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=9a0e8c76c2666ee31407aaea576f2824 duration_ms=0 status=401
+2026/10/05 20:04:01 INFO request complete service=client-api operation="GET /v1/hazards" correlation_id=19f6ac8b82be470af42871b061327659 duration_ms=0 status=401
+--- PASS: TestRejectsInvalidIssuerAndScope (0.03s)
+=== RUN   TestReadinessForwardsAndLogsCorrelationWithoutCredentials
+--- PASS: TestReadinessForwardsAndLogsCorrelationWithoutCredentials (0.00s)
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/API_clock_behind_issuance
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/just_before_expiry
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/at_expiry
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/after_expiry
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/missing_expiry
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_signing_key
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_audience
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_issuer
+=== RUN   TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/future_not-before
+--- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks (0.07s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/API_clock_behind_issuance (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/just_before_expiry (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/at_expiry (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/after_expiry (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/missing_expiry (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_signing_key (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_audience (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/wrong_issuer (0.00s)
+    --- PASS: TestTokenValidationAllowsFutureIssuedAtAndEnforcesSecurityChecks/future_not-before (0.00s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/services/client-api/internal/api	0.367s

@@ -1,0 +1,36 @@
+{
+  "p1-bmkg-canonical": {
+    "hazard_id": "c10e114a-2f04-400c-b3a0-110aaf9cc120",
+    "source": "BMKG",
+    "source_ref_id": "sim-60f75b621ea2f87f-event-001",
+    "hazard_type": "SEISMIC",
+    "severity": "NORMAL",
+    "area_name": "Wilayah Simulasi 01",
+    "latitude": -9.8,
+    "longitude": 105.25,
+    "occurred_at": "2026-10-07T04:17:29.565895+00:00",
+    "ingested_at": "2026-10-07T04:55:41.058969+00:00",
+    "attributes": {
+      "depth_km": 7,
+      "magnitude": 4.2,
+      "potential_tsunami": false
+    }
+  },
+  "p1-pvmbg-canonical": {
+    "hazard_id": "a3e0c470-1b79-4f39-aeb1-c7a063568995",
+    "source": "PVMBG",
+    "source_ref_id": "sim-19ac08b49fd13778-report-001",
+    "hazard_type": "VOLCANIC",
+    "severity": "NORMAL",
+    "area_name": "Gunung Simulasi Red Mountain (Tamriel)",
+    "latitude": -7,
+    "longitude": 108,
+    "occurred_at": "2026-10-07T03:58:29.494743+00:00",
+    "ingested_at": "2026-10-07T04:55:43.141503+00:00",
+    "attributes": {
+      "ash_column_height_m": 125,
+      "eruption_count_24h": 1,
+      "volcano_id": "sim-tamriel-red-mountain"
+    }
+  }
+}

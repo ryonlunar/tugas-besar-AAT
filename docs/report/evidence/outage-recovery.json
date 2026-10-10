@@ -1,0 +1,126 @@
+{
+  "outage": {
+    "pvmbg_status": 200,
+    "pvmbg_records": 50,
+    "pvmbg_meta": {
+      "status": "stale",
+      "last_success_at": "2026-10-05T13:21:13.491683Z",
+      "stale_since": "2026-10-05T13:21:17.324921Z"
+    },
+    "bmkg_status": 200,
+    "bmkg_meta": {
+      "status": "fresh",
+      "last_success_at": "2026-10-05T13:21:17.427751Z",
+      "stale_since": null
+    }
+  },
+  "recovery": {
+    "status": "fresh",
+    "last_success_at": "2026-10-05T13:21:23.770669Z",
+    "stale_since": null
+  },
+  "containers_before": {
+    "aggregator": {
+      "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+      "started_at": "2026-10-05T13:02:23.301195955Z",
+      "restart_count": 0
+    },
+    "auth": {
+      "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+      "started_at": "2026-10-05T13:04:11.701243335Z",
+      "restart_count": 0
+    },
+    "bmkg-mock": {
+      "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+      "started_at": "2026-10-05T13:02:17.543644575Z",
+      "restart_count": 0
+    },
+    "client-api": {
+      "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+      "started_at": "2026-10-05T13:02:29.367036602Z",
+      "restart_count": 0
+    },
+    "dashboard-consumer": {
+      "id": "5c33ed7b1edb7b0dd092087ade4340979113656e1bb90bca4f17b952117dcc83",
+      "started_at": "2026-10-05T13:05:38.689366318Z",
+      "restart_count": 0
+    },
+    "nats": {
+      "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+      "started_at": "2026-10-05T13:02:17.119524626Z",
+      "restart_count": 0
+    },
+    "notifier-consumer": {
+      "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+      "started_at": "2026-10-05T13:02:23.158189631Z",
+      "restart_count": 0
+    },
+    "postgres": {
+      "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+      "started_at": "2026-10-05T13:02:17.114316587Z",
+      "restart_count": 0
+    },
+    "pvmbg-mock": {
+      "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+      "started_at": "2026-10-05T13:02:17.551580961Z",
+      "restart_count": 0
+    },
+    "third-consumer": {
+      "id": "304ea6f3aebc87c9eb86fba993bb37ad5612d49ae4750799cd15e42fe8543e3e",
+      "started_at": "2026-10-05T13:05:53.556409199Z",
+      "restart_count": 0
+    }
+  },
+  "containers_after": {
+    "aggregator": {
+      "id": "cd78e440e8f5aec2af6e7a61f63c6c08110c1f0ba719c5632b70d701e30e3daf",
+      "started_at": "2026-10-05T13:02:23.301195955Z",
+      "restart_count": 0
+    },
+    "auth": {
+      "id": "1986a257dc54341d5c82c935245c0e5a305a71167f3ca4f7bc98671c28ffa349",
+      "started_at": "2026-10-05T13:04:11.701243335Z",
+      "restart_count": 0
+    },
+    "bmkg-mock": {
+      "id": "2a8b584c4c01d18ebf8b32f1237ab2088262163fcb5508277622a0de95dfdbdb",
+      "started_at": "2026-10-05T13:02:17.543644575Z",
+      "restart_count": 0
+    },
+    "client-api": {
+      "id": "b361733d119165c663056713837dddf182035639cd4f9e99cf8c236601dc5d31",
+      "started_at": "2026-10-05T13:02:29.367036602Z",
+      "restart_count": 0
+    },
+    "dashboard-consumer": {
+      "id": "5c33ed7b1edb7b0dd092087ade4340979113656e1bb90bca4f17b952117dcc83",
+      "started_at": "2026-10-05T13:05:38.689366318Z",
+      "restart_count": 0
+    },
+    "nats": {
+      "id": "0e93ec5804970a14a3664d0ae2e848e31d01e60b0863d6b136426996a35b2086",
+      "started_at": "2026-10-05T13:02:17.119524626Z",
+      "restart_count": 0
+    },
+    "notifier-consumer": {
+      "id": "948d0c3af20dd5ea412548577b27794bb3f3da9637d61bb4c127a30ec21d6206",
+      "started_at": "2026-10-05T13:02:23.158189631Z",
+      "restart_count": 0
+    },
+    "postgres": {
+      "id": "30fb421ba7c594a9da683188047f907e1a864a9426fd543d32da342ae786f653",
+      "started_at": "2026-10-05T13:02:17.114316587Z",
+      "restart_count": 0
+    },
+    "pvmbg-mock": {
+      "id": "c5f14ccd570fe37aae22df3d2314d7569f8a110443a172b8fd15ab089a0c9fa7",
+      "started_at": "2026-10-05T13:02:17.551580961Z",
+      "restart_count": 0
+    },
+    "third-consumer": {
+      "id": "304ea6f3aebc87c9eb86fba993bb37ad5612d49ae4750799cd15e42fe8543e3e",
+      "started_at": "2026-10-05T13:05:53.556409199Z",
+      "restart_count": 0
+    }
+  }
+}

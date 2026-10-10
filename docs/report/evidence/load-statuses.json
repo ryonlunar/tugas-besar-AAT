@@ -1,0 +1,309 @@
+{
+  "source": "client-api request complete logs, correlation_id=m1-monotonic-load",
+  "counts": {
+    "200": 88308,
+    "503": 30
+  },
+  "failed_request_logs": [
+    {
+      "time": "2026-10-05T13:11:48.777696696Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 251,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.242593562Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 261,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.242960524Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 262,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.243071308Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 246,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.246388756Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 248,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.246946456Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 266,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.247387036Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 225,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.247664331Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 270,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.247845009Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 246,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.248123865Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 267,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.288181642Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 292,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.305848754Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 214,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.40607322Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 300,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:09.409193841Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 235,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:13.947104561Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 211,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:14.187796142Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 216,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:14.238808007Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 234,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:14.307704928Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 281,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:30.399386744Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 216,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:37.106685938Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 263,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:39.163028301Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 221,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:39.217033408Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 236,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:40.202096957Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 253,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:50.261450323Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 247,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:50.292650389Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 223,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:50.293854347Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 235,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:50.294369279Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 226,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:51.548451793Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 267,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:51.56691575Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 259,
+      "status": 503
+    },
+    {
+      "time": "2026-10-05T13:12:51.582266615Z",
+      "level": "INFO",
+      "msg": "request complete",
+      "service": "client-api",
+      "operation": "GET /v1/hazards",
+      "correlation_id": "m1-monotonic-load",
+      "duration_ms": 271,
+      "status": 503
+    }
+  ]
+}

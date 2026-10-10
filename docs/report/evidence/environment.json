@@ -1,0 +1,28 @@
+{
+  "commit": "071b32d2efe1863ad65b2703a7ff1328998e4deb",
+  "date": "2026-10-05",
+  "project": "aat-report-m1",
+  "os": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "cpu_logical": 12,
+  "memory": "MemTotal:       16379360 kB",
+  "docker": "27.0.3",
+  "compose": "2.28.1-desktop.1",
+  "go": "go version go1.26.4-X:nodwarf5 linux/amd64",
+  "profile": {
+    "API_HTTP_PORT": "8280",
+    "AUTH_HTTP_PORT": "8284",
+    "BMKG_DELAY_MS": "100",
+    "PVMBG_DELAY_MIN_MS": "500",
+    "PVMBG_DELAY_MAX_MS": "3000",
+    "SOURCE_POLL_INTERVAL": "5s",
+    "DB_WRITE_TIMEOUT": "2s",
+    "ACCESS_TOKEN_TTL": "60s",
+    "MOCK_SEED_COUNT": "20",
+    "MOCK_EVENT_INTERVAL": "10s"
+  },
+  "container_build_go": "golang:1.23-alpine",
+  "server_versions": {
+    "postgres": "postgres (PostgreSQL) 16.14",
+    "nats": "nats-server: v2.10.29"
+  }
+}

@@ -1,0 +1,108 @@
+\chapter{PROBLEM 3}
+\begin{center}\large\bfseries SERVICE-TO-SERVICE AUTHENTICATION \& TRUST\end{center}
+
+\section{Rancangan Solusi dan Mekanisme}
+Pada Problem 3, akses ke sumber data, service internal, dan API client perlu dibatasi sesuai identitas serta hak masing-masing. Credential yang sah untuk satu sumber tidak boleh membuka sumber lain, dan identitas Media tidak boleh memperoleh data raw. Rancangan menggunakan credential per domain, pembatasan scope di server, serta access token berumur pendek yang dapat diperbarui tanpa login ulang.
+
+\subsection{Credential dan hak akses}
+Setiap antarmuka memiliki credential sesuai perannya. BMKG menerima API key melalui header \texttt{X-BMKG-Key}, PVMBG menerima Bearer token sumber, dan API internal Aggregator menggunakan key lain. Dengan pemisahan ini, credential satu instansi tidak dapat digunakan untuk mengakses instansi lain atau sebagai identitas client.
+
+Di sisi client, Auth membedakan identitas \texttt{media}, \texttt{field-team}, dan \texttt{bnpb-internal}, masing-masing dengan secret sendiri. Media hanya mendapat scope ringkasan, yang berisi tepat tujuh field: \texttt{hazard\_id}, \texttt{source}, \texttt{hazard\_type}, \texttt{severity}, \texttt{area\_name}, \texttt{occurred\_at}, dan \texttt{ingested\_at}. Tim Lapangan dan BNPB Internal mendapat akses lengkap, termasuk \texttt{source\_ref\_id}, koordinat, serta \texttt{attributes}.
+
+Client API memeriksa scope sebelum meminta data ke Aggregator dan menyaring field pada respons. Karena aturan berada di server, Media tidak dapat melewatinya dengan mengubah query menjadi \texttt{view=full} atau meminta atribut raw. Kedua bentuk request tersebut ditolak dengan 403.
+
+\subsection{Penerbitan dan verifikasi token}
+Setelah identitas client diperiksa, Auth menerbitkan JWT [11] yang ditandatangani dengan algoritma RS256 menggunakan private key. Client API hanya memegang public key untuk memverifikasi signature, issuer, audience, expiry, dan scope. Pemisahan key ini memungkinkan API memeriksa token tanpa memiliki kemampuan untuk menerbitkannya.
+
+Verifikasi dilakukan secara lokal pada setiap request data. Karena itu, token yang masih valid tetap dapat dipakai ketika Auth berhenti sementara. Auth baru diperlukan kembali untuk login atau refresh; perilaku ini juga diperiksa pada trial integrasi [10].
+
+\subsection{Expiry dan refresh}
+Access token memiliki masa berlaku default 60 detik, yang dapat diatur melalui \texttt{ACCESS\_TOKEN\_TTL}. TTL singkat membatasi masa penggunaan token yang bocor, tetapi client perlu cara melanjutkan sesi setelah token berakhir. Untuk itu, login juga menghasilkan refresh token berupa nilai acak yang dapat ditukar melalui Auth dengan pasangan token baru.
+
+Hanya hash refresh token yang disimpan di SQLite. Pada setiap refresh, token lama ditandai sudah digunakan dan diganti dengan token baru. Jika token lama dipakai kembali, keluarga sesi dibatalkan untuk menghentikan kelanjutan refresh melalui token tersebut. Database Auth berada pada volume privat agar state sesi bertahan ketika container dijalankan ulang.
+
+Keluarga sesi refresh memiliki batas umur default 24 jam, yang dapat diatur melalui \texttt{REFRESH\_TOKEN\_TTL}. Batas ini dihitung sejak sesi dibentuk dan tidak diperpanjang oleh rotasi. Kedua TTL harus positif; profil pengujian menggunakan access token 60 detik dan sesi refresh 24 jam.
+
+\section{Alasan Keputusan dan Trade-off}
+Pilihan verifikasi token mempertimbangkan ketergantungan jalur baca dan kepemilikan key. Jika Auth dan API berbagi signing secret, material verifikasi pada API juga dapat dipakai untuk membuat token. RS256 memisahkan kedua kemampuan tersebut. Alternatif introspection ke Auth pada setiap request memudahkan pemeriksaan status token secara terpusat, tetapi membuat pembacaan data ikut bergantung pada ketersediaan Auth. Verifikasi lokal dipilih untuk menjaga jalur baca, dengan konsekuensi pencabutan access token tidak langsung diketahui API.
+
+Refresh token memungkinkan access token tetap berumur pendek tanpa meminta client login ulang setiap 60 detik. Memperpanjang TTL access token lebih sederhana, tetapi juga memperpanjang kesempatan menggunakan token yang bocor. Rotasi dan penyimpanan hash refresh token dipilih untuk membatasi penggunaan ulang serta risiko kebocoran database. Trade-off-nya adalah kebutuhan state sesi persisten dan ketersediaan Auth saat refresh.
+
+\section{Batasan yang Disadari}
+Verifikasi lokal belum dilengkapi daftar revocation access token. Karena itu, rotasi atau pembatalan sesi refresh tidak langsung mencabut JWT yang sudah diterbitkan; token tersebut tetap dapat digunakan sampai \texttt{exp}. TTL 60 detik membatasi interval ini, sedangkan pencabutan segera memerlukan mekanisme revocation atau pemeriksaan ke Auth.
+
+Expiry bergantung pada wall clock host. Jika clock mundur, token dapat terasa berlaku lebih lama; jika clock maju, token dapat berakhir lebih cepat. API memeriksa signature, issuer, audience, scope, expiry, serta \texttt{nbf} jika ada, tetapi tidak menolak token hanya karena \texttt{iat} tampak berada di masa depan setelah clock mundur. Pada profil pengujian, selisih \texttt{exp-iat} tetap 60 detik. Agar interval tersebut sesuai waktu nyata, sinkronisasi waktu host perlu dijaga.
+
+Perlindungan koneksi masih dibatasi pada demo lokal. HTTP internal belum menggunakan TLS, NATS menggunakan token bersama, dan rotasi key RSA belum diterapkan. Jaringan Docker serta binding port ke loopback membatasi paparan, tetapi belum cukup untuk deployment pada jaringan yang tidak dipercaya. Deployment tersebut membutuhkan TLS, credential broker per service, dan pengelolaan rotasi key.
+
+\section{Bukti Penyelesaian}
+Pengujian P3 mengikuti tiga batas akses: credential sumber, field yang boleh dibaca client, dan masa berlaku token. Buktinya ditunjukkan melalui command berikut dan hasil trial integrasi [10].
+
+\subsection{Credential dan hak akses}
+Pemeriksaan dimulai dari akses ke mock, lalu dilanjutkan dengan akses Media melalui API. Urutan ini memperlihatkan pemisahan autentikasi sumber dan otorisasi client.
+
+\subsubsection{Credential hanya berlaku pada sumbernya}
+Pengujian credential dilakukan sebagai empat request terpisah. Untuk BMKG, header tetap bernama \texttt{X-BMKG-Key}: request pertama mengisinya dengan key BMKG, sedangkan request kedua memakai token PVMBG sebagai nilai yang salah. Status HTTP setiap request dibaca melalui opsi \texttt{-w}.
+\terminalfigure{p3-credentials-bmkg}{BMKG menerima key miliknya dengan 200 dan menolak credential PVMBG dengan 401.}{fig:p3-credentials-bmkg}
+
+Arah sebaliknya diuji pada PVMBG dengan schema Bearer yang sama untuk kedua request. Token PVMBG menghasilkan 200, sedangkan key BMKG menghasilkan 401. Karena format header tetap sesuai dengan antarmuka sumber, status 401 menunjukkan bahwa sumber menolak nilai credential yang salah.
+\terminalfigure{p3-credentials-pvmbg}{PVMBG menerima token miliknya dan menolak key BMKG.}{fig:p3-credentials-pvmbg}
+
+\subsubsection{Media menerima ringkasan dan tidak dapat meminta data raw}
+Media terlebih dahulu login ke Auth dengan identitas dan secret client-nya sendiri. Respons login disimpan pada file privat untuk digunakan pada request berikutnya. Scope \texttt{hazards:summary} menjadi dasar pembatasan di API.
+\terminalfigure{p3-login-media}{Auth memberikan scope ringkasan dan TTL 60 detik untuk Media.}{fig:p3-login-media}
+
+Access token dari respons login dipasang pada header Authorization ketika Media membaca satu record BMKG. Filter \texttt{keys} menampilkan daftar field yang diterima: jumlahnya tepat tujuh dan tidak mencakup koordinat, \texttt{source\_ref\_id}, maupun \texttt{attributes}.
+\terminalfigure{p3-media}{Field respons Media sesuai dengan kontrak ringkasan.}{fig:p3-media}
+
+Media kemudian mencoba \texttt{view=full} dan \texttt{fields=attributes} melalui dua request tersendiri. Keduanya ditolak dengan 403. Hasil ini menunjukkan bahwa query yang diubah client tidak dapat melewati pembatasan server.
+\terminalfigure{p3-media-denied}{Dua cara meminta data raw sama-sama ditolak untuk token Media.}{fig:p3-media-denied}
+
+\subsection{Expiry dan refresh}
+Alur berikut menggunakan satu sesi Tim Lapangan untuk membandingkan akses sebelum expiry, penolakan setelah expiry, dan pemulihan akses melalui refresh.
+
+Login Tim Lapangan menghasilkan scope \texttt{hazards:summary hazards:raw} dan access token berumur 60 detik. Access token dari respons login digunakan pada request API berikutnya.
+\terminalfigure{p3-login-field-team}{Login Tim Lapangan memberikan izin ringkasan dan data raw.}{fig:p3-login-field-team}
+
+Command berikut membaca payload JWT untuk menampilkan \texttt{iat} dan \texttt{exp}, kemudian menghitung selisihnya. Decoding pada terminal hanya digunakan untuk inspeksi claim; verifikasi token tetap dilakukan API ketika request dikirim. Selisihnya 60 detik dan token yang belum expired memperoleh 200.
+\terminalfigure{p3-token-before}{Memeriksa TTL dari claim dan menggunakan access token sebelum expiry.}{fig:p3-token-before}
+
+Selanjutnya, loop menunggu wall clock melewati \texttt{exp} dari token yang sama. Request API setelah batas tersebut menghasilkan 401.
+\terminalfigure{p3-expiry}{Token lama ditolak setelah waktu expiry terlewati.}{fig:p3-expiry}
+
+Refresh dilakukan dengan mengambil \texttt{refresh\_token} dari file login dan mengirimkannya sebagai body JSON ke Auth. Opsi \texttt{--data-binary @-} mengirim body JSON dari pipeline, yang berisi refresh token dari respons login. Respons baru disimpan pada file lain dan menunjukkan TTL 60 detik serta scope yang sama. Tidak ada request login pada langkah ini.
+\terminalfigure{p3-refresh}{Mendapatkan token baru melalui refresh tanpa login ulang.}{fig:p3-refresh}
+
+Token baru kemudian mendapat 200 ketika digunakan ke API, sementara token lama tetap mendapat 401. Trial integrasi melengkapi alur ini dengan pemeriksaan sesi refresh setelah restart Auth, replay refresh token, dan penggunaan JWT yang masih valid ketika Auth berhenti. Hasilnya tersedia pada \texttt{integration.json}.
+\terminalfigure{p3-refreshed-access}{Token baru dapat digunakan, sedangkan access token lama tetap expired.}{fig:p3-refreshed-access}
+
+Tabel berikut menghubungkan hasil pengujian dan pemeriksaan konfigurasi dengan kriteria P3.
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2cm}Y}
+\toprule
+Kriteria & Bukti \\
+\midrule
+P3.1 & Empat request pada Gambar~\ref{fig:p3-credentials-bmkg} dan \ref{fig:p3-credentials-pvmbg}. \\
+P3.2 & Tujuh field Media dan penolakan 403 pada Gambar~\ref{fig:p3-media} serta \ref{fig:p3-media-denied}. \\
+P3.3 & TTL, expiry alami, refresh, serta pemeriksaan token lama dan baru pada Gambar~\ref{fig:p3-token-before}--\ref{fig:p3-refreshed-access}. \\
+P3.4 & Secret pada \texttt{.env.example} kosong; \texttt{.env} dan \texttt{.secrets/} diabaikan Git serta dikecualikan dari build context. Key dan sesi tersimpan pada volume privat. \\
+P3.5 & Mekanisme pemisahan credential, verifikasi JWT, dan perlindungan refresh token pada Bagian~\ref{sec:p3-di-laporan}, beserta batas keamanannya. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Menelusuri request dengan correlation ID}
+Selain hasil respons, alur request dapat ditelusuri melalui log ber-correlation ID. Pada contoh berikut, client mengirim header \texttt{X-Correlation-ID}, lalu Client API meneruskannya ke Aggregator. ID yang sama menghubungkan catatan dari kedua service, sehingga operasi di balik satu request dapat diperiksa.
+\terminalfigure{correlation-request}{Request client dengan correlation ID yang ditentukan secara eksplisit.}{fig:correlation-request}
+
+Command log kemudian memilih catatan dengan ID tersebut. Keluaran menunjukkan operasi API, pembacaan upstream, dan operasi Aggregator yang semuanya memiliki correlation ID sama.
+\terminalfigure{correlation}{Log kedua service dapat ditelusuri melalui correlation ID yang sama.}{fig:correlation}
+
+\section{Jawaban atas Butir ``Di laporan''}
+\label{sec:p3-di-laporan}
+Pemisahan domain of trust dilakukan dengan credential berbeda untuk BMKG, PVMBG, API internal Aggregator, dan ketiga identitas client. Client API memeriksa scope di server sebelum mengambil data, sehingga credential Media tidak dapat digunakan untuk memperoleh field raw.
+
+JWT RS256 memungkinkan API memverifikasi token dengan public key tanpa memperoleh private key penerbitnya. API memeriksa signature, issuer, audience, expiry, dan scope, serta membatasi algoritma verifikasi. Refresh token disimpan sebagai hash, dirotasi setiap penggunaan, dan memiliki batas umur sesi; penggunaan ulang token refresh membatalkan keluarga sesi tersebut. Credential dan key disediakan melalui konfigurasi privat, bukan di-hardcode pada source atau image.
+
+Perlindungan ini masih dibatasi oleh access JWT yang belum dapat dicabut langsung, serta TLS internal dan rotasi key yang belum diterapkan. Konsekuensinya dibahas pada bagian Batasan yang Disadari.

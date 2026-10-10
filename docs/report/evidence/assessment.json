@@ -1,0 +1,13 @@
+{
+  "tcp_threshold": 50,
+  "sampling_interval_seconds": 1,
+  "longest_sampled_interval_seconds": 89.002,
+  "interval_start_seconds": 2.022,
+  "interval_end_seconds": 91.024,
+  "peak_connections": 60,
+  "bmkg_p95_ms": 124.521589,
+  "hazard_error_percent": 0.03396047001290498,
+  "source_delay_observed_ms": 3004.4631079999817,
+  "load_passed": true,
+  "passed": true
+}
