@@ -50,7 +50,6 @@ var ErrOutboxCapacity = errors.New("outbox capacity reached")
 var errEventTooLarge = errors.New("event exceeds the publication size limit")
 
 type Store struct {
-	db                                                      *sql.DB // shared-pool compatibility constructor for integration tests
 	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB *sql.DB
 	staleAfter                                              time.Duration
 	readTimeout, writeTimeout                               time.Duration
@@ -81,7 +80,7 @@ func NewWithPools(readDB, bmkgWriteDB, pvmbgWriteDB, relayDB *sql.DB, staleAfter
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Second
 	}
-	return &Store{db: bmkgWriteDB, readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
+	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
 }
 
 func (s *Store) SetMaxEnvelopeBytes(limit int) {
@@ -376,7 +375,6 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return fmt.Errorf("insert outbox message: %w", err)
 	}
-	_ = content
 	return nil
 }
 
