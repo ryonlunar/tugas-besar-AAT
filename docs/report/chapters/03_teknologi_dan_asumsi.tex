@@ -90,7 +90,7 @@ cp .env.example .env
 set -a
 . ./.env
 set +a
-mkdir -p .secrets
+mkdir -p .secrets/report-session /tmp/report-session
 chmod 700 .secrets
 (umask 077; openssl genpkey -algorithm RSA \
   -pkeyopt rsa_keygen_bits:2048 -out .secrets/jwt-private.pem)

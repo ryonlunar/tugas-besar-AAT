@@ -1,9 +1,0 @@
-$ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
->   -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" \
->   'http://127.0.0.1:8280/v1/hazards?view=full'
-HTTP 403
-
-$ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' \
->   -H "Authorization: Bearer $MEDIA_ACCESS_TOKEN" \
->   'http://127.0.0.1:8280/v1/hazards?fields=attributes'
-HTTP 403

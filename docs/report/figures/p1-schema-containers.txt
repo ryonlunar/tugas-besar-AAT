@@ -1,6 +1,0 @@
-$ docker inspect $(docker compose ps -q) \
->   | jq -S 'sort_by(.Name) | map({name: .Name, id: .Id,
->       started_at: .State.StartedAt, restarts: .RestartCount})' > /tmp/report-session/schema-after.json
-> diff -s /tmp/report-session/schema-before.json \
->   /tmp/report-session/schema-after.json
-Files /tmp/report-session/schema-before.json and /tmp/report-session/schema-after.json are identical
