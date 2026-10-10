@@ -60,15 +60,18 @@ Sebelum beban diberikan, delay mock diatur dengan body \texttt{min\_ms} dan \tex
 
 Collector TCP dijalankan bersamaan dengan load test untuk mengukur jumlah koneksi established selama beban berlangsung. Kedua proses dimulai dari root repo dengan command berikut:
 \begin{lstlisting}
-export API_URL=http://127.0.0.1:8280
-export AUTH_URL=http://127.0.0.1:8284
+export API_URL="http://127.0.0.1:${API_HTTP_PORT:-8080}"
+export AUTH_URL="http://127.0.0.1:${AUTH_HTTP_PORT:-8084}"
 python3 scripts/load/capture-tcp-connections.py \
   --api-url "$API_URL" --seconds 110 --interval 1 \
   --output /tmp/report-tcp.json &
 tcp_pid=$!
 python3 scripts/load/hazards-monotonic.py \
   --seconds 90 --vus-per-source 30 --output /tmp/report-load.json
+load_exit=$?
 wait "$tcp_pid"
+tcp_exit=$?
+test "$load_exit" -eq 0 && test "$tcp_exit" -eq 0
 \end{lstlisting}
 Hasil load test tersimpan di \path{docs/report/evidence/load.json}. Field yang diperiksa meliputi jumlah worker, durasi pengujian, p95 BMKG, throughput, dan persentase error.
 \terminalfigure{p2-load}{Membaca hasil load test dari berkas pengukuran yang disimpan.}{fig:p2-load}

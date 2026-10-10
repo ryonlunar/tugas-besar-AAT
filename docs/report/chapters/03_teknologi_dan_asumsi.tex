@@ -83,10 +83,13 @@ Secara default, kedua mock memulai dengan 20 record historis dan menambah record
 Sistem dijalankan dari root repository menggunakan Docker Compose. Persiapan meliputi pengisian credential lokal dan pembuatan pasangan RSA untuk JWT. Ringkasan berikut mengikuti petunjuk pada \texttt{scripts/README.md}; README root menjadi titik masuk dokumentasi repository.
 
 \subsection{Urutan Menjalankan Demo}
-Salin \texttt{.env.example} menjadi \texttt{.env}, lalu isi secret berbeda untuk setiap domain dan client serta tentukan \texttt{COMPOSE\_PROJECT\_NAME}. Untuk setup pertama, buat pasangan key RSA dan muat ke volume private/public yang terpisah:
+Salin \texttt{.env.example} menjadi \texttt{.env}, lalu isi secret berbeda untuk setiap domain dan client serta tentukan \texttt{COMPOSE\_PROJECT\_NAME}. Muat konfigurasi tersebut ke environment shell agar command HTTP dan script load test dapat menggunakan credential yang sama dengan Compose. Untuk setup pertama, buat pasangan key RSA dan muat ke volume private/public yang terpisah:
 \begin{lstlisting}
 cp .env.example .env
 # Isi konfigurasi dan credential lokal pada .env.
+set -a
+. ./.env
+set +a
 mkdir -p .secrets
 chmod 700 .secrets
 (umask 077; openssl genpkey -algorithm RSA \
@@ -97,16 +100,18 @@ python3 scripts/setup-jwt-keys.py
 docker compose config --quiet
 docker compose up --build -d --wait
 \end{lstlisting}
-Pada startup berikutnya, gunakan pasangan key yang sudah ada. Setelah service siap, client login ke Auth untuk memperoleh token sebelum membaca API. Consumer ketiga dapat ditambahkan melalui profil demo:
+Pada startup berikutnya, gunakan pasangan key yang sudah ada. Tangkapan layar laporan menggunakan port 8280--8284 untuk API, BMKG, PVMBG, Aggregator, dan Auth secara berurutan. Untuk mengulang command tersebut, sesuaikan port listener dan base URL antarservice pada \texttt{.env}. Setelah service siap, client login ke Auth untuk memperoleh token sebelum membaca API. Consumer ketiga dapat ditambahkan melalui profil demo:
 \begin{lstlisting}
 docker compose --profile demo up -d --no-deps third-consumer
 \end{lstlisting}
 
+\noindent\begin{minipage}{\textwidth}
 Trial integrasi memeriksa schema, token, outage, penggantian container, dan recovery consumer:
 \begin{lstlisting}
 python3 scripts/verify-integration.py --scenario all \
   --output docs/evidence/integration-trial.json
 \end{lstlisting}
+\end{minipage}
 Trial ini mengubah kontrol sumber dan menghentikan beberapa service sementara, sehingga dijalankan pada stack khusus eksperimen. Hasil setiap problem dibahas pada Bab 4--8.
 
 \subsection{Lingkungan dan Cakupan Pengujian}
