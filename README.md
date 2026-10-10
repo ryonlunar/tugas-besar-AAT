@@ -1,8 +1,65 @@
-# IF4031: Koordinasi Kebencanaan M1
+<a id="readme-top"></a>
 
-Sistem ini menggabungkan data simulasi BMKG dan PVMBG menjadi `HazardEvent`. Aggregator menyimpan data di PostgreSQL, Client API membatasi akses berdasarkan identitas client, dan NATS JetStream mendistribusikan event ke Dashboard dan Notifier.
+<div align="center">
+  <h3 align="center">IF4031/AAT - Koordinasi Kebencanaan M1</h3>
+  <p align="center">
+    Tugas Besar IF4031 Arsitektur Aplikasi Terdistribusi<br/>
+    Milestone 1 · DikejarDeadline
+  </p>
+</div>
+
+<div align="center">
+  <br/>
+  <img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/NATS_JetStream-27AAE1?style=for-the-badge&logo=natsdotio&logoColor=white" alt="NATS JetStream" />
+  <img src="https://img.shields.io/badge/Docker_Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Compose" />
+</div>
+
+---
+
+<details>
+  <summary>Daftar Isi</summary>
+  <ol>
+    <li><a href="#latar-belakang">Latar belakang</a></li>
+    <li><a href="#arsitektur">Arsitektur</a></li>
+    <li><a href="#menjalankan-aplikasi">Menjalankan aplikasi</a></li>
+    <li><a href="#variabel-konfigurasi">Variabel konfigurasi</a></li>
+    <li><a href="#pengujian-per-problem">Pengujian per problem</a>
+      <ul>
+        <li><a href="#problem-1">P1: Arsitektur &amp; Interoperabilitas Data</a></li>
+        <li><a href="#problem-2">P2: Concurrency, Availability, &amp; Graceful Degradation</a></li>
+        <li><a href="#problem-3">P3: Service-to-Service Authentication &amp; Trust</a></li>
+        <li><a href="#problem-4">P4: Arsitektur Microservice &amp; Flexible Storage</a></li>
+        <li><a href="#problem-5">P5: Fan-out Event Distribution/Pub-Sub</a></li>
+      </ul>
+    </li>
+    <li><a href="#log-dan-menghentikan-sistem">Log dan menghentikan sistem</a></li>
+    <li><a href="#lokasi-kode-dan-laporan">Lokasi kode dan laporan</a></li>
+  </ol>
+</details>
+
+## Latar belakang
+
+Repositori ini berisi implementasi Milestone 1 untuk tugas besar IF4031 Arsitektur Aplikasi Terdistribusi. Tugas ini mengangkat kebutuhan BNPB untuk menyatukan informasi gempa dan tsunami dari BMKG serta aktivitas gunung api dari PVMBG, agar dapat digunakan oleh Media, Tim Lapangan, dan BNPB internal.
+
+Pada implementasi ini, kedua instansi disimulasikan melalui mock dengan data sintetis. Sistem menyatukan data dalam format `HazardEvent` dan menyediakan akses melalui API serta distribusi event, dengan pengujian perubahan skema, ketahanan layanan, dan hak akses client.
 
 Panduan berikut menjalankan sistem dari clone baru dan mengulang skenario P1–P5 dalam [laporan M1](docs/report/IF4031_M1_DikejarDeadline.pdf). ID dan waktu pada data sintetis berubah setiap sesi; hasil latency dan throughput bergantung pada mesin pengujian.
+
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
+
+## Arsitektur
+
+![Diagram arsitektur sistem dari laporan M1](docs/assets/report-architecture.png)
+
+Panah hitam menunjukkan arah request HTTP/SQL, sedangkan panah berwarna menunjukkan distribusi event melalui NATS. Third Consumer bersifat opsional dan digunakan untuk menguji penambahan consumer pada P5.
+
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
 
 ## Menjalankan aplikasi
 
@@ -74,6 +131,10 @@ mkdir -p "$EVIDENCE_DIR"
 
 Hasil baru disimpan di `$EVIDENCE_DIR`, terpisah dari bukti pengukuran yang sudah ada di laporan. Jalankan skenario secara berurutan; beberapa pengujian mengubah kontrol mock atau menghentikan service sementara.
 
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
+
 ## Variabel konfigurasi
 
 [.env.example](.env.example) memuat seluruh nilai default. Pertahankan profil berikut untuk mengulang pengujian laporan: seed 20 record, event baru setiap 10 detik, polling 5 detik, PVMBG skema 1 tanpa outage, dan access token 60 detik. P2 mengubah delay PVMBG menjadi 3000 ms selama load test.
@@ -108,7 +169,13 @@ Hasil baru disimpan di `$EVIDENCE_DIR`, terpisah dari bukti pengukuran yang suda
 
 Jika port service berubah, sesuaikan base URL internalnya. Compose menetapkan alamat PostgreSQL/NATS serta path kunci dan state; nilai variabel tersebut di `.env.example` juga menjadi acuan saat menjalankan binary langsung.
 
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
+
 ## Pengujian per problem
+
+<a id="problem-1"></a>
 
 ### P1: Arsitektur & Interoperabilitas Data
 
@@ -124,6 +191,8 @@ jq '{passed, results}' "$EVIDENCE_DIR/smoke.json"
 Hasil yang diharapkan: `passed: true`, pemetaan BMKG/PVMBG sesuai sumber, dan record PVMBG mempunyai revisi sebelum serta sesudah penambahan `confidence_level` ke `attributes`. Trial memicu perubahan melalui `/admin/schema-version`, lalu membandingkan ID hazard, daftar migration, dan kondisi container untuk memastikan tidak ada restart atau redeploy. Skema dikembalikan ke versi awal setelah trial.
 
 Trial `smoke` juga memeriksa outage P2 dan hak akses P3. Setiap pemeriksaan dicatat terpisah dalam `results`.
+
+<a id="problem-2"></a>
 
 ### P2: Concurrency, Availability, & Graceful Degradation
 
@@ -185,6 +254,8 @@ curl -fsS -X POST "$PVMBG_URL/admin/delay" \
   -H 'Content-Type: application/json' -d '{"min_ms":500,"max_ms":3000}'
 ```
 
+<a id="problem-3"></a>
+
 ### P3: Service-to-Service Authentication & Trust
 
 Bandingkan credential sumber secara langsung. Dua command pertama harus menghasilkan 200; dua berikutnya harus ditolak dengan 401/403:
@@ -213,6 +284,8 @@ Hasil yang diharapkan: JWT yang masih valid tetap dapat dipakai saat Auth berhen
 
 Secret dihasilkan lokal pada setup. `.env` dan kunci privat diabaikan Git; `.env.example` hanya memuat nilai secret kosong.
 
+<a id="problem-4"></a>
+
 ### P4: Arsitektur Microservice & Flexible Storage
 
 Periksa tipe kolom, migration, riwayat, dan outbox melalui service pemilik Canonical Store:
@@ -230,6 +303,8 @@ docker compose config --format json \
 Output harus menunjukkan kolom dokumen bertipe JSONB, hanya Aggregator dan PostgreSQL berada di `store-net`, serta PostgreSQL tidak memublikasikan port ke host. Trial P1 membuktikan revisi v1/v2 tetap terbaca dengan migration yang sama.
 
 Pemeriksaan rebuild dijalankan bersama P5 melalui skenario `events` di bawah. Hasil `consumer rebuild while API remains available` harus menunjukkan seluruh request API menerima 200 dan kondisi container lain tetap sama.
+
+<a id="problem-5"></a>
 
 ### P5: Fan-out Event Distribution/Pub-Sub
 
@@ -256,6 +331,10 @@ docker compose exec -T third-consumer /notifier-consumer inspect | jq .
 
 Durable memiliki posisi ACK sendiri. Inbox setiap consumer harus terisi dan `quarantine_count` harus nol pada data mock normal. Recovery dibuktikan dengan ACK yang melewati target gangguan; `pending: 0` saja belum cukup karena masih mungkin ada pesan menunggu ACK.
 
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
+
 ## Log dan menghentikan sistem
 
 Untuk menelusuri request trial lewat correlation ID:
@@ -271,6 +350,10 @@ Hentikan seluruh stack, termasuk consumer demo, dengan tetap menyimpan volume da
 docker compose --profile demo down
 ```
 
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
+
+---
+
 ## Lokasi kode dan laporan
 
 | Lokasi | Isi |
@@ -280,3 +363,5 @@ docker compose --profile demo down
 | [docker-compose.yml](docker-compose.yml) | Container, network, dan volume |
 | [scripts/](scripts/README.md) | Runner integrasi, load test, dan utilitas pengujian |
 | [docs/report/](docs/report/README.md) | PDF, sumber LaTeX, dan bukti pengukuran laporan |
+
+<div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
