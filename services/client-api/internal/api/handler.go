@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -19,9 +20,12 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 type Config struct {
+	DiscoveryHost                                  string
 	PublicKey                                      *rsa.PublicKey
 	Issuer, Audience, AggregatorURL, AggregatorKey string
 	Timeout                                        time.Duration
@@ -29,10 +33,11 @@ type Config struct {
 	Now                                            func() time.Time
 }
 type Handler struct {
-	cfg      Config
-	client   *http.Client
-	mux      *http.ServeMux
-	inflight chan struct{}
+	discovery *backendPool
+	cfg       Config
+	client    *http.Client
+	mux       *http.ServeMux
+	inflight  chan struct{}
 }
 type claims struct {
 	Scope string `json:"scope"`
@@ -58,10 +63,13 @@ func NewHandler(cfg Config) *Handler {
 	transport.MaxIdleConnsPerHost = cfg.MaxInflight + 1
 	transport.MaxIdleConns = cfg.MaxInflight + 1
 	transport.MaxConnsPerHost = cfg.MaxInflight + 1
-	client := &http.Client{Timeout: cfg.Timeout, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+	client := &http.Client{Timeout: cfg.Timeout, Transport: telemetry.HTTPTransport(transport), CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return errors.New("Aggregator redirects are not allowed")
 	}}
 	h := &Handler{cfg: cfg, client: client, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
+	if cfg.DiscoveryHost != "" {
+		h.discovery = &backendPool{host: cfg.DiscoveryHost, lookup: net.DefaultResolver.LookupHost, failed: map[string]time.Time{}}
+	}
 	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	h.mux.HandleFunc("GET /ready", h.ready)
 	h.mux.Handle("GET /v1/hazards", h.admit(http.HandlerFunc(h.list)))
@@ -81,7 +89,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	slog.Info("request complete", "service", "client-api", "operation", r.Method+" "+r.URL.Path, "correlation_id", corr, "duration_ms", time.Since(started).Milliseconds(), "status", status)
+	slog.InfoContext(r.Context(), "request complete", "trace_id", telemetry.TraceID(r.Context()), "service", "client-api", "operation", r.Method+" "+r.URL.Path, "correlation_id", corr, "duration_ms", time.Since(started).Milliseconds(), "status", status)
 }
 
 type responseRecorder struct {
@@ -117,7 +125,7 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("X-Correlation-ID", corrID(r))
-	resp, err := h.client.Do(req)
+	resp, err := h.readUpstream(req)
 	if err != nil {
 		writeError(w, 503, "DEPENDENCY_UNAVAILABLE", "Aggregator is not ready", corrID(r))
 		return
@@ -195,10 +203,14 @@ func validateList(w http.ResponseWriter, r *http.Request, scope, corr string) bo
 		}
 	}
 	for name, vals := range q {
-		if len(vals) != 1 || (name != "source" && name != "view" && name != "limit" && name != "offset") {
+		if len(vals) != 1 || (name != "source" && name != "view" && name != "limit" && name != "offset" && name != "cursor") {
 			writeError(w, 400, "INVALID_QUERY", "Query parameters are invalid", corr)
 			return false
 		}
+	}
+	if q.Has("cursor") && (q.Get("cursor") == "" || len(q.Get("cursor")) > 4096 || q.Has("offset")) {
+		writeError(w, 400, "INVALID_QUERY", "Use a cursor without an offset", corr)
+		return false
 	}
 	if q.Get("source") != "" && q.Get("source") != "BMKG" && q.Get("source") != "PVMBG" {
 		writeError(w, 400, "INVALID_QUERY", "Query parameters are invalid", corr)
@@ -262,7 +274,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, scope, path stri
 	}
 	req.Header.Set("X-Internal-Key", h.cfg.AggregatorKey)
 	req.Header.Set("X-Correlation-ID", corrID(r))
-	resp, err := h.client.Do(req)
+	resp, err := h.readUpstream(req)
 	if err != nil {
 		reason := "UPSTREAM_REQUEST_FAILED"
 		if errors.Is(err, context.DeadlineExceeded) {

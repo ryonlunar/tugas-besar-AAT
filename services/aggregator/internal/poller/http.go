@@ -10,8 +10,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
+
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 type correlationIDContextKey struct{}
@@ -114,7 +117,7 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 		if err != nil {
 			outcome = "failed"
 		}
-		slog.Info("source request complete", "service", "aggregator", "operation", "source_read", "source", source, "path", label, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", status, "outcome", outcome)
+		slog.InfoContext(ctx, "source request complete", "trace_id", telemetry.TraceID(ctx), "service", "aggregator", "operation", "source_read", "source", source, "path", label, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", status, "outcome", outcome)
 	}()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
@@ -123,6 +126,9 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 	req.Header.Set("Accept", "application/json")
 	if sourceIDPattern.MatchString(correlationID) {
 		req.Header.Set("X-Correlation-ID", correlationID)
+	}
+	if instance := os.Getenv("POD_NAME"); len(instance) > 0 && len(instance) <= 128 {
+		req.Header.Set("X-Aggregator-Instance", instance)
 	}
 	auth(req)
 	resp, err := client.Do(req)

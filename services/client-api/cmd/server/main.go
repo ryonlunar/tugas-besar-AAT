@@ -48,7 +48,12 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	handler := api.NewHandler(api.Config{PublicKey: key, Issuer: cfg.issuer, Audience: cfg.audience, AggregatorURL: cfg.aggregatorURL, AggregatorKey: cfg.aggregatorKey, Timeout: cfg.timeout, MaxInflight: cfg.maxInflight})
+	handler := api.NewHandler(api.Config{PublicKey: key, Issuer: cfg.issuer, Audience: cfg.audience, AggregatorURL: cfg.aggregatorURL, AggregatorKey: cfg.aggregatorKey, Timeout: cfg.timeout, DiscoveryHost: os.Getenv("AGGREGATOR_DISCOVERY_HOST"), MaxInflight: cfg.maxInflight})
+	closeTracing, traceErr := telemetry.StartTracing("client-api")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
 	monitor := telemetry.New()
 	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + cfg.port + "/ready")
 	if err != nil {

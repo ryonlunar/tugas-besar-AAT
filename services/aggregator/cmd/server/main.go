@@ -19,16 +19,25 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/poller"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "migrate-shards" {
+		if err := runShardMigration(); err != nil {
+			fmt.Fprintln(os.Stderr, "shard migration failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		port, err := strconv.Atoi(env("AGGREGATOR_HTTP_PORT", "8083"))
 		if err != nil || port < 1 || port > 65535 || probeReadiness(&http.Client{Timeout: time.Second}, "http://127.0.0.1:"+strconv.Itoa(port)) != nil {
@@ -50,7 +59,7 @@ func main() {
 		}
 		return
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("instance", env("POD_NAME", "aggregator"))
 	slog.SetDefault(logger)
 	if err := run(logger); err != nil {
 		logger.Error("aggregator stopped", "reason", "STARTUP_OR_SERVER_FAILURE")
@@ -63,44 +72,22 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	readDB, err := openDB(cfg.databaseURL, cfg.readConns)
+	closeTracing, traceErr := telemetry.StartTracing("aggregator")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
+	monitor := telemetry.New()
+	repository, closeRepository, err := openRepository(cfg, monitor.Registry)
 	if err != nil {
 		return err
 	}
-	defer readDB.Close()
-	bmkgDB, err := openDB(cfg.databaseURL, cfg.bmkgWriteConns)
-	if err != nil {
-		return err
-	}
-	defer bmkgDB.Close()
-	pvmbgDB, err := openDB(cfg.databaseURL, cfg.pvmbgWriteConns)
-	if err != nil {
-		return err
-	}
-	defer pvmbgDB.Close()
-	relayDB, err := openDB(cfg.databaseURL, cfg.relayConns)
-	if err != nil {
-		return err
-	}
-	defer relayDB.Close()
-
-	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer startupCancel()
-	if err := readDB.PingContext(startupCtx); err != nil {
-		return fmt.Errorf("PostgreSQL is unavailable")
-	}
-	repository := store.NewWithPools(readDB, bmkgDB, pvmbgDB, relayDB, cfg.staleAfter)
-	repository.SetTimeouts(cfg.dbReadTimeout, cfg.dbWriteTimeout)
-	repository.SetOutboxLimit(cfg.outboxMaxPending)
-	repository.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
-	if err := repository.Migrate(startupCtx); err != nil {
-		return fmt.Errorf("apply Aggregator migrations: %w", err)
-	}
+	defer closeRepository()
 
 	publisher, err := broker.NewJetStreamPublisher(broker.JetStreamConfig{
 		URL: cfg.natsURL, Token: cfg.natsToken, Stream: cfg.natsStream,
 		Subjects: []string{store.SubjectBMKG, store.SubjectPVMBG}, StreamSubjects: []string{store.SubjectFilter},
-		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second,
+		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second, Replicas: cfg.natsReplicas,
 	})
 	if err != nil {
 		return err
@@ -112,14 +99,12 @@ func run(logger *slog.Logger) error {
 	}
 	relay.SetLogger(logger)
 	pollerService := poller.New(repository,
-		poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout}, cfg.maxResponseBytes),
-		poller.NewPVMBGClient(cfg.pvmbgURL, cfg.pvmbgToken, &http.Client{Timeout: cfg.pvmbgTimeout}, cfg.maxResponseBytes),
+		poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes),
+		poller.NewPVMBGClient(cfg.pvmbgURL, cfg.pvmbgToken, &http.Client{Timeout: cfg.pvmbgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes),
 		mapper.New(mapper.DefaultVolcanoLocations()), logger)
 	pollerService.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
 
-	monitor := telemetry.New()
-	monitor.Registry.MustRegister(repository.MetricsCollector())
 	pollerService.Observe = monitor.ObserveOperation
 	relay.Observe = monitor.ObserveOperation
 	closeMetrics, err := monitor.Listen("http://127.0.0.1" + cfg.listenAddr + "/ready")
@@ -131,7 +116,16 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	waitForWorkers := startBackgroundTasks(
 		func() {
-			if err := pollerService.Run(ctx, cfg.pollInterval); err != nil && ctx.Err() == nil {
+			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
+			if distributed, ok := repository.(*sharded.Store); ok {
+				run = func() error {
+					return distributed.Coordinate(ctx, cfg.sourceIdle, cfg.sourceRetry, logger,
+						func(ctx context.Context, source contracts.Source) error {
+							return pollerService.RunSource(ctx, source, cfg.pollInterval)
+						})
+				}
+			}
+			if err := run(); err != nil && ctx.Err() == nil {
 				logger.Error("source polling stopped", "reason", "POLL_LOOP_FAILURE")
 			}
 		},
@@ -212,6 +206,9 @@ func openDB(dsn string, maxConns int) (*sql.DB, error) {
 }
 
 type config struct {
+	shardConfigFile                                        string
+	sourceIdle, sourceRetry                                time.Duration
+	natsReplicas                                           int
 	listenAddr                                             string
 	bmkgURL, pvmbgURL, bmkgKey, pvmbgToken, internalKey    string
 	databaseURL                                            string
@@ -248,7 +245,8 @@ func loadConfig() (config, error) {
 	database := env("POSTGRES_DB", "aat")
 	user := env("POSTGRES_USER", "aat_aggregator")
 	password := os.Getenv("POSTGRES_PASSWORD")
-	if password == "" {
+	c.shardConfigFile = strings.TrimSpace(os.Getenv("SHARD_CONFIG_FILE"))
+	if password == "" && c.shardConfigFile == "" {
 		return config{}, errors.New("Aggregator PostgreSQL password must be set")
 	}
 	sslmode := env("POSTGRES_SSLMODE", "disable")
@@ -316,6 +314,21 @@ func loadConfig() (config, error) {
 	c.natsStream = env("NATS_STREAM_NAME", "HAZARD_EVENTS")
 	if c.natsToken == "" {
 		return config{}, errors.New("NATS_TOKEN must be set")
+	}
+	if c.natsReplicas, err = envInt("NATS_STREAM_REPLICAS", 1, 1, 5); err != nil {
+		return config{}, err
+	}
+	if c.natsReplicas != 1 && c.natsReplicas != 3 && c.natsReplicas != 5 {
+		return config{}, errors.New("NATS_STREAM_REPLICAS must be 1, 3, or 5")
+	}
+	if c.sourceIdle, err = envDuration("SOURCE_SESSION_IDLE_TIMEOUT", "10s"); err != nil {
+		return config{}, err
+	}
+	if c.sourceRetry, err = envDuration("SOURCE_RETRY_INTERVAL", "2s"); err != nil {
+		return config{}, err
+	}
+	if c.sourceIdle < time.Second || c.sourceRetry <= 0 {
+		return config{}, errors.New("invalid source ownership timeouts")
 	}
 	if c.natsPublishTimeout, err = envDuration("NATS_PUBLISH_TIMEOUT", "2s"); err != nil {
 		return config{}, err

@@ -10,9 +10,12 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
+	"go.opentelemetry.io/otel"
 )
 
 type JetStreamConfig struct {
+	Replicas        int
 	URL             string
 	Token           string
 	Stream          string
@@ -35,12 +38,19 @@ type JetStreamPublisher struct {
 
 // MessageFits counts the payload and encoded message-ID header against the stream limit.
 func MessageFits(payload []byte, messageID string, maxBytes int) bool {
+	return MessageFitsWithContext(context.Background(), payload, messageID, maxBytes)
+}
+
+func MessageFitsWithContext(ctx context.Context, payload []byte, messageID string, maxBytes int) bool {
 	if messageID == "" || maxBytes <= 0 {
 		return false
 	}
 	msg := nats.NewMsg("")
 	msg.Data = payload
 	msg.Header.Set(nats.MsgIdHdr, messageID)
+	for key, value := range telemetry.TraceHeaders(ctx) {
+		msg.Header.Set(key, value)
+	}
 	return msg.Size() <= maxBytes
 }
 
@@ -48,6 +58,12 @@ func MessageFits(payload []byte, messageID string, maxBytes int) bool {
 const MinDuplicateWindow = 100 * time.Millisecond
 
 func NewJetStreamPublisher(config JetStreamConfig) (*JetStreamPublisher, error) {
+	if config.Replicas == 0 {
+		config.Replicas = 1
+	}
+	if config.Replicas != 1 && config.Replicas != 3 && config.Replicas != 5 {
+		return nil, errors.New("NATS replicas must be 1, 3, or 5")
+	}
 	if config.DuplicateWindow < MinDuplicateWindow {
 		return nil, fmt.Errorf("NATS duplicate window must be at least %s", MinDuplicateWindow)
 	}
@@ -76,10 +92,12 @@ func NewJetStreamPublisher(config JetStreamConfig) (*JetStreamPublisher, error) 
 }
 
 func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payload []byte, messageID string) error {
+	ctx, span := otel.Tracer("aat/broker").Start(ctx, "nats.publish")
+	defer span.End()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !MessageFits(payload, messageID, int(p.config.MaxMsgSize)) {
+	if !MessageFitsWithContext(ctx, payload, messageID, int(p.config.MaxMsgSize)) {
 		return errors.New("NATS message violates configured envelope limits")
 	}
 	allowed := false
@@ -103,6 +121,9 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, subject string, payloa
 	msg := nats.NewMsg(subject)
 	msg.Data = append([]byte(nil), payload...)
 	msg.Header.Set(nats.MsgIdHdr, messageID)
+	for key, value := range telemetry.TraceHeaders(ctx) {
+		msg.Header.Set(key, value)
+	}
 	if _, err := p.js.PublishMsg(msg, nats.Context(ctx)); err != nil {
 		return errors.New("JetStream publish was not acknowledged")
 	}
@@ -131,7 +152,7 @@ func (p *JetStreamPublisher) ensureConnectedLocked(ctx context.Context) error {
 			connectTimeout = remaining
 		}
 	}
-	conn, err := nats.Connect(p.config.URL, nats.Token(p.config.Token), nats.Name("aat-aggregator-outbox"), nats.Timeout(connectTimeout))
+	conn, err := nats.Connect(p.config.URL, nats.Token(p.config.Token), nats.Name("aat-aggregator-outbox"), nats.Timeout(connectTimeout), nats.PingInterval(2*time.Second), nats.MaxPingsOutstanding(2), nats.ReconnectWait(250*time.Millisecond))
 	if err != nil {
 		return err
 	}
@@ -156,7 +177,7 @@ func (p *JetStreamPublisher) ensureStreamLocked(ctx context.Context) error {
 		Subjects:   append([]string(nil), p.config.StreamSubjects...),
 		Retention:  nats.LimitsPolicy,
 		Storage:    nats.FileStorage,
-		Replicas:   1,
+		Replicas:   p.config.Replicas,
 		MaxAge:     p.config.MaxAge,
 		MaxBytes:   p.config.MaxBytes,
 		MaxMsgs:    p.config.MaxMsgs,

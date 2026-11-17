@@ -37,6 +37,8 @@ type Page struct {
 	UnavailableUnits []string                `json:"unavailable_units"`
 }
 
+var ErrInvalidCursor = errors.New("invalid cursor or changed query scope")
+
 type cursor struct {
 	Version int
 	Source  contracts.Source
@@ -76,12 +78,12 @@ func ReadPage(ctx context.Context, readers []Reader, query Query, unitTimeout ti
 	var after *Position
 	if token != "" {
 		if len(token) > 4096 {
-			return page, errors.New("invalid cursor")
+			return page, ErrInvalidCursor
 		}
 		raw, err := base64.RawURLEncoding.DecodeString(token)
 		var parsed cursor
 		if err != nil || json.Unmarshal(raw, &parsed) != nil || parsed.Version != 1 || parsed.Source != source || parsed.Units != scope || parsed.After.OccurredAt.IsZero() || parsed.After.HazardID == "" {
-			return page, errors.New("invalid cursor or changed query scope")
+			return page, ErrInvalidCursor
 		}
 		after = &parsed.After
 	}

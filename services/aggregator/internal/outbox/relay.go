@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 )
 
@@ -95,6 +96,10 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 	var failures []error
 	blockedHazards := make(map[string]struct{})
 	for _, message := range messages {
+		queueKey := message.QueueKey
+		if queueKey == "" {
+			queueKey = message.MessageID
+		}
 		if _, blocked := blockedHazards[message.HazardID]; message.HazardID != "" && blocked {
 			continue
 		}
@@ -105,7 +110,7 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 			continue
 		}
 		correlationID := envelopeCorrelationID(message.Envelope)
-		publishCtx, cancel := context.WithTimeout(ctx, r.publishTimeout)
+		publishCtx, cancel := context.WithTimeout(telemetry.RestoreTrace(ctx, message.TraceParent, message.TraceState), r.publishTimeout)
 		publishStarted := time.Now()
 		err := r.publisher.Publish(publishCtx, message.Subject, message.Envelope, message.MessageID)
 		cancel()
@@ -120,7 +125,7 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 			r.logger.WarnContext(ctx, "JetStream publish failed", append(publishAttrs, "reason", "NATS_PUBLISH_FAILED")...)
 			next := r.now().UTC().Add(retryDelay(message.Attempts+1, r.retryMin, r.retryMax))
 			failureStarted := time.Now()
-			if recordErr := r.queue.RecordPublishFailure(ctx, message.MessageID, "NATS_PUBLISH_FAILED", next); recordErr != nil {
+			if recordErr := r.queue.RecordPublishFailure(ctx, queueKey, "NATS_PUBLISH_FAILED", next); recordErr != nil {
 				r.deferLocally(message.MessageID, next)
 				r.logger.ErrorContext(ctx, "outbox retry scheduling failed", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "failed", "reason", "STORE_FAILURE")
 				failures = append(failures, fmt.Errorf("record publish failure: %w", recordErr))
@@ -133,7 +138,7 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 		}
 		r.logger.InfoContext(ctx, "JetStream publish acknowledged", publishAttrs...)
 		markStarted := time.Now()
-		if err := r.queue.MarkPublished(ctx, message.MessageID, r.now().UTC()); err != nil {
+		if err := r.queue.MarkPublished(ctx, queueKey, r.now().UTC()); err != nil {
 			if message.HazardID != "" {
 				blockedHazards[message.HazardID] = struct{}{}
 			}
@@ -141,7 +146,7 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 			failures = append(failures, fmt.Errorf("mark outbox message published: %w", err))
 			next := r.now().UTC().Add(retryDelay(message.Attempts+1, r.retryMin, r.retryMax))
 			failureStarted := time.Now()
-			if recordErr := r.queue.RecordPublishFailure(ctx, message.MessageID, "ACK_PERSIST_FAILED", next); recordErr != nil {
+			if recordErr := r.queue.RecordPublishFailure(ctx, queueKey, "ACK_PERSIST_FAILED", next); recordErr != nil {
 				r.deferLocally(message.MessageID, next)
 				r.logger.ErrorContext(ctx, "outbox retry scheduling failed after acknowledgement error", "operation", "outbox_record_failure", "message_id", message.MessageID, "correlation_id", correlationID, "duration_ms", time.Since(failureStarted).Milliseconds(), "status", "failed", "reason", "STORE_FAILURE")
 				failures = append(failures, fmt.Errorf("schedule retry after acknowledgement persistence failure: %w", recordErr))

@@ -84,6 +84,8 @@ func (s *Session) Cursor() string {
 	return s.cursor
 }
 
+func (s *Session) Generation() int64 { return s.generation }
+
 // Heartbeat must run more frequently than the idle timeout while the adapter is
 // waiting for input. A failure ends the adapter run; the caller must reacquire a
 // new Session. Never reconnect and reuse this Session's cached cursor or token.
@@ -92,7 +94,14 @@ func (s *Session) Heartbeat(ctx context.Context) error {
 	defer cancel()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.conn.Exec(ctx, `SELECT 1`)
+	// A readable former primary is insufficient proof of ownership. Require a
+	// synchronous commit on this session, without changing the generation/cursor.
+	var generation int64
+	err := s.conn.QueryRow(ctx, `UPDATE ingest_sources SET generation=generation
+		WHERE source=$1 AND generation=$2 RETURNING generation`, s.source, s.generation).Scan(&generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrCursorConflict
+	}
 	return err
 }
 
@@ -163,6 +172,16 @@ func (s *Session) Run(ctx context.Context, adapter contracts.SourceAdapter) erro
 	if adapter == nil {
 		return errors.New("source adapter is required")
 	}
+	return s.WithHeartbeat(ctx, func(ctx context.Context) error {
+		return adapter.Run(ctx, s.Cursor(), s.Append)
+	})
+}
+
+// WithHeartbeat runs work only while this dedicated ownership session is alive.
+func (s *Session) WithHeartbeat(ctx context.Context, work func(context.Context) error) error {
+	if work == nil {
+		return errors.New("source work is required")
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	heartbeat := make(chan error, 1)
@@ -190,7 +209,7 @@ func (s *Session) Run(ctx context.Context, adapter contracts.SourceAdapter) erro
 			}
 		}
 	}()
-	err := adapter.Run(ctx, s.Cursor(), s.Append)
+	err := work(ctx)
 	cancel()
 	return errors.Join(err, <-heartbeat)
 }

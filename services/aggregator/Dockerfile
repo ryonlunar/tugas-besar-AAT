@@ -3,6 +3,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 COPY pkg/telemetry ./pkg/telemetry
 RUN go mod download
+COPY contracts ./contracts
 COPY services/aggregator ./services/aggregator
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aggregator ./services/aggregator/cmd/server
 

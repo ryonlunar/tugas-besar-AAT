@@ -74,7 +74,7 @@ func (r *Runner) consume(ctx context.Context) error {
 	correlationID := newCorrelationID()
 	started := time.Now()
 	// Run owns reconnect and durable binding so readiness follows both together.
-	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect())
+	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect(), nats.PingInterval(2*time.Second), nats.MaxPingsOutstanding(2))
 	r.logCall("connect", correlationID, started, err)
 	if err != nil {
 		return fmt.Errorf("connect NATS: %w", err)
