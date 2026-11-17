@@ -13,6 +13,8 @@ JSON Schema untuk data yang dipertukarkan antarservice:
 
 M2 menambahkan `SATELIT/WILDFIRE` dan `SENSOR_PANTAI/COASTAL`. Tipe Go bersama ada di [hazard.go](hazard.go); interface adapter dan keluaran processor ada di [ingestion.go](ingestion.go). Contoh adapter dapat dijalankan dengan `go test ./contracts -run Example -v`. Perubahan ini menyiapkan kontrak; kedua sumber baru belum terhubung ke aplikasi.
 
+Envelope mendukung `hazard.created`, `hazard.updated`, dan `hazard.retracted`. Pada penarikan, `data` memuat snapshot hazard; consumer harus membaca `event_type` untuk menentukan tindakannya. Penarikan memakai revision baru dan tidak menghapus history.
+
 Jalankan dari root repo:
 
 ```sh

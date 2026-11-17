@@ -48,16 +48,16 @@ Pada implementasi ini, kedua instansi disimulasikan melalui mock dengan data sin
 
 Panduan berikut menjalankan sistem dari clone baru dan mengulang skenario P1–P5 dalam [laporan M1](docs/report/IF4031_M1_DikejarDeadline.pdf). ID dan waktu pada data sintetis berubah setiap sesi; hasil latency dan throughput bergantung pada mesin pengujian.
 
-Untuk pengembangan M2 menggunakan k3s, lihat [panduan lingkungan pengembangan](infra/k8s/README.md#multi-node-profile).
+Untuk melanjutkan M2, mulai dari [handoff tim](docs/m2-handoff.md). [Panduan k3s](infra/k8s/README.md#multi-node-profile) memuat setup dan restart, sedangkan [status M2](docs/m2-status.md) merangkum implementasi dan pekerjaan tersisa.
 
-Topologi pengembangan M2 memakai empat node VM Ubuntu pada satu laptop Windows (12 logical CPU, RAM 32 GiB):
+Topologi pengembangan M2 memakai empat node VM Ubuntu pada laptop Windows milik Refki (12 logical CPU, RAM 32 GiB):
 
 | Node | Peran | Alokasi VM |
 |---|---|---|
 | `aat-dev` | Control plane dan worker | 4 vCPU, 8 GiB RAM, disk 30 GiB |
 | `aat-worker-1` hingga `aat-worker-3` | Worker, masing-masing | 2 vCPU, 3 GiB RAM, disk 30 GiB |
 
-Setiap VM memiliki kernel dan disk lokal sendiri. Pengujian kehilangan node menargetkan worker; ketahanan terhadap kehilangan laptop atau control plane belum dicakup.
+Anggota lain dapat memakai mesin berbeda dengan tetap memenuhi ketentuan kernel, placement, dan resource. Setiap VM memiliki kernel dan disk lokal sendiri. Pada setup Refki ini, pengujian kehilangan node menargetkan worker; kehilangan laptop atau control plane belum dicakup.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 

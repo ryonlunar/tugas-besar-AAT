@@ -1,6 +1,6 @@
 # k3s development
 
-Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. Storage and ingestion decisions are described in the [M2 design](../../docs/m2-foundation.md).
+Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. Start with the [team handoff](../../docs/m2-handoff.md) for code entry points and remaining work; storage and ingestion decisions are in the [M2 design](../../docs/m2-foundation.md).
 
 ## Prepare Ubuntu
 
@@ -22,7 +22,7 @@ multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
 From the host repository root, copy its committed runtime files into the VM:
 
 ```sh
-git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md
 multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
 multipass shell aat-dev
 ```
@@ -53,7 +53,7 @@ Metrics are scraped every 5 seconds; the dashboard refreshes every 10 seconds an
 
 ## Multi-node profile
 
-Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. These allocations share one development laptop; they do not provide physical-host fault tolerance. Check host memory and free disk space first.
+Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. These are the reference allocations tested on Refki's Windows laptop (32 GiB RAM, 12 logical CPUs). Teammates may use different machines/providers while preserving kernel, placement, and resource requirements. This single-host setup does not provide physical-host fault tolerance.
 
 With Python 3, Git, and Multipass installed on the host, run from this repository root:
 
@@ -91,6 +91,20 @@ Tracing samples 1% of new traces and follows a parent's sampling decision. Tempo
 In Grafana, open **Explore**, select **Tempo**, choose **Trace ID**, and paste `checks.http_database_trace.trace_id` printed by `check-cluster.py`. That request is explicitly sampled; other log IDs are only stored when sampled. This profile allows Viewer access to Explore and temporary panel edits; changes cannot be saved.
 
 `check-cluster.py` includes the basic checks and verifies placement, PostgreSQL synchronous replication, stream/consumer replicas, a steady-state upstream caller per source, keyset pagination, and a live HTTP-to-database trace. Node replacement, official catalog checksums, and full load/scaling acceptance require separate experiments.
+
+## Durable ingestion and Audit checks
+
+Inside the control VM:
+
+```sh
+cd ~/aat
+python3 scripts/m2/check-foundation.py
+python3 scripts/m2/check-pipeline.py
+```
+
+Add `--exercise-recovery` to the pipeline check to temporarily pause processing, replace one receiving Aggregator, verify preserved inputs, and restore processing. The check also compares a quiescent Audit event scan with the checksum. It reconnects its local port-forward across rollouts and saves recovery results under `.state/m2/check-pipeline-recovery.json`. Read-only checks use `check-pipeline.json`.
+
+`INGEST_PROCESSING_ENABLED=false` pauses processing while durable intake continues, subject to the unfinished-record cap. Set it in `.state/m2/runtime.env` and redeploy to apply it persistently; restore `true` to drain the queue. `AUDIT_TOKEN` is generated in ignored `.state/m2/credentials.json` and injected only into Aggregator. Replace that value with the assistant-issued token and redeploy for assessment. Never place it in the ConfigMap or commit it.
 
 ## Open and inspect
 
