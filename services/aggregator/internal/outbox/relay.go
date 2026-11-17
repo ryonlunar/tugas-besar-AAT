@@ -82,7 +82,13 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 	now := r.now().UTC()
 	readStarted := time.Now()
 	messages, err := r.queue.PendingOutbox(ctx, r.batchSize, now)
-	r.logger.InfoContext(ctx, "outbox pending batch read", "operation", "outbox_read_pending", "duration_ms", time.Since(readStarted).Milliseconds(), "status", statusFor(err))
+	level := slog.LevelInfo
+	if err != nil {
+		level = slog.LevelWarn
+	} else if len(messages) == 0 {
+		level = slog.LevelDebug
+	}
+	r.logger.Log(ctx, level, "outbox pending batch read", "operation", "outbox_read_pending", "duration_ms", time.Since(readStarted).Milliseconds(), "status", statusFor(err), "messages", len(messages))
 	if err != nil {
 		return fmt.Errorf("read pending outbox: %w", err)
 	}

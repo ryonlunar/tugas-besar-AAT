@@ -2,8 +2,9 @@ package jetstreamconsumer
 
 import (
 	"context"
-	"github.com/prometheus/client_golang/prometheus"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type StatsReader interface {

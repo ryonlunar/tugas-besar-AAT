@@ -198,12 +198,14 @@ func (r *Runner) nak(message *nats.Msg, correlationID, messageID, reason string)
 
 func (r *Runner) logCall(operation, correlationID string, started time.Time, err error, details ...any) {
 	if r.Observe != nil && operation != "fetch_idle" {
-		r.Observe(operation, r.Config.Durable, err, time.Since(started))
+		r.Observe(operation, "nats", err, time.Since(started))
 	}
 	outcome := "success"
 	level := slog.LevelInfo
 	if err != nil {
 		outcome, level = "failed", slog.LevelWarn
+	} else if operation == "fetch_idle" {
+		level = slog.LevelDebug
 	}
 	attrs := []any{"operation", operation, "durable", r.Config.Durable, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "outcome", outcome}
 	r.Logger.Log(context.Background(), level, "broker request complete", append(attrs, details...)...)

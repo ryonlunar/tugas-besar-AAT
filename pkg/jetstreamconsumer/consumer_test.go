@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +24,31 @@ type sinkStub struct{}
 
 func (sinkStub) Apply(context.Context, contracts.Envelope, string, uint64) error  { return nil }
 func (sinkStub) Quarantine(context.Context, []byte, string, string, uint64) error { return nil }
+
+func TestIdleFetchIsQuietButDeliveryAndFailuresRemainVisible(t *testing.T) {
+	var logs bytes.Buffer
+	runner := &Runner{Config: Config{Durable: "configured-consumer"}, Logger: slog.New(slog.NewJSONHandler(&logs, nil))}
+	runner.logCall("fetch_idle", "corr-id", time.Now(), nil)
+	if logs.Len() != 0 {
+		t.Fatal("successful idle fetch logged at INFO")
+	}
+	runner.Observe = func(operation, peer string, _ error, _ time.Duration) {
+		if peer != "nats" {
+			t.Errorf("metric peer contains consumer identity: %s", peer)
+		}
+	}
+	runner.logCall("ack", "corr-id", time.Now(), nil, "message_id", "event-id")
+	for _, field := range []string{`"level":"INFO"`, `"durable":"configured-consumer"`, `"correlation_id":"corr-id"`, `"message_id":"event-id"`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Fatalf("delivery log lost %s: %s", field, logs.String())
+		}
+	}
+	logs.Reset()
+	runner.logCall("fetch", "corr-id", time.Now(), errors.New("disconnected"))
+	if !strings.Contains(logs.String(), `"level":"WARN"`) {
+		t.Fatal("fetch failure suppressed")
+	}
+}
 
 func TestConsumerReadinessRecoversAndCancellationInterruptsFetch(t *testing.T) {
 	for _, expiry := range []time.Duration{100 * time.Millisecond, 30 * time.Second} {

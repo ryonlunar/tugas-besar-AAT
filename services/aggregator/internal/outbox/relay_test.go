@@ -21,9 +21,13 @@ type fakeQueue struct {
 	nextByID    map[string]time.Time
 	markErr     error
 	recordErr   error
+	readErr     error
 }
 
 func (q *fakeQueue) PendingOutbox(_ context.Context, limit int, now time.Time) ([]store.OutboxMessage, error) {
+	if q.readErr != nil {
+		return nil, q.readErr
+	}
 	messages := make([]store.OutboxMessage, 0, len(q.pending))
 	for _, message := range q.pending {
 		if next, ok := q.nextByID[message.MessageID]; ok && now.Before(next) {
@@ -75,6 +79,33 @@ func (p *fakePublisher) Publish(ctx context.Context, subject string, _ []byte, i
 		return err
 	}
 	return p.err
+}
+
+func TestEmptyOutboxIsQuietButPublicationAndFailuresRemainVisible(t *testing.T) {
+	var logs bytes.Buffer
+	queue := &fakeQueue{}
+	relay := New(queue, &fakePublisher{}, 10, time.Second, time.Second, time.Second)
+	relay.SetLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
+	if err := relay.DrainOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if logs.Len() != 0 {
+		t.Fatal("empty outbox logged at INFO")
+	}
+	queue.pending = []store.OutboxMessage{{MessageID: "event-id", Subject: "hazard.events.v1.BMKG", Envelope: []byte(`{"correlation_id":"corr-id"}`)}}
+	if err := relay.DrainOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"level":"INFO"`, `"message_id":"event-id"`, `"correlation_id":"corr-id"`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Fatalf("publication log lost %s: %s", field, logs.String())
+		}
+	}
+	logs.Reset()
+	queue.readErr = errors.New("storage unavailable")
+	if err := relay.DrainOnce(context.Background()); err == nil || !strings.Contains(logs.String(), `"level":"WARN"`) {
+		t.Fatal("storage failure suppressed")
+	}
 }
 
 func TestRelayPublishesAndMarksOnlyAfterPublisherAck(t *testing.T) {

@@ -9,7 +9,7 @@
   "schemaVersion": 41,
   "version": 1,
   "editable": false,
-  "refresh": "5s",
+  "refresh": "10s",
   "time": {
     "from": "now-15m",
     "to": "now"
@@ -987,7 +987,8 @@
         {
           "refId": "A",
           "expr": "{service=~\"$service\"} | json | drop __error__, __error_details__ | correlation_id=~${correlation:doublequote} | message_id=~${message:doublequote} | path!~${hide_probes:doublequote} | operation!~${hide_probes:doublequote} | keep service",
-          "queryType": "range"
+          "queryType": "range",
+          "maxLines": 200
         }
       ],
       "options": {

@@ -3,8 +3,9 @@ package jetstreamconsumer
 import (
 	"context"
 	"errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type statsStub struct{ err error }

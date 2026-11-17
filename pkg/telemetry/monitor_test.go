@@ -1,15 +1,59 @@
 package telemetry
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+func TestOperationMetricsBoundUntrustedLabels(t *testing.T) {
+	m := New()
+	for i := 0; i < 100; i++ {
+		m.ObserveOperation(fmt.Sprintf("operation-%d", i), fmt.Sprintf("https://peer/%d", i), nil, 10*time.Millisecond)
+	}
+	m.ObserveOperation("source_poll", "BMKG", errors.New("unavailable"), time.Second)
+	m.ObserveOperation("ack", "nats", nil, time.Millisecond)
+	families, err := m.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, family := range families {
+		if family.GetName() != "aat_operations_total" && family.GetName() != "aat_operation_duration_seconds" {
+			continue
+		}
+		found++
+		if len(family.Metric) != 3 {
+			t.Fatalf("%s: expected 3 label sets, got %d", family.GetName(), len(family.Metric))
+		}
+		counts := make(map[string]float64)
+		for _, metric := range family.Metric {
+			labels := make(map[string]string)
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			count := metric.GetCounter().GetValue()
+			if family.GetName() == "aat_operation_duration_seconds" {
+				count = float64(metric.GetHistogram().GetSampleCount())
+			}
+			counts[labels["operation"]+"/"+labels["peer"]+"/"+labels["outcome"]] = count
+		}
+		if counts["other/other/success"] != 100 || counts["source_poll/BMKG/failed"] != 1 || counts["ack/nats/success"] != 1 {
+			t.Fatalf("%s: unexpected observations: %v", family.GetName(), counts)
+		}
+	}
+	if found != 2 {
+		t.Fatalf("expected both operation metrics, got %d", found)
+	}
+}
 
 func exposition(t *testing.T, m *Monitor) string {
 	t.Helper()

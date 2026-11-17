@@ -246,6 +246,9 @@ spec:
           value: 'false'
         - name: GF_PLUGINS_PREINSTALL_DISABLED
           value: 'true'
+        # Leave headroom below the container's 256 MiB limit.
+        - name: GOMEMLIMIT
+          value: 128MiB
         - name: GF_ANALYTICS_REPORTING_ENABLED
           value: 'false'
         - name: GF_ANALYTICS_CHECK_FOR_UPDATES

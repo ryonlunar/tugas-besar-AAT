@@ -37,6 +37,17 @@ func New() *Monitor {
 }
 
 func (m *Monitor) ObserveOperation(operation, peer string, err error, duration time.Duration) {
+	// Keep IDs, URLs, and configured consumer names in logs, not metric labels.
+	switch operation {
+	case "source_poll", "jetstream_publish", "connect", "bind", "fetch", "consumer_info", "consumer_create", "ack", "nak":
+	default:
+		operation = "other"
+	}
+	switch peer {
+	case "BMKG", "PVMBG", "nats":
+	default:
+		peer = "other"
+	}
 	outcome := "success"
 	if err != nil {
 		outcome = "failed"
