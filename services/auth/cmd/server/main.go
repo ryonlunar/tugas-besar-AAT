@@ -67,6 +67,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	closeTracing, traceErr := telemetry.StartTracing("auth")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
 	monitor := telemetry.New()
 	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + cfg.port + "/ready")
 	if err != nil {

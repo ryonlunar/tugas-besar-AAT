@@ -12,6 +12,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
+	"go.opentelemetry.io/otel"
 )
 
 const SubjectFilter = "hazard.events.v1.*"
@@ -149,6 +151,9 @@ func (r *Runner) ensureConsumer(ctx context.Context, js nats.JetStreamContext, c
 }
 
 func (r *Runner) process(ctx context.Context, message *nats.Msg) {
+	ctx = telemetry.RestoreTrace(ctx, message.Header.Get("traceparent"), message.Header.Get("tracestate"))
+	ctx, span := otel.Tracer("aat/consumer").Start(ctx, "nats.consume")
+	defer span.End()
 	delivery := uint64(1)
 	if meta, err := message.Metadata(); err == nil {
 		delivery = meta.NumDelivered
@@ -176,7 +181,7 @@ func (r *Runner) process(ctx context.Context, message *nats.Msg) {
 		r.nak(message, correlationID, messageID, "SIDE_EFFECT_FAILED")
 		return
 	}
-	r.Logger.Info("message committed", "durable", r.Config.Durable, "message_id", envelope.MessageID, "correlation_id", envelope.CorrelationID, "revision", envelope.Revision, "delivery", delivery)
+	r.Logger.InfoContext(ctx, "message committed", "trace_id", telemetry.TraceID(ctx), "durable", r.Config.Durable, "message_id", envelope.MessageID, "correlation_id", envelope.CorrelationID, "revision", envelope.Revision, "delivery", delivery)
 	r.ack(ctx, message, correlationID, messageID)
 }
 

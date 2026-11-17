@@ -85,6 +85,11 @@ func run(port string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := &jetstreamconsumer.Runner{Config: config, Sink: state}
+	closeTracing, traceErr := telemetry.StartTracing("notifier-consumer")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
 	monitor := telemetry.New()
 	runner.Observe = monitor.ObserveOperation
 	monitor.Registry.MustRegister(jetstreamconsumer.StoreMetrics(state))

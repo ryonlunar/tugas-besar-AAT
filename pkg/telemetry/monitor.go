@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type Monitor struct {
@@ -58,6 +59,10 @@ func (m *Monitor) ObserveOperation(operation, peer string, err error, duration t
 
 // Wrap bounds route/method/source labels; IDs and query strings never become labels.
 func (m *Monitor) Wrap(next http.Handler, routes ...string) http.Handler {
+	traced := map[string]http.Handler{}
+	for _, route := range append(append([]string{}, routes...), "other") {
+		traced[route] = otelhttp.NewHandler(next, route, otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string { return r.Method + " " + route }))
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" || r.URL.Path == "/ready" {
 			next.ServeHTTP(w, r)
@@ -92,7 +97,7 @@ func (m *Monitor) Wrap(next http.Handler, routes ...string) http.Handler {
 		}
 		response := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		started := time.Now()
-		next.ServeHTTP(response, r)
+		traced[route].ServeHTTP(response, r)
 		status := strconv.Itoa(response.status)
 		m.requests.WithLabelValues(method, route, source, status).Inc()
 		m.latency.WithLabelValues(method, route, source, status).Observe(time.Since(started).Seconds())

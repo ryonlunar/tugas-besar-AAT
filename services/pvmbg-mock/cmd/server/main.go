@@ -110,6 +110,11 @@ func run() error {
 		}
 	}()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	closeTracing, traceErr := telemetry.StartTracing("pvmbg-mock")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
 	monitor := telemetry.New()
 	closeMetrics, err := monitor.Listen(fmt.Sprintf("http://127.0.0.1:%d/ready", port))
 	if err != nil {
