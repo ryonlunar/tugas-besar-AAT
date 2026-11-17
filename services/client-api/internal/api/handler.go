@@ -114,6 +114,12 @@ func (h *Handler) admit(next http.Handler) http.Handler {
 	})
 }
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
+	if h.discovery != nil {
+		// Replicated reads handle upstream failures per request, including partial
+		// results. Withdrawing this API would instead cause connection refusals.
+		writeJSON(w, 200, map[string]string{"status": "ready"})
+		return
+	}
 	started := time.Now()
 	status := 0
 	defer func() {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/partition"
@@ -50,6 +51,26 @@ func TestRoutingFencingAndPartialReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer repository.Close()
+	t.Run("fresh installation and incomplete legacy schema", func(t *testing.T) {
+		config, err := pgx.ParseConfig(dsns[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Isolate the legacy connection from the test database's public tables.
+		config.RuntimeParams["search_path"] = "pg_temp"
+		legacy := stdlib.OpenDB(*config)
+		legacy.SetMaxOpenConns(1)
+		defer legacy.Close()
+		if err := repository.ImportLegacy(ctx, legacy); err != nil {
+			t.Fatalf("fresh database must not require an M1 schema: %v", err)
+		}
+		if _, err := legacy.ExecContext(ctx, `CREATE TEMP TABLE hazard_events (id integer)`); err != nil {
+			t.Fatal(err)
+		}
+		if err := repository.ImportLegacy(ctx, legacy); err == nil || !strings.Contains(err.Error(), "incomplete legacy schema") {
+			t.Fatalf("partial schema must fail before copying data: %v", err)
+		}
+	})
 	old, owned, err := sourcejournal.Acquire(ctx, dsns[0], contracts.SourceBMKG, 300*time.Millisecond)
 	if err != nil || !owned {
 		t.Fatalf("acquire owner: %v %v", owned, err)

@@ -109,6 +109,6 @@ func runShardMigration() error {
 	if err := repository.(*sharded.Store).ImportLegacy(ctx, legacy); err != nil {
 		return err
 	}
-	fmt.Println("Canonical records, history, source state, and outbox copied into four logical units.")
+	fmt.Println("Storage units ready; existing M1 records, history, source state, and outbox imported when present.")
 	return nil
 }

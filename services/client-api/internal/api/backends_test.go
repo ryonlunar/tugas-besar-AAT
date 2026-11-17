@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,23 @@ import (
 type backendTransport func(*http.Request) (*http.Response, error)
 
 func (f backendTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestReplicatedReadinessDoesNotWithdrawAPIForUpstreamFailure(t *testing.T) {
+	h := NewHandler(Config{DiscoveryHost: "aggregator-peers"})
+	h.discovery.lookup = func(context.Context, string) ([]string, error) {
+		t.Fatal("readiness must not depend on DNS or upstream availability")
+		return nil, nil
+	}
+	h.client.Transport = backendTransport(func(*http.Request) (*http.Response, error) {
+		t.Fatal("readiness must not contact upstream replicas")
+		return nil, nil
+	})
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("replicated API withdrawn during upstream failure: %d", response.Code)
+	}
+}
 
 func TestReadFailoverUsesDistinctReplicasAndKeepsBodyAlive(t *testing.T) {
 	h := NewHandler(Config{DiscoveryHost: "aggregator-peers", Timeout: 300 * time.Millisecond})

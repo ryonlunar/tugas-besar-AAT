@@ -48,7 +48,16 @@ Pada implementasi ini, kedua instansi disimulasikan melalui mock dengan data sin
 
 Panduan berikut menjalankan sistem dari clone baru dan mengulang skenario P1–P5 dalam [laporan M1](docs/report/IF4031_M1_DikejarDeadline.pdf). ID dan waktu pada data sintetis berubah setiap sesi; hasil latency dan throughput bergantung pada mesin pengujian.
 
-Untuk pengembangan M2 menggunakan k3s, lihat [panduan lingkungan pengembangan](infra/k8s/README.md).
+Untuk pengembangan M2 menggunakan k3s, lihat [panduan lingkungan pengembangan](infra/k8s/README.md#multi-node-profile).
+
+Topologi pengembangan M2 memakai empat node VM Ubuntu pada satu laptop Windows (12 logical CPU, RAM 32 GiB):
+
+| Node | Peran | Alokasi VM |
+|---|---|---|
+| `aat-dev` | Control plane dan worker | 4 vCPU, 8 GiB RAM, disk 30 GiB |
+| `aat-worker-1` hingga `aat-worker-3` | Worker, masing-masing | 2 vCPU, 3 GiB RAM, disk 30 GiB |
+
+Setiap VM memiliki kernel dan disk lokal sendiri. Pengujian kehilangan node menargetkan worker; ketahanan terhadap kehilangan laptop atau control plane belum dicakup.
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 

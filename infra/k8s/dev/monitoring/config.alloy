@@ -14,12 +14,18 @@ discovery.relabel "applications" {
   }
   rule {
     source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
-    regex = "bmkg-mock|pvmbg-mock|aggregator|auth|client-api|dashboard-consumer|notifier-consumer|nats|postgres"
-    action = "keep"
+    target_label = "service"
   }
   rule {
-    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    source_labels = ["__meta_kubernetes_pod_label_role", "__meta_kubernetes_pod_label_application"]
+    regex = "store;spilo"
     target_label = "service"
+    replacement = "postgres"
+  }
+  rule {
+    source_labels = ["service"]
+    regex = "bmkg-mock|pvmbg-mock|aggregator|auth|client-api|dashboard-consumer|notifier-consumer|nats|postgres|postgres-operator|tempo"
+    action = "keep"
   }
   rule {
     source_labels = ["__meta_kubernetes_pod_name"]

@@ -1,0 +1,86 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: sistem-informasi-kebencanaan-bnpb
+resources:
+  - ../dev
+  - storage-policy.yaml
+  - broker-policy.yaml
+  - postgres-environment.yaml
+  - patroni-recovery.yaml
+  - tempo.yaml
+  - aggregator-peers.yaml
+replicas:
+  - name: aggregator
+    count: 3
+  - name: postgres
+    count: 0
+  - name: nats-exporter
+    count: 0
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: placement
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              aat.dev/control: "true"
+  - path: aggregator.yaml
+  - target:
+      kind: Deployment
+      name: dashboard-consumer|notifier-consumer
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: NATS_URL
+          value: nats://nats-ha:4222
+  - target:
+      kind: Deployment
+      name: bmkg-mock|pvmbg-mock|aggregator|auth|client-api|dashboard-consumer|notifier-consumer
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://tempo:4318
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: OTEL_TRACES_SAMPLER_ARG
+          value: "0.01"
+  - target:
+      kind: Deployment
+      name: client-api
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: AGGREGATOR_DISCOVERY_HOST
+          value: aggregator-peers
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: AGGREGATOR_REQUEST_TIMEOUT
+          value: 2s
+  - target:
+      kind: Deployment
+      name: grafana
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: GF_USERS_VIEWERS_CAN_EDIT
+          value: "true"
+configMapGenerator:
+  - name: tempo-config
+    files:
+      - monitoring/tempo.yaml
+  - name: grafana-datasources
+    behavior: merge
+    files:
+      - monitoring/tempo-datasource.yaml

@@ -39,7 +39,7 @@ scrape_configs:
     action: keep
   - source_labels:
     - __meta_kubernetes_pod_label_app
-    regex: nats-exporter
+    regex: nats-exporter|nats-ha
     action: keep
   - source_labels:
     - __meta_kubernetes_pod_container_port_number

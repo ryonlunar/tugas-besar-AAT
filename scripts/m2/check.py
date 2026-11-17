@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the single-node k3s development flow and storage isolation."""
+"""Check the deployed k3s application flow and storage isolation."""
 import datetime
 import json
 import os
@@ -53,11 +53,18 @@ def wait_for(check, seconds=45):
 
 def main():
     credentials = json.loads((STATE / 'credentials.json').read_text())
+    clustered = bool(kubectl('get', 'configmap', 'aat-storage-cutover', '--ignore-not-found', '-o', 'name'))
+    REPORT['profile'] = 'multi-node-development' if clustered else 'single-node-development'
     services = json.loads(kubectl('get', 'services', '-o', 'json'))['items']
     urls = {s['metadata']['name']: 'http://{}:{}'.format(
         s['spec']['clusterIP'], s['spec']['ports'][0]['port']) for s in services}
     checks = REPORT['checks']
-    for name in ['bmkg-mock', 'pvmbg-mock', 'aggregator', 'auth', 'client-api']:
+    ready_services = ['bmkg-mock', 'pvmbg-mock', 'auth', 'client-api']
+    if not clustered:
+        ready_services.append('aggregator')
+    # The VM host has no API-role identity for a remote Aggregator. Its private
+    # endpoint is checked through Client API below, respecting NetworkPolicies.
+    for name in ready_services:
         wait_for(lambda name=name: request(urls[name] + '/ready')[0] == 200)
     checks['http_readiness'] = True
 
@@ -125,15 +132,17 @@ def main():
     checks['grafana'] = True
 
     job_name = 'm2-policy-check-' + uuid.uuid4().hex[:8]
-    code = '''import socket
+    stores = [f'shard-{i}' for i in range(4)] if clustered else ['postgres']
+    code = 'stores=' + repr(stores) + '\n' + '''import socket
 with socket.create_connection(("aggregator",8083),timeout=3): pass
-store_ip=socket.gethostbyname("postgres")
-try:
-    socket.create_connection((store_ip,5432),timeout=3)
-except (OSError,TimeoutError):
-    print("API can reach Aggregator; direct PostgreSQL connection denied")
-else:
-    raise SystemExit("Direct PostgreSQL connection unexpectedly allowed")
+for store in stores:
+    store_ip=socket.gethostbyname(store)
+    try:
+        socket.create_connection((store_ip,5432),timeout=3)
+    except (OSError,TimeoutError):
+        print(store+": direct PostgreSQL connection denied")
+    else:
+        raise SystemExit(store+": direct PostgreSQL connection unexpectedly allowed")
 '''
     job = {'apiVersion': 'batch/v1', 'kind': 'Job', 'metadata': {'name': job_name},
            'spec': {'backoffLimit': 0, 'activeDeadlineSeconds': 90,
@@ -141,6 +150,7 @@ else:
                                  'spec': {'restartPolicy': 'Never', 'automountServiceAccountToken': False,
                                           'containers': [{'name': 'check', 'image': 'python:3.12-alpine',
                                                           'command': ['python3', '-c', code],
+                                                          'readinessProbe': {'tcpSocket': {'port': 1}},
                                                           'resources': {'requests': {'memory': '128Mi'},
                                                                         'limits': {'memory': '256Mi'}}}]}}}}
     try:

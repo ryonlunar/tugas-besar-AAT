@@ -188,7 +188,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum by(source) (aat_source_state{state=\"fresh\"}) + 2 * sum by(source) (aat_source_state{state=\"stale\"})) and on() (aat_store_collection_success == 1) and on() (up{service=\"aggregator\"} == 1)",
+          "expr": "(max by(source) (aat_source_state{state=\"fresh\"}) * (1 - max by(source) (aat_source_state{state=\"stale\"})) + 2 * max by(source) (aat_source_state{state=\"stale\"})) and on() (max(aat_store_collection_success) == 1) and on() (max(up{service=\"aggregator\"}) == 1)",
           "legendFormat": "{{source}}",
           "instant": true,
           "range": false
@@ -261,7 +261,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - aat_source_last_success_timestamp_seconds",
+          "expr": "time() - max by(source) (aat_source_last_success_timestamp_seconds)",
           "legendFormat": "{{source}}",
           "instant": true,
           "range": false
@@ -587,7 +587,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "aat_outbox_pending",
+          "expr": "sum(max by(unit) (aat_outbox_pending))",
           "legendFormat": "Pending events",
           "instant": false,
           "range": true

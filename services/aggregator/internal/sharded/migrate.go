@@ -13,6 +13,18 @@ import (
 // identities or revisions. Repeated imports accept identical rows only. Outbox
 // records are republished into the new broker; consumers deduplicate their IDs.
 func (s *Store) ImportLegacy(ctx context.Context, legacy *sql.DB) error {
+	var tables int
+	if err := legacy.QueryRowContext(ctx, `SELECT count(*) FROM unnest(
+    ARRAY['hazard_events','hazard_versions','outbox','source_state']) AS name
+    WHERE to_regclass(name) IS NOT NULL`).Scan(&tables); err != nil {
+		return fmt.Errorf("inspect legacy schema: %w", err)
+	}
+	if tables == 0 {
+		return nil // A fresh installation has no M1 state to copy.
+	}
+	if tables != 4 {
+		return fmt.Errorf("incomplete legacy schema: found %d of 4 required tables", tables)
+	}
 	transactions := map[string]*sql.Tx{}
 	defer func() {
 		for _, tx := range transactions {
