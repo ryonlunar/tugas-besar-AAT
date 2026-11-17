@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/jetstreamconsumer"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/dashboard-consumer/internal/store"
 )
 
@@ -84,7 +85,15 @@ func run(port string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := &jetstreamconsumer.Runner{Config: config, Sink: state}
-	server := &http.Server{Addr: ":" + port, Handler: jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/snapshots"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 3 * time.Second}
+	monitor := telemetry.New()
+	runner.Observe = monitor.ObserveOperation
+	monitor.Registry.MustRegister(jetstreamconsumer.StoreMetrics(state))
+	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + port + "/ready")
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+	server := &http.Server{Addr: ":" + port, Handler: monitor.Wrap(jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/snapshots"), "/internal/v1/snapshots"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 3 * time.Second}
 	return jetstreamconsumer.Serve(ctx, runner.Run, server)
 }
 

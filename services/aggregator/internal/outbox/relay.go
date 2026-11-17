@@ -22,6 +22,7 @@ type Publisher interface {
 }
 
 type Relay struct {
+	Observe        func(operation, peer string, err error, duration time.Duration)
 	queue          Queue
 	publisher      Publisher
 	batchSize      int
@@ -102,6 +103,9 @@ func (r *Relay) DrainOnce(ctx context.Context) error {
 		publishStarted := time.Now()
 		err := r.publisher.Publish(publishCtx, message.Subject, message.Envelope, message.MessageID)
 		cancel()
+		if r.Observe != nil {
+			r.Observe("jetstream_publish", "nats", err, time.Since(publishStarted))
+		}
 		publishAttrs := []any{"operation", "jetstream_publish", "message_id", message.MessageID, "subject", message.Subject, "correlation_id", correlationID, "duration_ms", time.Since(publishStarted).Milliseconds(), "status", statusFor(err)}
 		if err != nil {
 			if message.HazardID != "" {

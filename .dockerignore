@@ -7,6 +7,8 @@
 !contracts/*.go
 !contracts/*.json
 !pkg/
+!pkg/telemetry/
+!pkg/telemetry/**
 !pkg/jetstreamconsumer/
 !pkg/jetstreamconsumer/**
 !services/

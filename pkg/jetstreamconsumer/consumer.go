@@ -30,6 +30,7 @@ type Sink interface {
 }
 
 type Runner struct {
+	Observe    func(operation, peer string, err error, duration time.Duration)
 	Config     Config
 	Sink       Sink
 	Logger     *slog.Logger
@@ -196,6 +197,9 @@ func (r *Runner) nak(message *nats.Msg, correlationID, messageID, reason string)
 }
 
 func (r *Runner) logCall(operation, correlationID string, started time.Time, err error, details ...any) {
+	if r.Observe != nil && operation != "fetch_idle" {
+		r.Observe(operation, r.Config.Durable, err, time.Since(started))
+	}
 	outcome := "success"
 	level := slog.LevelInfo
 	if err != nil {

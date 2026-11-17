@@ -1,8 +1,10 @@
 FROM golang:1.23-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY pkg/telemetry ./pkg/telemetry
+RUN go mod download
 COPY services/aggregator ./services/aggregator
-RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aggregator ./services/aggregator/cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/aggregator ./services/aggregator/cmd/server
 
 FROM scratch
 COPY --from=build /out/aggregator /aggregator

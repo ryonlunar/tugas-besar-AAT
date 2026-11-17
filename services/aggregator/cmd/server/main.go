@@ -19,6 +19,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
@@ -117,6 +118,16 @@ func run(logger *slog.Logger) error {
 	pollerService.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
 
+	monitor := telemetry.New()
+	monitor.Registry.MustRegister(repository.MetricsCollector())
+	pollerService.Observe = monitor.ObserveOperation
+	relay.Observe = monitor.ObserveOperation
+	closeMetrics, err := monitor.Listen("http://127.0.0.1" + cfg.listenAddr + "/ready")
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	waitForWorkers := startBackgroundTasks(
 		func() {
@@ -133,7 +144,7 @@ func run(logger *slog.Logger) error {
 
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           api.NewHandlerWithLimit(repository, cfg.internalKey, time.Now, cfg.maxInflight),
+		Handler:           monitor.Wrap(api.NewHandlerWithLimit(repository, cfg.internalKey, time.Now, cfg.maxInflight), "/internal/v1/hazards", "/internal/v1/hazards/{id}"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,

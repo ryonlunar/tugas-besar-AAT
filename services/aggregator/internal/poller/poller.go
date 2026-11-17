@@ -30,6 +30,7 @@ type Repository interface {
 }
 
 type Poller struct {
+	Observe          func(operation, peer string, err error, duration time.Duration)
 	repository       Repository
 	bmkg             BMKGSource
 	pvmbg            PVMBGSource
@@ -295,7 +296,12 @@ func (p *Poller) runLoop(ctx context.Context, wg *sync.WaitGroup, source string,
 		if ctx.Err() != nil {
 			return
 		}
-		if err := poll(ctx); err != nil && ctx.Err() == nil {
+		started := time.Now()
+		err := poll(ctx)
+		if p.Observe != nil {
+			p.Observe("source_poll", source, err, time.Since(started))
+		}
+		if err != nil && ctx.Err() == nil {
 			p.logger.Warn("source poll failed", "source", source, "reason", "POLL_FAILED")
 		}
 		if ctx.Err() != nil {

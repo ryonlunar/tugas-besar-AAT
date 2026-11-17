@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/jetstreamconsumer"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/notifier-consumer/internal/store"
 )
 
 func main() {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "notifier-consumer"))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", getenv("CONSUMER_SERVICE_NAME", "notifier-consumer")))
 	port := getenv("NOTIFIER_HTTP_PORT", "8086")
 	if len(os.Args) == 2 && os.Args[1] == "inspect" {
 		if err := inspect(port, "/internal/v1/notifications"); err != nil {
@@ -84,7 +85,15 @@ func run(port string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	runner := &jetstreamconsumer.Runner{Config: config, Sink: state}
-	server := &http.Server{Addr: ":" + port, Handler: jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/notifications"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 3 * time.Second}
+	monitor := telemetry.New()
+	runner.Observe = monitor.ObserveOperation
+	monitor.Registry.MustRegister(jetstreamconsumer.StoreMetrics(state))
+	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + port + "/ready")
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+	server := &http.Server{Addr: ":" + port, Handler: monitor.Wrap(jetstreamconsumer.Handler(runner, state, demoKey, "/internal/v1/notifications"), "/internal/v1/notifications"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 3 * time.Second}
 	return jetstreamconsumer.Serve(ctx, runner.Run, server)
 }
 

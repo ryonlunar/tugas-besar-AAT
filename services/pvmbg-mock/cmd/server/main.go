@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/pvmbg-mock/internal/mock"
 )
 
@@ -109,7 +110,13 @@ func run() error {
 		}
 	}()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mock.WithCorrelationID(mock.NewPVMBGHandler(mock.PVMBGConfig{Token: token}, catalog, nil, nil)), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 5 * time.Second}
+	monitor := telemetry.New()
+	closeMetrics, err := monitor.Listen(fmt.Sprintf("http://127.0.0.1:%d/ready", port))
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: monitor.Wrap(mock.WithCorrelationID(mock.NewPVMBGHandler(mock.PVMBGConfig{Token: token}, catalog, nil, nil)), "/volcanic-reports", "/admin/schema-version", "/admin/delay", "/admin/outage"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 5 * time.Second}
 	return serve(ctx, server, "pvmbg-mock", seedCount)
 }
 

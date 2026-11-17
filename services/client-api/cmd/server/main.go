@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/client-api/internal/api"
 )
 
@@ -48,7 +49,13 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	handler := api.NewHandler(api.Config{PublicKey: key, Issuer: cfg.issuer, Audience: cfg.audience, AggregatorURL: cfg.aggregatorURL, AggregatorKey: cfg.aggregatorKey, Timeout: cfg.timeout, MaxInflight: cfg.maxInflight})
-	server := &http.Server{Addr: ":" + cfg.port, Handler: handler, ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
+	monitor := telemetry.New()
+	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + cfg.port + "/ready")
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+	server := &http.Server{Addr: ":" + cfg.port, Handler: monitor.Wrap(handler, "/v1/hazards", "/v1/hazards/{id}"), ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)
