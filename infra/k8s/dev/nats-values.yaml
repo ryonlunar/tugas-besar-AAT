@@ -1,0 +1,47 @@
+fullnameOverride: nats
+global:
+  labels:
+    app: nats
+    role: broker
+config:
+  cluster:
+    enabled: false
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        enabled: true
+        storageClassName: local-path
+        size: 2Gi
+  merge:
+    authorization:
+      token: << $NATS_TOKEN >>
+service:
+  ports:
+    monitor:
+      enabled: true
+container:
+  image:
+    tag: 2.10.29-alpine
+  env:
+    NATS_TOKEN:
+      valueFrom:
+        secretKeyRef:
+          name: aat-credentials
+          key: NATS_TOKEN
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+reloader:
+  enabled: false
+podTemplate:
+  configChecksumAnnotation: true
+  merge:
+    spec:
+      automountServiceAccountToken: false
+promExporter:
+  enabled: false
+natsBox:
+  enabled: false

@@ -1,0 +1,666 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bmkg-mock
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bmkg-mock
+  template:
+    metadata:
+      labels:
+        app: bmkg-mock
+        app.kubernetes.io/name: bmkg-mock
+        role: mock
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: bmkg-mock
+        image: aat.local/bmkg-mock:m2-dev
+        ports:
+        - name: http
+          containerPort: 8081
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+        imagePullPolicy: Never
+        env:
+        - name: BMKG_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: BMKG_API_KEY
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bmkg-mock
+spec:
+  selector:
+    app: bmkg-mock
+  ports:
+  - name: http
+    port: 8081
+    targetPort: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pvmbg-mock
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pvmbg-mock
+  template:
+    metadata:
+      labels:
+        app: pvmbg-mock
+        app.kubernetes.io/name: pvmbg-mock
+        role: mock
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: pvmbg-mock
+        image: aat.local/pvmbg-mock:m2-dev
+        ports:
+        - name: http
+          containerPort: 8082
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 64Mi
+          limits:
+            memory: 128Mi
+        imagePullPolicy: Never
+        env:
+        - name: PVMBG_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: PVMBG_TOKEN
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pvmbg-mock
+spec:
+  selector:
+    app: pvmbg-mock
+  ports:
+  - name: http
+    port: 8082
+    targetPort: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: aggregator
+  template:
+    metadata:
+      labels:
+        app: aggregator
+        app.kubernetes.io/name: aggregator
+        role: aggregator
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: aggregator
+        image: aat.local/aggregator:m2-dev
+        ports:
+        - name: http
+          containerPort: 8083
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 256Mi
+          limits:
+            memory: 512Mi
+        imagePullPolicy: Never
+        env:
+        - name: BMKG_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: BMKG_API_KEY
+        - name: PVMBG_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: PVMBG_TOKEN
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: POSTGRES_PASSWORD
+        - name: AGGREGATOR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: AGGREGATOR_API_KEY
+        - name: NATS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: NATS_TOKEN
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggregator
+spec:
+  selector:
+    app: aggregator
+  ports:
+  - name: http
+    port: 8083
+    targetPort: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+        app.kubernetes.io/name: auth
+        role: api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: auth
+        image: aat.local/auth:m2-dev
+        ports:
+        - name: http
+          containerPort: 8084
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        imagePullPolicy: Never
+        env:
+        - name: MEDIA_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: MEDIA_CLIENT_SECRET
+        - name: FIELD_TEAM_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: FIELD_TEAM_CLIENT_SECRET
+        - name: BNPB_INTERNAL_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: BNPB_INTERNAL_CLIENT_SECRET
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        - name: jwt
+          mountPath: /run/secrets
+          readOnly: true
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: auth-data
+      - name: jwt
+        secret:
+          secretName: aat-jwt-private
+          defaultMode: 288
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+spec:
+  selector:
+    app: auth
+  ports:
+  - name: http
+    port: 8084
+    targetPort: http
+    nodePort: 30084
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: client-api
+  template:
+    metadata:
+      labels:
+        app: client-api
+        app.kubernetes.io/name: client-api
+        role: api
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: client-api
+        image: aat.local/client-api:m2-dev
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        imagePullPolicy: Never
+        env:
+        - name: AGGREGATOR_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: AGGREGATOR_API_KEY
+        volumeMounts:
+        - name: jwt
+          mountPath: /run/secrets
+          readOnly: true
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+      volumes:
+      - name: jwt
+        secret:
+          secretName: aat-jwt-public
+          defaultMode: 288
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-api
+spec:
+  selector:
+    app: client-api
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    nodePort: 30080
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-consumer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: dashboard-consumer
+  template:
+    metadata:
+      labels:
+        app: dashboard-consumer
+        app.kubernetes.io/name: dashboard-consumer
+        role: consumer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: dashboard-consumer
+        image: aat.local/dashboard-consumer:m2-dev
+        ports:
+        - name: http
+          containerPort: 8085
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        imagePullPolicy: Never
+        env:
+        - name: CONSUMER_DEMO_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: CONSUMER_DEMO_KEY
+        - name: NATS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: NATS_TOKEN
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: dashboard-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-consumer
+spec:
+  selector:
+    app: dashboard-consumer
+  ports:
+  - name: http
+    port: 8085
+    targetPort: http
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notifier-consumer
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: notifier-consumer
+  template:
+    metadata:
+      labels:
+        app: notifier-consumer
+        app.kubernetes.io/name: notifier-consumer
+        role: consumer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: notifier-consumer
+        image: aat.local/notifier-consumer:m2-dev
+        ports:
+        - name: http
+          containerPort: 8086
+        - name: metrics
+          containerPort: 9091
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        imagePullPolicy: Never
+        env:
+        - name: CONSUMER_DEMO_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: CONSUMER_DEMO_KEY
+        - name: NATS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: aat-credentials
+              key: NATS_TOKEN
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        envFrom:
+        - configMapRef:
+            name: aat-runtime
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        startupProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 2
+          failureThreshold: 60
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          periodSeconds: 5
+          timeoutSeconds: 2
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: notifier-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notifier-consumer
+spec:
+  selector:
+    app: notifier-consumer
+  ports:
+  - name: http
+    port: 8086
+    targetPort: http
+  type: ClusterIP
