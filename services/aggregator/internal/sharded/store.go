@@ -31,6 +31,7 @@ type Config struct {
 type Options struct {
 	Topology                                     audit.Topology
 	ReadConns, BMKGConns, PVMBGConns, RelayConns int
+	ReportConns                                  int
 	ReadTimeout, WriteTimeout, StaleAfter        time.Duration
 	OutboxLimit                                  int64
 	MaxEnvelopeBytes                             int
@@ -84,7 +85,11 @@ func Open(ctx context.Context, filename string, options Options) (*Store, error)
 			return nil, errors.New("unknown or missing logical unit")
 		}
 		pools := []*sql.DB{}
-		for _, size := range []int{options.ReadConns, options.BMKGConns, options.PVMBGConns, options.RelayConns} {
+		reportConns := options.ReportConns
+		if reportConns == 0 {
+			reportConns = 4
+		}
+		for _, size := range []int{options.ReadConns, options.BMKGConns, options.PVMBGConns, options.RelayConns, reportConns} {
 			if size < 1 {
 				return nil, errors.New("positive connection pool sizes are required")
 			}
@@ -100,6 +105,7 @@ func Open(ctx context.Context, filename string, options Options) (*Store, error)
 		}
 		repository := store.NewWithPools(pools[0], pools[1], pools[2], pools[3], options.StaleAfter)
 		repository.SetUnit(name)
+		repository.SetReportPool(pools[4])
 		repository.SetTimeouts(s.timeout, options.WriteTimeout)
 		limit := options.OutboxLimit
 		if limit <= 0 {

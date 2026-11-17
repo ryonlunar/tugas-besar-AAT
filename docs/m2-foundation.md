@@ -79,8 +79,8 @@ The JetStream v1 envelope supports `hazard.created`, `hazard.updated`, and `haza
 | Route | Access | Status |
 |---|---|---|
 | Existing `/v1/hazards` routes | Media summary; Tim Lapangan/BNPB Internal full reads. | Implemented |
-| `POST /field-reports` | Tim Lapangan, with server-side priority over Media. | Planned |
-| `GET /failed-messages` and `POST /failed-messages/{message_id}/replay` | BNPB Internal Ops through Client API. | Planned public routes |
+| `POST /field-reports`, `GET /field-reports/{report_id}` | Tim Lapangan (`reports:write`), with server-side priority over Media. | Implemented |
+| `GET /failed-messages`, `GET /failed-messages/{message_id}`, `POST /failed-messages/{message_id}/replay` | BNPB Internal Ops (`ops:failed-messages`) through Client API. | Implemented |
 | `/internal/v1/failed-messages` and its detail/replay routes | Internal service credential; raw bytes are base64 in detail. | Implemented in Aggregator |
 | `/internal/audit/events`, `/checksum`, `/location`, `/unprocessed` under `/internal/audit` | Separate audit bearer token, following Appendix A. | Implemented |
 

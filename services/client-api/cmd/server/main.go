@@ -60,7 +60,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	defer closeMetrics()
-	server := &http.Server{Addr: ":" + cfg.port, Handler: monitor.Wrap(handler, "/v1/hazards", "/v1/hazards/{id}"), ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
+	server := &http.Server{Addr: ":" + cfg.port, Handler: monitor.Wrap(handler, "/v1/hazards", "/v1/hazards/{id}", "/field-reports", "/field-reports/{report_id}", "/failed-messages", "/failed-messages/{message_id}", "/failed-messages/{message_id}/replay"), ReadHeaderTimeout: cfg.readHeaderTimeout, IdleTimeout: cfg.idleTimeout, WriteTimeout: cfg.writeTimeout}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)
