@@ -1,0 +1,55 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: replicated-store
+spec:
+  podSelector:
+    matchLabels:
+      role: store
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {role: aggregator}}
+        - podSelector: {matchLabels: {role: store}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: postgres-operator}}
+      ports: [{port: 5432, protocol: TCP}]
+    - from:
+        - podSelector: {matchLabels: {role: store}}
+        - podSelector: {matchLabels: {app.kubernetes.io/name: postgres-operator}}
+      ports: [{port: 8008, protocol: TCP}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {role: store}}
+      ports: [{port: 5432, protocol: TCP}, {port: 8008, protocol: TCP}]
+    - ports: [{port: 443, protocol: TCP}, {port: 6443, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-operator
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-operator
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports: [{port: 8080, protocol: TCP}]
+  egress:
+    - ports: [{port: 443, protocol: TCP}, {port: 6443, protocol: TCP}]
+    - to:
+        - podSelector: {matchLabels: {role: store}}
+      ports: [{port: 5432, protocol: TCP}, {port: 8008, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aggregator-shards
+spec:
+  podSelector:
+    matchLabels:
+      role: aggregator
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {role: store}}
+      ports: [{port: 5432, protocol: TCP}]

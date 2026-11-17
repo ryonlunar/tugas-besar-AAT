@@ -1,0 +1,36 @@
+fullnameOverride: postgres-operator
+enableJsonLogging: true
+configGeneral:
+  docker_image: ghcr.io/zalando/spilo-18:4.1-p2
+  kubernetes_use_configmaps: true
+  workers: 4
+configKubernetes:
+  watched_namespace: sistem-informasi-kebencanaan-bnpb
+  cluster_labels:
+    application: spilo
+    role: store
+  pod_role_label: postgres-role
+  enable_pod_antiaffinity: true
+  pod_antiaffinity_preferred_during_scheduling: false
+  enable_readiness_probe: true
+  enable_persistent_volume_claim_deletion: false
+  enable_secrets_deletion: false
+  pod_environment_configmap: sistem-informasi-kebencanaan-bnpb/postgres-environment
+configDebug:
+  debug_logging: false
+configTeamsApi:
+  enable_teams_api: false
+configMajorVersionUpgrade:
+  major_version_upgrade_mode: "off"
+podLabels:
+  role: other
+nodeSelector:
+  aat.dev/control: "true"
+resources:
+  requests:
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+extraEnvs:
+  - name: GOMEMLIMIT
+    value: 128MiB

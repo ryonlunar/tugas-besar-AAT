@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/auth/internal/auth"
 	_ "modernc.org/sqlite"
 )
@@ -66,7 +67,18 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	server := newHTTPServer(cfg, auth.NewHandler(service, cfg.maxBody, cfg.maxInflight))
+	closeTracing, traceErr := telemetry.StartTracing("auth")
+	if traceErr != nil {
+		return traceErr
+	}
+	defer closeTracing()
+	monitor := telemetry.New()
+	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + cfg.port + "/ready")
+	if err != nil {
+		return err
+	}
+	defer closeMetrics()
+	server := newHTTPServer(cfg, monitor.Wrap(auth.NewHandler(service, cfg.maxBody, cfg.maxInflight), "/v1/auth/login", "/v1/auth/refresh"))
 	stopCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	done := make(chan error, 1)

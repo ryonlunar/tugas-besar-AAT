@@ -12,6 +12,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
+	"go.opentelemetry.io/otel"
 )
 
 const SubjectFilter = "hazard.events.v1.*"
@@ -30,6 +32,7 @@ type Sink interface {
 }
 
 type Runner struct {
+	Observe    func(operation, peer string, err error, duration time.Duration)
 	Config     Config
 	Sink       Sink
 	Logger     *slog.Logger
@@ -71,7 +74,7 @@ func (r *Runner) consume(ctx context.Context) error {
 	correlationID := newCorrelationID()
 	started := time.Now()
 	// Run owns reconnect and durable binding so readiness follows both together.
-	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect())
+	conn, err := nats.Connect(r.Config.URL, nats.Token(r.Config.Token), nats.Name(r.Config.Durable), nats.Timeout(time.Second), nats.NoReconnect(), nats.PingInterval(2*time.Second), nats.MaxPingsOutstanding(2))
 	r.logCall("connect", correlationID, started, err)
 	if err != nil {
 		return fmt.Errorf("connect NATS: %w", err)
@@ -148,6 +151,9 @@ func (r *Runner) ensureConsumer(ctx context.Context, js nats.JetStreamContext, c
 }
 
 func (r *Runner) process(ctx context.Context, message *nats.Msg) {
+	ctx = telemetry.RestoreTrace(ctx, message.Header.Get("traceparent"), message.Header.Get("tracestate"))
+	ctx, span := otel.Tracer("aat/consumer").Start(ctx, "nats.consume")
+	defer span.End()
 	delivery := uint64(1)
 	if meta, err := message.Metadata(); err == nil {
 		delivery = meta.NumDelivered
@@ -175,7 +181,7 @@ func (r *Runner) process(ctx context.Context, message *nats.Msg) {
 		r.nak(message, correlationID, messageID, "SIDE_EFFECT_FAILED")
 		return
 	}
-	r.Logger.Info("message committed", "durable", r.Config.Durable, "message_id", envelope.MessageID, "correlation_id", envelope.CorrelationID, "revision", envelope.Revision, "delivery", delivery)
+	r.Logger.InfoContext(ctx, "message committed", "trace_id", telemetry.TraceID(ctx), "durable", r.Config.Durable, "message_id", envelope.MessageID, "correlation_id", envelope.CorrelationID, "revision", envelope.Revision, "delivery", delivery)
 	r.ack(ctx, message, correlationID, messageID)
 }
 
@@ -196,10 +202,15 @@ func (r *Runner) nak(message *nats.Msg, correlationID, messageID, reason string)
 }
 
 func (r *Runner) logCall(operation, correlationID string, started time.Time, err error, details ...any) {
+	if r.Observe != nil && operation != "fetch_idle" {
+		r.Observe(operation, "nats", err, time.Since(started))
+	}
 	outcome := "success"
 	level := slog.LevelInfo
 	if err != nil {
 		outcome, level = "failed", slog.LevelWarn
+	} else if operation == "fetch_idle" {
+		level = slog.LevelDebug
 	}
 	attrs := []any{"operation", operation, "durable", r.Config.Durable, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "outcome", outcome}
 	r.Logger.Log(context.Background(), level, "broker request complete", append(attrs, details...)...)

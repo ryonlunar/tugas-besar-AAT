@@ -18,8 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 //go:embed migrations/*.sql
@@ -36,18 +40,15 @@ const (
 )
 
 func SubjectForSource(source mapper.Source) (string, error) {
-	switch source {
-	case mapper.SourceBMKG:
-		return SubjectBMKG, nil
-	case mapper.SourcePVMBG:
-		return SubjectPVMBG, nil
-	default:
-		return "", fmt.Errorf("unknown event source %q", source)
+	if source.Valid() {
+		return "hazard.events.v1." + string(source), nil
 	}
+	return "", fmt.Errorf("unknown event source %q", source)
 }
 
 var ErrOutboxCapacity = errors.New("outbox capacity reached")
 var errEventTooLarge = errors.New("event exceeds the publication size limit")
+var ErrEventTooLarge = errEventTooLarge
 
 type Store struct {
 	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB *sql.DB
@@ -55,6 +56,8 @@ type Store struct {
 	readTimeout, writeTimeout                               time.Duration
 	outboxLimit                                             int64
 	maxEnvelopeBytes                                        int
+	requireFence                                            bool
+	unit                                                    string
 }
 
 type SourceState struct {
@@ -64,12 +67,14 @@ type SourceState struct {
 }
 
 type OutboxMessage struct {
-	MessageID string
-	HazardID  string
-	Revision  int64
-	Subject   string
-	Envelope  []byte
-	Attempts  int
+	TraceParent, TraceState string
+	QueueKey                string // Storage routing only; the broker retains MessageID unchanged.
+	MessageID               string
+	HazardID                string
+	Revision                int64
+	Subject                 string
+	Envelope                []byte
+	Attempts                int
 }
 
 func New(db *sql.DB, staleAfter time.Duration) *Store {
@@ -89,6 +94,8 @@ func (s *Store) SetMaxEnvelopeBytes(limit int) {
 	}
 	s.maxEnvelopeBytes = limit
 }
+
+func (s *Store) SetUnit(name string) { s.unit = name }
 
 func (s *Store) SetOutboxLimit(limit int64) {
 	if limit <= 0 {
@@ -201,8 +208,16 @@ func (s *Store) FindHazardID(ctx context.Context, source mapper.Source, refID st
 	return id, true, nil
 }
 
-func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []mapper.HazardEvent, correlationID string, success bool, errorCode string, attemptAt, acceptedAt time.Time) error {
-	if source != mapper.SourceBMKG && source != mapper.SourcePVMBG {
+func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []mapper.HazardEvent, correlationID string, success bool, errorCode string, attemptAt, acceptedAt time.Time) (failure error) {
+	ctx, span := otel.Tracer("aat/store").Start(ctx, "postgres.apply_cycle")
+	defer func() {
+		if failure != nil {
+			span.SetStatus(codes.Error, "storage write failed")
+		}
+		span.End()
+	}()
+	span.SetAttributes(attribute.String("source", string(source)), attribute.String("unit", s.unit))
+	if !source.Valid() {
 		return errors.New("unknown source")
 	}
 	if attemptAt.IsZero() || acceptedAt.IsZero() {
@@ -225,6 +240,11 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 		return fmt.Errorf("begin source cycle: %w", err)
 	}
 	defer tx.Rollback()
+	if s.requireFence {
+		if err := checkFence(ctx, tx, source); err != nil {
+			return err
+		}
+	}
 	seen := make(map[string]struct{}, len(events))
 	for _, event := range events {
 		if event.Source != source || !sourceIDPattern.MatchString(event.SourceRefID) {
@@ -267,6 +287,7 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 }
 
 func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.HazardEvent, correlationID string, at time.Time) error {
+	at = at.UTC().Truncate(time.Microsecond)
 	if event.HazardID == "" {
 		id, err := newUUID()
 		if err != nil {
@@ -288,7 +309,8 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	}
 	var hazardID, oldHash string
 	var revision int64
-	err = tx.QueryRowContext(ctx, `SELECT hazard_id::text, revision, content_hash FROM hazard_events WHERE source=$1 AND source_ref_id=$2 FOR UPDATE`, string(event.Source), event.SourceRefID).Scan(&hazardID, &revision, &oldHash)
+	var retracted bool
+	err = tx.QueryRowContext(ctx, `SELECT hazard_id::text, revision, content_hash,retracted FROM hazard_events WHERE source=$1 AND source_ref_id=$2 FOR UPDATE`, string(event.Source), event.SourceRefID).Scan(&hazardID, &revision, &oldHash, &retracted)
 	isNew := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !isNew {
 		return err
@@ -303,10 +325,10 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return err
 	}
-	if !isNew && oldHash == hash {
+	if !isNew && !retracted && oldHash == hash {
 		return nil
 	}
-	if !isNew {
+	if !isNew && !retracted {
 		var equivalent bool
 		err := tx.QueryRowContext(ctx, `SELECT jsonb_build_object('source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'attributes',attributes) = ($1::jsonb - 'occurred_at') AND occurred_at=$4::timestamptz FROM hazard_events WHERE source=$2 AND source_ref_id=$3`, content, string(event.Source), event.SourceRefID, occurredAt).Scan(&equivalent)
 		if err != nil {
@@ -357,13 +379,13 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return err
 	}
-	if !broker.MessageFits(wire, messageID, s.maxEnvelopeBytes) {
+	if !broker.MessageFitsWithContext(ctx, wire, messageID, s.maxEnvelopeBytes) {
 		return errEventTooLarge
 	}
 	if isNew {
 		_, err = tx.ExecContext(ctx, `INSERT INTO hazard_events(hazard_id,source,source_ref_id,hazard_type,severity,area_name,latitude,longitude,occurred_at,ingested_at,attributes,revision,content_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`, event.HazardID, event.Source, event.SourceRefID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
+		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET retracted=false,hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
 	}
 	if err != nil {
 		return fmt.Errorf("write current event: %w", err)
@@ -371,7 +393,8 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if _, err := tx.ExecContext(ctx, `INSERT INTO hazard_versions(hazard_id,revision,data,recorded_at) VALUES($1,$2,$3::jsonb,$4)`, event.HazardID, revision, data, at); err != nil {
 		return fmt.Errorf("append event version: %w", err)
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO outbox(message_id,hazard_id,revision,subject,envelope,created_at,next_attempt_at) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6)`, messageID, event.HazardID, revision, subject, normalized, at)
+	headers := telemetry.TraceHeaders(ctx)
+	_, err = tx.ExecContext(ctx, `INSERT INTO outbox(message_id,hazard_id,revision,subject,envelope,created_at,next_attempt_at,traceparent,tracestate) VALUES($1,$2,$3,$4,$5::jsonb,$6,$6,$7,$8)`, messageID, event.HazardID, revision, subject, normalized, at, headers["traceparent"], headers["tracestate"])
 	if err != nil {
 		return fmt.Errorf("insert outbox message: %w", err)
 	}
@@ -431,7 +454,7 @@ func (s *Store) List(ctx context.Context, source string, limit, offset int) ([]m
 	}
 	ctx, cancel := s.readContext(ctx)
 	defer cancel()
-	rows, err := s.readDB.QueryContext(ctx, `SELECT jsonb_build_object('hazard_id',hazard_id,'source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'occurred_at',occurred_at,'ingested_at',ingested_at,'attributes',attributes) FROM hazard_events WHERE ($1='' OR source=$1) ORDER BY occurred_at DESC, hazard_id ASC LIMIT $2 OFFSET $3`, source, limit+1, offset)
+	rows, err := s.readDB.QueryContext(ctx, `SELECT jsonb_build_object('hazard_id',hazard_id,'source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'occurred_at',occurred_at,'ingested_at',ingested_at,'attributes',attributes) FROM hazard_events WHERE NOT retracted AND ($1='' OR source=$1) ORDER BY occurred_at DESC, hazard_id ASC LIMIT $2 OFFSET $3`, source, limit+1, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -462,7 +485,7 @@ func (s *Store) Get(ctx context.Context, hazardID string) (mapper.HazardEvent, b
 	ctx, cancel := s.readContext(ctx)
 	defer cancel()
 	var raw []byte
-	err := s.readDB.QueryRowContext(ctx, `SELECT data FROM hazard_versions WHERE hazard_id::text=$1 ORDER BY revision DESC LIMIT 1`, hazardID).Scan(&raw)
+	err := s.readDB.QueryRowContext(ctx, `SELECT v.data FROM hazard_events e JOIN hazard_versions v USING(hazard_id,revision) WHERE e.hazard_id::text=$1 AND NOT e.retracted`, hazardID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mapper.HazardEvent{}, false, nil
 	}
@@ -551,7 +574,7 @@ func (s *Store) PendingOutboxCount(ctx context.Context) (int64, error) {
 func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]OutboxMessage, error) {
 	ctx, cancel := s.writeContext(ctx)
 	defer cancel()
-	rows, err := s.relayDB.QueryContext(ctx, `SELECT current.message_id,current.hazard_id::text,current.revision,current.subject,current.envelope,current.attempts FROM outbox AS current WHERE current.published_at IS NULL AND current.next_attempt_at <= $1 AND NOT EXISTS (SELECT 1 FROM outbox AS earlier WHERE earlier.hazard_id=current.hazard_id AND earlier.revision<current.revision AND earlier.published_at IS NULL) ORDER BY current.created_at,current.message_id LIMIT $2`, now, limit)
+	rows, err := s.relayDB.QueryContext(ctx, `SELECT current.message_id,current.hazard_id::text,current.revision,current.subject,current.envelope,current.attempts,current.traceparent,current.tracestate FROM outbox AS current WHERE current.published_at IS NULL AND current.next_attempt_at <= $1 AND NOT EXISTS (SELECT 1 FROM outbox AS earlier WHERE earlier.hazard_id=current.hazard_id AND earlier.revision<current.revision AND earlier.published_at IS NULL) ORDER BY current.created_at,current.message_id LIMIT $2`, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -559,7 +582,7 @@ func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]
 	messages := make([]OutboxMessage, 0, limit)
 	for rows.Next() {
 		var msg OutboxMessage
-		if err := rows.Scan(&msg.MessageID, &msg.HazardID, &msg.Revision, &msg.Subject, &msg.Envelope, &msg.Attempts); err != nil {
+		if err := rows.Scan(&msg.MessageID, &msg.HazardID, &msg.Revision, &msg.Subject, &msg.Envelope, &msg.Attempts, &msg.TraceParent, &msg.TraceState); err != nil {
 			return nil, err
 		}
 		msg.Envelope, err = compactJSON(msg.Envelope)
@@ -574,7 +597,7 @@ func (s *Store) PendingOutbox(ctx context.Context, limit int, now time.Time) ([]
 func (s *Store) MarkPublished(ctx context.Context, messageID string, at time.Time) error {
 	ctx, cancel := s.writeContext(ctx)
 	defer cancel()
-	result, err := s.relayDB.ExecContext(ctx, `UPDATE outbox SET published_at=$2,last_error_code=NULL WHERE message_id=$1 AND published_at IS NULL`, messageID, at.UTC())
+	result, err := s.relayDB.ExecContext(ctx, `UPDATE outbox SET published_at=COALESCE(published_at,$2),last_error_code=NULL WHERE message_id=$1`, messageID, at.UTC())
 	if err != nil {
 		return err
 	}
@@ -594,7 +617,10 @@ func (s *Store) RecordPublishFailure(ctx context.Context, messageID, code string
 	}
 	count, err := result.RowsAffected()
 	if err == nil && count != 1 {
-		return errors.New("outbox message was not pending")
+		var published bool
+		if readErr := s.relayDB.QueryRowContext(ctx, `SELECT published_at IS NOT NULL FROM outbox WHERE message_id=$1`, messageID).Scan(&published); readErr != nil || !published {
+			return errors.New("outbox message was not pending")
+		}
 	}
 	return err
 }

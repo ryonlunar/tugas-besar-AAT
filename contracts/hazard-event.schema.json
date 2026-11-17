@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.aat.invalid/hazard-event.schema.json",
-  "title": "HazardEvent M1",
+  "title": "HazardEvent",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -12,7 +12,9 @@
     "source": {
       "enum": [
         "BMKG",
-        "PVMBG"
+        "PVMBG",
+        "SATELIT",
+        "SENSOR_PANTAI"
       ]
     },
     "source_ref_id": {
@@ -22,7 +24,9 @@
     "hazard_type": {
       "enum": [
         "SEISMIC",
-        "VOLCANIC"
+        "VOLCANIC",
+        "WILDFIRE",
+        "COASTAL"
       ]
     },
     "severity": {
@@ -72,28 +76,44 @@
     "ingested_at",
     "attributes"
   ],
-  "allOf": [
+  "oneOf": [
     {
-      "if": {
-        "properties": {
-          "source": {
-            "const": "BMKG"
-          }
+      "properties": {
+        "source": {
+          "const": "BMKG"
         },
-        "required": ["source"]
-      },
-      "then": {
-        "properties": {
-          "hazard_type": {
-            "const": "SEISMIC"
-          }
+        "hazard_type": {
+          "const": "SEISMIC"
         }
-      },
-      "else": {
-        "properties": {
-          "hazard_type": {
-            "const": "VOLCANIC"
-          }
+      }
+    },
+    {
+      "properties": {
+        "source": {
+          "const": "PVMBG"
+        },
+        "hazard_type": {
+          "const": "VOLCANIC"
+        }
+      }
+    },
+    {
+      "properties": {
+        "source": {
+          "const": "SATELIT"
+        },
+        "hazard_type": {
+          "const": "WILDFIRE"
+        }
+      }
+    },
+    {
+      "properties": {
+        "source": {
+          "const": "SENSOR_PANTAI"
+        },
+        "hazard_type": {
+          "const": "COASTAL"
         }
       }
     }

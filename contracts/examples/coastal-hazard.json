@@ -1,0 +1,19 @@
+{
+  "hazard_id": "139d202a-8385-50ef-a40f-dea40af07c1c",
+  "source": "SENSOR_PANTAI",
+  "source_ref_id": "obs-fixture-1",
+  "hazard_type": "COASTAL",
+  "severity": "WASPADA",
+  "area_name": "Sumatera Barat",
+  "latitude": -0.9492,
+  "longitude": 100.3543,
+  "occurred_at": "2026-11-12T02:43:00Z",
+  "ingested_at": "2026-11-12T02:43:01Z",
+  "attributes": {
+    "station_id": "stn-padang-01",
+    "sea_level_anomaly_m": 0.42,
+    "wave_height_m": 1.8,
+    "quality": "ok",
+    "critical": false
+  }
+}

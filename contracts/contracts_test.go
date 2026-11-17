@@ -20,6 +20,7 @@ func TestSchemasAndExamples(t *testing.T) {
 		"hazard-event.schema.json",
 		"hazard-summary.schema.json",
 		"hazard-envelope.schema.json",
+		"field-report.schema.json",
 	}
 	schemaIDs := make(map[string]string, len(schemaFiles))
 	for _, filename := range schemaFiles {
@@ -56,6 +57,9 @@ func TestSchemasAndExamples(t *testing.T) {
 		{name: "seismic event", schema: "hazard-event.schema.json", fixture: "examples/seismic-hazard.json"},
 		{name: "volcanic v1 event", schema: "hazard-event.schema.json", fixture: "examples/volcanic-v1-hazard.json"},
 		{name: "volcanic v2 event", schema: "hazard-event.schema.json", fixture: "examples/volcanic-v2-hazard.json"},
+		{name: "wildfire event", schema: "hazard-event.schema.json", fixture: "examples/wildfire-hazard.json"},
+		{name: "coastal event", schema: "hazard-event.schema.json", fixture: "examples/coastal-hazard.json"},
+		{name: "field report request", schema: "field-report.schema.json", fixture: "examples/field-report.json"},
 		{name: "media summary", schema: "hazard-summary.schema.json", fixture: "examples/media-summary.json"},
 		{name: "hazard envelope", schema: "hazard-envelope.schema.json", fixture: "examples/hazard-envelope.json", envelope: true},
 	}
@@ -71,6 +75,16 @@ func TestSchemasAndExamples(t *testing.T) {
 				}
 			}
 		})
+	}
+
+	for source, expected := range map[string]string{"BMKG": "SEISMIC", "PVMBG": "VOLCANIC", "SATELIT": "WILDFIRE", "SENSOR_PANTAI": "COASTAL"} {
+		for _, kind := range []string{"SEISMIC", "VOLCANIC", "WILDFIRE", "COASTAL"} {
+			event := asObject(t, readJSON(t, "examples/seismic-hazard.json"))
+			event["source"], event["hazard_type"] = source, kind
+			if err := schemas["hazard-event.schema.json"].Validate(event); (err == nil) != (kind == expected) {
+				t.Fatalf("source/type pair accepted incorrectly: %s/%s: %v", source, kind, err)
+			}
+		}
 	}
 
 	invalidCases := []struct {

@@ -124,3 +124,10 @@ func (s *Store) Inspect(ctx context.Context) (map[string]any, error) {
 	}
 	return map[string]any{"inbox_count": inboxCount, "quarantine_count": quarantineCount, "snapshots": snapshots}, nil
 }
+
+// Stats exposes counts without returning stored payloads or client data.
+func (s *Store) Stats(ctx context.Context) (int64, int64, error) {
+	var inbox, quarantine int64
+	err := s.db.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM inbox), (SELECT count(*) FROM quarantine)`).Scan(&inbox, &quarantine)
+	return inbox, quarantine, err
+}

@@ -1,0 +1,63 @@
+fullnameOverride: nats-ha
+global:
+  labels:
+    app: nats-ha
+    role: broker
+config:
+  cluster:
+    enabled: true
+    replicas: 3
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        enabled: true
+        storageClassName: local-path
+        size: 2Gi
+  merge:
+    authorization:
+      token: << $NATS_TOKEN >>
+service:
+  ports:
+    monitor:
+      enabled: true
+container:
+  image:
+    tag: 2.10.29-alpine
+  env:
+    NATS_TOKEN:
+      valueFrom:
+        secretKeyRef:
+          name: aat-credentials
+          key: NATS_TOKEN
+  resources:
+    requests:
+      memory: 448Mi
+    limits:
+      memory: 896Mi
+podTemplate:
+  configChecksumAnnotation: true
+  merge:
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        aat.dev/control: "false"
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: nats-ha
+promExporter:
+  enabled: true
+  merge:
+    resources:
+      requests:
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+reloader:
+  enabled: false
+natsBox:
+  enabled: false

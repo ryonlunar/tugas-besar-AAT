@@ -17,6 +17,7 @@ vendor/
 
 # Local secrets and private/raw evidence
 .secrets/
+.state/
 *.key
 *.pem
 docs/evidence/private/

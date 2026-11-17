@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+spec:
+  minReadySeconds: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    spec:
+      serviceAccountName: aggregator
+      automountServiceAccountToken: true
+      nodeSelector:
+        aat.dev/control: "false"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: aggregator
+      containers:
+        - name: aggregator
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 8
+          env:
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aat-credentials
+                  key: AUDIT_TOKEN
+            - name: POSTGRES_PASSWORD
+              $patch: delete
+            - name: SHARD_CONFIG_FILE
+              value: /run/shards/shards.json
+            - name: NATS_URL
+              value: nats://nats-ha:4222
+            - name: NATS_STREAM_REPLICAS
+              value: "3"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: shards
+              mountPath: /run/shards
+              readOnly: true
+            - name: shard-certs
+              mountPath: /run/shard-certs
+              readOnly: true
+      volumes:
+        - name: shards
+          secret:
+            secretName: aat-shards
+        - name: shard-certs
+          secret:
+            secretName: aat-shard-certs

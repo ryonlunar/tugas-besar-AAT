@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"log/slog"
 	"regexp"
 	"sync"
@@ -30,6 +32,7 @@ type Repository interface {
 }
 
 type Poller struct {
+	Observe          func(operation, peer string, err error, duration time.Duration)
 	repository       Repository
 	bmkg             BMKGSource
 	pvmbg            PVMBGSource
@@ -65,6 +68,9 @@ func (p *Poller) SetOutboxLimit(limit int64) {
 }
 
 func (p *Poller) checkOutboxCapacity(ctx context.Context, source mapper.Source) (bool, error) {
+	if err := store.CheckOwnership(ctx); err != nil {
+		return false, err
+	}
 	pending, err := p.repository.PendingOutboxCount(ctx)
 	if err != nil {
 		p.logger.Error("outbox capacity check failed", "source", source, "reason", "OUTBOX_CAPACITY_CHECK_FAILED")
@@ -295,7 +301,15 @@ func (p *Poller) runLoop(ctx context.Context, wg *sync.WaitGroup, source string,
 		if ctx.Err() != nil {
 			return
 		}
-		if err := poll(ctx); err != nil && ctx.Err() == nil {
+		started := time.Now()
+		pollCtx, span := otel.Tracer("aat/ingestion").Start(ctx, "source.poll")
+		span.SetAttributes(attribute.String("source", source))
+		err := poll(pollCtx)
+		span.End()
+		if p.Observe != nil {
+			p.Observe("source_poll", source, err, time.Since(started))
+		}
+		if err != nil && ctx.Err() == nil {
 			p.logger.Warn("source poll failed", "source", source, "reason", "POLL_FAILED")
 		}
 		if ctx.Err() != nil {
@@ -311,6 +325,31 @@ func (p *Poller) runLoop(ctx context.Context, wg *sync.WaitGroup, source string,
 		case <-ticker.C:
 		}
 	}
+}
+
+// RunSource keeps one source's polling loop within its ownership context.
+func (p *Poller) RunSource(ctx context.Context, source mapper.Source, interval time.Duration) error {
+	if interval <= 0 || p.repository == nil {
+		return errors.New("invalid source polling configuration")
+	}
+	var poll func(context.Context) error
+	switch source {
+	case mapper.SourceBMKG:
+		if p.bmkg != nil {
+			poll = p.PollBMKG
+		}
+	case mapper.SourcePVMBG:
+		if p.pvmbg != nil {
+			poll = p.PollPVMBG
+		}
+	}
+	if poll == nil {
+		return errors.New("source client is not configured")
+	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	p.runLoop(ctx, &wg, string(source), interval, poll)
+	return ctx.Err()
 }
 
 var sourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)

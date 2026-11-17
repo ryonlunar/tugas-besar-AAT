@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+scrape_configs:
+- job_name: applications
+  kubernetes_sd_configs:
+  - role: pod
+    namespaces:
+      names:
+      - sistem-informasi-kebencanaan-bnpb
+  relabel_configs:
+  - source_labels:
+    - __meta_kubernetes_pod_phase
+    regex: Running
+    action: keep
+  - source_labels:
+    - __meta_kubernetes_pod_container_port_number
+    regex: '9091'
+    action: keep
+  - source_labels:
+    - __meta_kubernetes_pod_label_app_kubernetes_io_name
+    target_label: service
+  - source_labels:
+    - __meta_kubernetes_pod_name
+    target_label: pod
+  - source_labels:
+    - __meta_kubernetes_pod_node_name
+    target_label: node
+- job_name: nats
+  kubernetes_sd_configs:
+  - role: pod
+    namespaces:
+      names:
+      - sistem-informasi-kebencanaan-bnpb
+  relabel_configs:
+  - source_labels:
+    - __meta_kubernetes_pod_phase
+    regex: Running
+    action: keep
+  - source_labels:
+    - __meta_kubernetes_pod_label_app
+    regex: nats-exporter|nats-ha
+    action: keep
+  - source_labels:
+    - __meta_kubernetes_pod_container_port_number
+    regex: '7777'
+    action: keep
+  - target_label: service
+    replacement: nats
+  - source_labels:
+    - __meta_kubernetes_pod_name
+    target_label: pod
+- job_name: prometheus
+  static_configs:
+  - targets:
+    - localhost:9090
+    labels:
+      service: prometheus

@@ -1,0 +1,24 @@
+{
+  "hazard_id": "0b32943c-3539-57a7-a250-953231119873",
+  "source": "SATELIT",
+  "source_ref_id": "fire-fixture-1",
+  "hazard_type": "WILDFIRE",
+  "severity": "WASPADA",
+  "area_name": "Kalimantan Tengah",
+  "latitude": -2.512305,
+  "longitude": 113.804405,
+  "occurred_at": "2026-11-12T02:43:00Z",
+  "ingested_at": "2026-11-12T02:43:01Z",
+  "attributes": {
+    "detection_count": 2,
+    "satellites": [
+      "N20"
+    ],
+    "total_frp_mw": 12.5,
+    "max_confidence": "h",
+    "detection_keys": [
+      "N20|2026-11-12|243|-2.51230|113.80440",
+      "N20|2026-11-12|243|-2.51231|113.80441"
+    ]
+  }
+}

@@ -1,10 +1,12 @@
 FROM golang:1.23-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY pkg/telemetry ./pkg/telemetry
+RUN go mod download
 COPY contracts ./contracts
 COPY pkg/jetstreamconsumer ./pkg/jetstreamconsumer
 COPY services/dashboard-consumer ./services/dashboard-consumer
-RUN go mod download && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/dashboard-consumer ./services/dashboard-consumer/cmd/server && mkdir /out/data
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/dashboard-consumer ./services/dashboard-consumer/cmd/server && mkdir /out/data
 
 FROM scratch
 COPY --from=build /out/dashboard-consumer /dashboard-consumer

@@ -15,7 +15,10 @@ import (
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/partition"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
+
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 type Repository interface {
@@ -23,6 +26,10 @@ type Repository interface {
 	List(context.Context, string, int, int) ([]mapper.HazardEvent, bool, error)
 	Get(context.Context, string) (mapper.HazardEvent, bool, error)
 	SourceStates(context.Context, []mapper.Source, time.Time) (map[mapper.Source]store.SourceState, error)
+}
+
+type pagedRepository interface {
+	Page(context.Context, string, string, int, int) (partition.Page, error)
 }
 
 type Handler struct {
@@ -81,7 +88,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	response := &statusWriter{ResponseWriter: w}
 	h.mux.ServeHTTP(response, r.WithContext(ctx))
-	slog.Info("request complete", "service", "aggregator", "operation", r.Method+" "+r.URL.Path, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", response.status)
+	slog.InfoContext(r.Context(), "request complete", "trace_id", telemetry.TraceID(r.Context()), "service", "aggregator", "operation", r.Method+" "+r.URL.Path, "correlation_id", correlationID, "duration_ms", time.Since(started).Milliseconds(), "status", response.status)
 }
 
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
@@ -100,13 +107,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	for name, values := range query {
-		if name != "source" && name != "view" && name != "limit" && name != "offset" || len(values) != 1 {
+		if name != "source" && name != "view" && name != "limit" && name != "offset" && name != "cursor" || len(values) != 1 {
 			writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Query parameters are invalid", correlationID(r))
 			return
 		}
 	}
 	source := query.Get("source")
-	if source != "" && source != string(mapper.SourceBMKG) && source != string(mapper.SourcePVMBG) {
+	if source != "" && !mapper.Source(source).Valid() {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Query parameters are invalid", correlationID(r))
 		return
 	}
@@ -128,18 +135,53 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Query parameters are invalid", correlationID(r))
 		return
 	}
-	items, hasMore, err := h.repository.List(r.Context(), source, limit, offset)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Aggregator storage is unavailable", correlationID(r))
+	if query.Has("cursor") && (query.Get("cursor") == "" || query.Has("offset")) {
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Use a cursor without an offset", correlationID(r))
 		return
 	}
+	var items []mapper.HazardEvent
+	var hasMore bool
 	sources := selectedSources(source)
-	states, err := h.repository.SourceStates(r.Context(), sources, h.now().UTC())
+	type stateResult struct {
+		states map[mapper.Source]store.SourceState
+		err    error
+	}
+	var stateRead chan stateResult
+	var page *partition.Page
+	if repository, ok := h.repository.(pagedRepository); ok {
+		stateRead = make(chan stateResult, 1)
+		go func() {
+			states, err := h.repository.SourceStates(r.Context(), sources, h.now().UTC())
+			stateRead <- stateResult{states, err}
+		}()
+		result, readErr := repository.Page(r.Context(), source, query.Get("cursor"), limit, offset)
+		page, err = &result, readErr
+		items, hasMore = result.Items, result.NextCursor != nil
+	} else if query.Has("cursor") {
+		err = partition.ErrInvalidCursor
+	} else {
+		items, hasMore, err = h.repository.List(r.Context(), source, limit, offset)
+	}
+	if errors.Is(err, partition.ErrInvalidCursor) {
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Cursor is invalid or belongs to another query", correlationID(r))
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Aggregator storage is unavailable", correlationID(r))
 		return
 	}
-	if allUnavailable(sources, states) {
+	var states map[mapper.Source]store.SourceState
+	if stateRead != nil {
+		result := <-stateRead
+		states, err = result.states, result.err
+	} else {
+		states, err = h.repository.SourceStates(r.Context(), sources, h.now().UTC())
+	}
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Aggregator storage is unavailable", correlationID(r))
+		return
+	}
+	if allUnavailable(sources, states) && (page == nil || !page.Partial) && len(items) == 0 {
 		writeErrorWithMeta(w, http.StatusServiceUnavailable, "SOURCE_UNAVAILABLE", "Requested source data is not available yet", correlationID(r), map[string]any{"sources": statesJSON(states)})
 		return
 	}
@@ -151,9 +193,13 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			data = append(data, item)
 		}
 	}
+	meta := map[string]any{"correlation_id": correlationID(r), "limit": limit, "offset": offset, "has_more": hasMore, "sources": statesJSON(states)}
+	if page != nil {
+		meta["next_cursor"], meta["partial"], meta["unavailable_units"] = page.NextCursor, page.Partial, page.UnavailableUnits
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data": data,
-		"meta": map[string]any{"correlation_id": correlationID(r), "limit": limit, "offset": offset, "has_more": hasMore, "sources": statesJSON(states)},
+		"meta": meta,
 	})
 }
 

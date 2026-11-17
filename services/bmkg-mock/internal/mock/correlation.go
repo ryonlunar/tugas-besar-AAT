@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 type correlationContextKey struct{}
@@ -52,7 +54,11 @@ func WithCorrelationID(next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
-		slog.Info("request completed", "service", "bmkg-mock", "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds(), "correlation_id", id)
+		instance := r.Header.Get("X-Aggregator-Instance")
+		if len(instance) > 128 {
+			instance = "invalid"
+		}
+		slog.InfoContext(r.Context(), "request completed", "trace_id", telemetry.TraceID(r.Context()), "aggregator_instance", instance, "service", "bmkg-mock", "method", r.Method, "path", r.URL.Path, "status", status, "duration_ms", time.Since(started).Milliseconds(), "correlation_id", id)
 	})
 }
 

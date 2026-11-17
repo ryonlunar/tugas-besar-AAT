@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-recovery
+data:
+  use_pg_rewind: "true"
+  remove_data_directory_on_rewind_failure: "true"
+  remove_data_directory_on_diverged_timelines: "true"

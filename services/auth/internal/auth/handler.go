@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 type Handler struct {
@@ -51,7 +53,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	slog.Info("request complete", "service", "auth", "operation", r.Method+" "+r.URL.Path, "correlation_id", corr, "duration_ms", time.Since(started).Milliseconds(), "status", status)
+	slog.InfoContext(r.Context(), "request complete", "trace_id", telemetry.TraceID(r.Context()), "service", "auth", "operation", r.Method+" "+r.URL.Path, "correlation_id", corr, "duration_ms", time.Since(started).Milliseconds(), "status", status)
 }
 
 type responseRecorder struct {
