@@ -35,7 +35,7 @@ def main():
     config = json.loads(subprocess.check_output(KUBE + ['get', 'configmap', 'aat-runtime', '-o', 'json']))['data']
     ip = json.loads(subprocess.check_output(KUBE + ['get', 'service', 'postgres', '-o', 'json']))['spec']['clusterIP']
     run_id = uuid.uuid4().hex[:8]
-    databases = [f'aat_cp2_{run_id}_shard_{i}_test' for i in range(4)]
+    databases = [f'aat_foundation_{run_id}_shard_{i}_test' for i in range(4)]
     private = STATE / f'foundation-{run_id}.json'
     created = []
     container = None

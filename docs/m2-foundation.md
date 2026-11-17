@@ -1,6 +1,6 @@
 # M2 foundation
 
-Checkpoint 2 defines the shared interfaces and tests the core database protocol. The running application remains the single-node M1 flow. These packages are not wired into its request or polling path yet.
+This document describes the M2 storage and ingestion design. Hash routing, cross-unit reads, and source journaling are implemented as tested libraries. The development deployment still runs the single-node M1 flow; integration with these libraries and replicated storage is pending.
 
 ## Storage decision
 
@@ -16,7 +16,7 @@ Use PostgreSQL JSONB with four logical units, `shard-0` through `shard-3`. Aggre
 
 The multi-node target is **four Linux VMs**: one control-plane/worker and three workers, with four PostgreSQL HA groups managed by CloudNativePG. Node-loss scenarios target workers; control-plane failure is outside this topology's guarantee. Each group has three instances on three distinct nodes; each node is excluded from one group. Thus each node holds only three quarters of canonical data, and every group retains two copies after any one node disappears. Synchronous replication requires one standby acknowledgement. Stable primary Services hide promotion from clients. Kubernetes labels and required anti-affinity must enforce the layout, rather than relying on preferred placement.
 
-A replacement node takes the vacant placement slot and rebuilds its three replicas from survivors. A controlled switchover can redistribute primary work without rehashing records. This handles replacement capacity; adding more logical units requires an explicit migration. Operator configuration, old-primary fencing, replica rebuilding, and actual node-loss behavior must pass checkpoint 3 before this becomes the application storage path.
+A replacement node takes the vacant placement slot and rebuilds its three replicas from survivors. A controlled switchover can redistribute primary work without rehashing records. This handles replacement capacity; adding more logical units requires an explicit migration. Operator configuration, old-primary fencing, replica rebuilding, and node-loss behavior still require validation before replicated storage can serve the application.
 
 CloudNativePG uses PostgreSQL replication and supports required pod anti-affinity. Its asynchronous defaults are insufficient for a no-loss claim; the multi-node configuration must set and verify synchronous acknowledgement explicitly. See the [replication](https://cloudnative-pg.io/docs/current/replication/) and [scheduling](https://cloudnative-pg.io/docs/current/scheduling/) documentation. Citus capabilities are described in its [cluster management guide](https://docs.citusdata.com/en/stable/admin_guide/cluster_management.html).
 
@@ -40,26 +40,26 @@ Each upstream source has one journal home: BMKG on shard-0, PVMBG on shard-1, SA
 
 Target settings are a 10-second server idle timeout, heartbeat every third of that timeout, 2-second database operation deadlines, and a jittered 2-second acquisition retry. Source HTTP deadlines remain independent. Ownership decisions do not compare client wall clocks. PostgreSQL session locks provide exclusivity; its [idle timeout](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-IDLE-SESSION-TIMEOUT) releases an abandoned connection. See also [advisory locks](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS).
 
-This relies on PostgreSQL exposing one writable primary. A generation check does not fence a split-brain database by itself. Multi-node old-primary fencing remains a checkpoint 3 gate. HTTP reads may repeat after a crash before commit; durable record keys and cursor replay prevent duplicate effects. This is not an exactly-once network-delivery claim.
+This relies on PostgreSQL exposing one writable primary. A generation check does not fence a split-brain database by itself. Failover tests must verify that the former primary rejects writes after promotion of a replacement. HTTP reads may repeat after a crash before commit; durable record keys and cursor replay prevent duplicate effects. This is not an exactly-once network-delivery claim.
 
 ## Feature interfaces
 
-| Owner | Input and output |
+| Component | Input and output |
 |---|---|
-| Hazim: satellite | Implement `contracts.SourceAdapter`; persist offset-addressed `detection`, `update`, and `retract` messages through the commit callback. Stateful recognition produces stable fire identities and `MutationUpsert`/`MutationRetract`. Keep detection coordinates and keys exactly as received. |
-| Hazim: PVMBG | Keep the existing compatible mapping. Add incompatible fixtures/modes; raw malformed records must reach the journal before decoding. |
-| Bimo: reports and operations | `POST /field-reports` accepts only Tim Lapangan and returns 202 after durable acceptance, with a receipt ID. Require an idempotency key; reusing it with different bytes returns 409. Failed-message inspection and replay are restricted to BNPB Internal Ops. |
+| Satellite ingestion | Implement `contracts.SourceAdapter`; persist offset-addressed `detection`, `update`, and `retract` messages through the commit callback. Stateful recognition produces stable fire identities and `MutationUpsert`/`MutationRetract`. Keep detection coordinates and keys exactly as received. |
+| PVMBG ingestion | Keep the existing compatible mapping. Add incompatible fixtures/modes; raw malformed records must reach the journal before decoding. |
+| Reports and operations API | `POST /field-reports` accepts only Tim Lapangan and returns 202 after durable acceptance, with a receipt ID. Require an idempotency key; reusing it with different bytes returns 409. Failed-message inspection and replay are restricted to BNPB Internal Ops. |
 | Shared foundation | Owns journal, processing transactions/checkpoints, canonical persistence, outbox, and replay ordering. Feature code does not assign canonical revisions or publish directly to JetStream. |
 
 `RawRecord.Payload` is `[]byte`, not `json.RawMessage`, so invalid JSON and UTF-8 remain recoverable. A raw key identifies an immutable message: a satellite feed offset is suitable. For snapshots and coastal observations, use `contracts.RawKey(upstreamID, payload)` so changed bytes under the same vendor ID remain inspectable instead of blocking intake. Without a trustworthy ID, pass an empty upstream ID. Downstream processing deduplicates by domain identity separately. Reusing an immutable raw key with different bytes is rejected without advancing the cursor.
 
 `Batch.From` is the resume position used for the request; `Batch.Cursor` is the next position. Commit must succeed before the adapter advances. On an ambiguous commit, reacquire and read the durable cursor instead of guessing. The runnable example is `go test ./contracts -run Example -v`.
 
-Raw intake is a bounded processing backlog, not a second permanent canonical catalog. After processing and its resulting mutations are durably recorded, payloads can be removed while retaining deduplication identities. Failed/parked messages retain their full bytes until replay resolves them. Journal capacity, processing state, and this cleanup belong to checkpoint 4.
+Raw intake is intended to be a bounded processing backlog. After processing and its resulting mutations are durably recorded, payloads can be removed while retaining deduplication identities. Failed/parked messages retain their full bytes until replay resolves them. Backlog limits, processing state, and completed-payload cleanup are not implemented yet.
 
 Canonical source/type pairs are BMKG/SEISMIC, PVMBG/VOLCANIC, SATELIT/WILDFIRE, and SENSOR_PANTAI/COASTAL. Keep BMKG's M1 tsunami representation; the future analytics tsunami series must explicitly derive from its warning attributes, since the specification does not add a `TSUNAMI` canonical type. Synthetic coastal fixtures demonstrate shape, not severity-mapping thresholds.
 
-The current JetStream v1 envelope still supports created/updated events only. `MutationRetract` is an internal processor contract; canonical deletion and a revisioned consumer tombstone must be implemented together in checkpoint 4. A missing fire must not be published as an ordinary update. Field reports use a separate intake path; do not invent another canonical `HazardEvent.source` value for them.
+The current JetStream v1 envelope still supports created/updated events only. `MutationRetract` is an internal processor contract; canonical deletion and a revisioned consumer tombstone must be implemented together before retractions are published. A missing fire must not be published as an ordinary update. Field reports use a separate intake path; do not invent another canonical `HazardEvent.source` value for them.
 
 ## API and configuration names
 
@@ -79,7 +79,7 @@ Reserve `SATELLITE_BASE_URL`, `SATELLITE_TOKEN`, `PANTAI_BASE_URL`, `PANTAI_AUTH
 
 ## Run the prototype checks
 
-Inside the already configured development VM, from `/home/ubuntu/aat`:
+Follow the [development setup guide](../infra/k8s/README.md) first, then run from the repository root inside Ubuntu:
 
 ```sh
 python3 scripts/m2/check-foundation.py

@@ -48,6 +48,8 @@ Pada implementasi ini, kedua instansi disimulasikan melalui mock dengan data sin
 
 Panduan berikut menjalankan sistem dari clone baru dan mengulang skenario P1–P5 dalam [laporan M1](docs/report/IF4031_M1_DikejarDeadline.pdf). ID dan waktu pada data sintetis berubah setiap sesi; hasil latency dan throughput bergantung pada mesin pengujian.
 
+Untuk pengembangan M2 menggunakan k3s, lihat [panduan lingkungan pengembangan](infra/k8s/README.md).
+
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
 ---

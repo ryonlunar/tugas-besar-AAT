@@ -1,4 +1,4 @@
-// Package foundationtest exercises the checkpoint 2 interfaces against disposable
+// Package foundationtest exercises source ownership and partition reads against disposable
 // PostgreSQL databases. It does not claim multi-node HA or VM-freeze coverage.
 package foundationtest
 
@@ -33,7 +33,7 @@ func databases(t *testing.T) []string {
 	}
 	for _, dsn := range dsns {
 		config, err := pgx.ParseConfig(dsn)
-		if err != nil || !strings.HasPrefix(config.Database, "aat_cp2_") || !strings.HasSuffix(config.Database, "_test") {
+		if err != nil || !strings.HasPrefix(config.Database, "aat_foundation_") || !strings.HasSuffix(config.Database, "_test") {
 			t.Fatal("refusing non-disposable database")
 		}
 	}
@@ -76,7 +76,7 @@ func acquire(t *testing.T, dsn string, source contracts.Source, timeout time.Dur
 }
 
 func record(key string, payload []byte) contracts.RawRecord {
-	return contracts.RawRecord{Key: key, Kind: "observation", Payload: payload, ReceivedAt: time.Now().UTC(), CorrelationID: "checkpoint-2"}
+	return contracts.RawRecord{Key: key, Kind: "observation", Payload: payload, ReceivedAt: time.Now().UTC(), CorrelationID: "foundation-check"}
 }
 
 func TestSourceOwnershipExcludesOtherReplicas(t *testing.T) {
@@ -232,7 +232,7 @@ func TestFourDatabaseRoutingPaginationAndPartialReads(t *testing.T) {
 	for i, dsn := range dsns {
 		conn := connection(t, dsn)
 		conns[i] = conn
-		if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS cp2_events(hazard_id text PRIMARY KEY,source text NOT NULL,occurred_at timestamptz NOT NULL,data jsonb NOT NULL);TRUNCATE cp2_events`); err != nil {
+		if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS foundation_events(hazard_id text PRIMARY KEY,source text NOT NULL,occurred_at timestamptz NOT NULL,data jsonb NOT NULL);TRUNCATE foundation_events`); err != nil {
 			t.Fatal(err)
 		}
 		readers[i] = partition.Reader{Unit: fmt.Sprintf("shard-%d", i), Read: func(ctx context.Context, source contracts.Source, after *partition.Position, limit int) ([]contracts.HazardEvent, error) {
@@ -242,7 +242,7 @@ func TestFourDatabaseRoutingPaginationAndPartialReads(t *testing.T) {
 				at = after.OccurredAt
 				id = after.HazardID
 			}
-			rows, err := conn.Query(ctx, `SELECT data FROM cp2_events WHERE ($1='' OR source=$1) AND ($2::timestamptz IS NULL OR occurred_at<$2 OR (occurred_at=$2 AND hazard_id>$3)) ORDER BY occurred_at DESC,hazard_id ASC LIMIT $4`, string(source), at, id, limit)
+			rows, err := conn.Query(ctx, `SELECT data FROM foundation_events WHERE ($1='' OR source=$1) AND ($2::timestamptz IS NULL OR occurred_at<$2 OR (occurred_at=$2 AND hazard_id>$3)) ORDER BY occurred_at DESC,hazard_id ASC LIMIT $4`, string(source), at, id, limit)
 			if err != nil {
 				return nil, err
 			}
@@ -273,7 +273,7 @@ func TestFourDatabaseRoutingPaginationAndPartialReads(t *testing.T) {
 		index := int(unit[len(unit)-1] - '0')
 		counts[index]++
 		raw, _ := json.Marshal(event)
-		if _, err := conns[index].Exec(ctx, `INSERT INTO cp2_events VALUES($1,$2,$3,$4)`, id, event.Source, event.OccurredAt, raw); err != nil {
+		if _, err := conns[index].Exec(ctx, `INSERT INTO foundation_events VALUES($1,$2,$3,$4)`, id, event.Source, event.OccurredAt, raw); err != nil {
 			t.Fatal(err)
 		}
 		expected = append(expected, id)

@@ -1,12 +1,45 @@
 # k3s development
 
-Single-node development deployment of the existing M1 services, with metrics and logs in Grafana. Multi-node storage, replication, and coordinated Aggregators are later work.
+Single-node development deployment of the existing M1 services, with metrics and logs in Grafana. Replicated storage and coordinated Aggregators are described in the [M2 design](../../docs/m2-foundation.md) and are not deployed by this profile.
 
-## Run
+## Prepare Ubuntu
 
-From a checkout inside a dedicated Ubuntu 24.04 VM with sudo access:
+Use a dedicated **Ubuntu 24.04 x86_64 VM** with sudo access, internet connectivity, 4 vCPUs, 8 GiB RAM, and 30 GiB disk. Multipass is one option; VirtualBox, VMware, or another VM tool can provide the same Ubuntu environment. The setup scripts run inside Ubuntu and do not depend on Multipass.
+
+If using another tool, put this repository version in `~/aat`, make the VM reachable from the host or forward the ports listed below, then continue with **Run inside Ubuntu**.
+
+### Multipass example
+
+[Install Multipass](https://canonical.com/multipass/docs/latest/how-to-guides/install-multipass/) for your host OS. To choose another drive for VM disks, configure the [storage location](https://canonical.com/multipass/docs/latest/how-to-guides/customise-multipass/configure-where-multipass-stores-external-data/) before creating the VM.
+
+On the host, create the VM:
 
 ```sh
+multipass version
+multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
+```
+
+From the host repository root, copy its committed runtime files into the VM:
+
+```sh
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md
+multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
+multipass shell aat-dev
+```
+
+Inside Ubuntu, extract the source:
+
+```sh
+mkdir -p ~/aat
+tar -xzf ~/aat-runtime.tar.gz -C ~/aat
+```
+
+The VM has its own source copy. The archive includes committed files only; host edits do not appear in the VM automatically. A checkout cloned directly inside the VM can also be used.
+
+## Run inside Ubuntu
+
+```sh
+cd ~/aat
 bash scripts/m2/setup-vm.sh
 bash scripts/m2/deploy.sh
 python3 scripts/m2/check.py
@@ -26,7 +59,7 @@ kubectl --context aat-dev get nodes -o wide
 kubectl --context aat-dev -n sistem-informasi-kebencanaan-bnpb get pods
 ```
 
-Using the node's internal IP from the first command:
+Use the node's internal IP from the first command. With NAT port forwarding, use the host address and your mapped ports instead:
 
 | Service | URL |
 |---|---|
@@ -38,18 +71,25 @@ Grafana provides a local Viewer dashboard. Application credentials and JWT keys 
 
 Edit `.state/m2/runtime.env` for non-secret settings, then rerun deployment. Listener port changes also require corresponding Service and probe changes. Startup settings are applied by recreating the development pods.
 
-## Resume after a laptop restart
+## Resume after a restart
 
-In Windows PowerShell:
+Start the existing VM in your VM tool. k3s starts automatically and restores deployed services and persistent data. Inside Ubuntu, run:
+
+```sh
+cd ~/aat
+python3 scripts/m2/check.py
+```
+
+For Multipass, the equivalent host commands are:
 
 ```powershell
 multipass start aat-dev
 multipass info aat-dev
-multipass exec aat-dev -- bash -lc "cd /home/ubuntu/aat && python3 scripts/m2/check.py"
+multipass exec aat-dev -- bash -lc "cd ~/aat && python3 scripts/m2/check.py"
 ```
 
 Allow the services a moment to start. The check should finish with `"passed": true`; if SSH or Kubernetes is still starting, retry it after a minute. Use the current IPv4 from `multipass info` for the URLs above because it can change.
 
-k3s starts automatically and restores the deployed services and persistent data. Setup and deployment do not need to run again after a restart. The VM source copy at `/home/ubuntu/aat` is separate from the host worktree; code changes must be copied there before redeployment.
+Setup and deployment do not need to run again after a restart. For code changes, update the VM source and run `bash scripts/m2/deploy.sh` from the repository root.
 
 When finished, run `multipass stop aat-dev`. This preserves the VM and its data.
