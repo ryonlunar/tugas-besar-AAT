@@ -44,7 +44,7 @@ func (m *Monitor) ObserveOperation(operation, peer string, err error, duration t
 		operation = "other"
 	}
 	switch peer {
-	case "BMKG", "PVMBG", "nats":
+	case "BMKG", "PVMBG", "SATELIT", "SENSOR_PANTAI", "nats":
 	default:
 		peer = "other"
 	}
@@ -85,7 +85,9 @@ func (m *Monitor) Wrap(next http.Handler, routes ...string) http.Handler {
 			}
 		}
 		source := r.URL.Query().Get("source")
-		if source != "BMKG" && source != "PVMBG" {
+		switch source {
+		case "BMKG", "PVMBG", "SATELIT", "SENSOR_PANTAI":
+		default:
 			source = "all"
 		}
 		response := &statusWriter{ResponseWriter: w, status: http.StatusOK}

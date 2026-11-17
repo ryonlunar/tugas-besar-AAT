@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.aat.invalid/field-report.schema.json",
+  "title": "Field report request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "observed_at": {"type": "string", "format": "date-time"},
+    "latitude": {"type": "number", "minimum": -90, "maximum": 90},
+    "longitude": {"type": "number", "minimum": -180, "maximum": 180},
+    "description": {"type": "string", "minLength": 1, "maxLength": 4096}
+  },
+  "required": ["observed_at", "latitude", "longitude", "description"]
+}
