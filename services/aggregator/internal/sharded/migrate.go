@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/partition"
@@ -62,6 +63,9 @@ func (s *Store) ImportLegacy(ctx context.Context, legacy *sql.DB) error {
 				}
 				statement := fmt.Sprintf(`INSERT INTO %s SELECT * FROM json_populate_record(NULL::%s,$1::json)
      ON CONFLICT (%s) DO UPDATE SET hazard_id=EXCLUDED.hazard_id WHERE to_jsonb(%s)=to_jsonb(EXCLUDED)`, q.table, q.table, q.key, q.table)
+				if q.table == "hazard_events" {
+					statement = strings.Replace(statement, "$1::json)", "(jsonb_build_object('retracted',false) || $1::jsonb)::json)", 1)
+				}
 				if q.table == "outbox" {
 					statement = `INSERT INTO outbox SELECT * FROM json_populate_record(NULL::outbox,
       (jsonb_build_object('traceparent','','tracestate','') || $1::jsonb || jsonb_build_object('published_at',NULL,'attempts',0,'next_attempt_at',now(),'last_error_code',NULL))::json)

@@ -11,7 +11,8 @@
     "event_type": {
       "enum": [
         "hazard.created",
-        "hazard.updated"
+        "hazard.updated",
+        "hazard.retracted"
       ]
     },
     "message_id": {
@@ -41,26 +42,41 @@
     {
       "if": {
         "properties": {
-          "revision": {"const": 1}
+          "revision": {
+            "const": 1
+          }
         },
-        "required": ["revision"]
+        "required": [
+          "revision"
+        ]
       },
       "then": {
         "properties": {
-          "event_type": {"const": "hazard.created"}
+          "event_type": {
+            "const": "hazard.created"
+          }
         }
       }
     },
     {
       "if": {
         "properties": {
-          "revision": {"minimum": 2}
+          "revision": {
+            "minimum": 2
+          }
         },
-        "required": ["revision"]
+        "required": [
+          "revision"
+        ]
       },
       "then": {
         "properties": {
-          "event_type": {"const": "hazard.updated"}
+          "event_type": {
+            "enum": [
+              "hazard.updated",
+              "hazard.retracted"
+            ]
+          }
         }
       }
     }

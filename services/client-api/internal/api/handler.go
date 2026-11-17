@@ -21,6 +21,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
@@ -218,7 +219,7 @@ func validateList(w http.ResponseWriter, r *http.Request, scope, corr string) bo
 		writeError(w, 400, "INVALID_QUERY", "Use a cursor without an offset", corr)
 		return false
 	}
-	if q.Get("source") != "" && q.Get("source") != "BMKG" && q.Get("source") != "PVMBG" {
+	if q.Get("source") != "" && !contracts.Source(q.Get("source")).Valid() {
 		writeError(w, 400, "INVALID_QUERY", "Query parameters are invalid", corr)
 		return false
 	}

@@ -8,17 +8,22 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 )
 
 //go:embed schema.sql
 var schema string
 
 var (
+	ErrCapacity       = errors.New("unfinished raw journal capacity reached")
 	ErrCursorConflict = errors.New("source cursor changed; reacquire ownership and resume")
 	ErrRecordConflict = errors.New("source record key reused with different content")
 )
@@ -108,13 +113,21 @@ func (s *Session) Heartbeat(ctx context.Context) error {
 // Append commits bytes and the cursor in the same transaction and on the same
 // connection that owns the lock. A resumed owner cannot bypass a lost session
 // by borrowing a fresh pooled connection.
-func (s *Session) Append(ctx context.Context, batch contracts.Batch) error {
+func (s *Session) Append(ctx context.Context, batch contracts.Batch) (failure error) {
+	ctx, span := otel.Tracer("aat/store").Start(ctx, "postgres.append_raw")
+	span.SetAttributes(attribute.String("source", string(s.source)))
+	defer func() {
+		if failure != nil {
+			span.SetStatus(codes.Error, "storage operation failed")
+		}
+		span.End()
+	}()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, record := range batch.Records {
-		if record.Key == "" || record.Kind == "" || record.ReceivedAt.IsZero() || record.CorrelationID == "" {
+		if record.Key == "" || len(record.Key) > 512 || record.Kind == "" || len(record.Kind) > 64 || len(record.OrderingKey) > 256 || record.ReceivedAt.IsZero() || record.CorrelationID == "" || len(record.CorrelationID) > 64 {
 			return errors.New("raw record identity, kind, timestamp, and correlation ID are required")
 		}
 	}
@@ -136,28 +149,60 @@ func (s *Session) Append(ctx context.Context, batch contracts.Batch) error {
 		return ErrCursorConflict
 	}
 	for _, record := range batch.Records {
+		key := record.Key
+		if record.Snapshot {
+			if record.OrderingKey == "" {
+				return errors.New("snapshot ordering key is required")
+			}
+			digest := contracts.RawKey(record.Key, record.Auxiliary)
+			var previous string
+			err := tx.QueryRow(ctx, `SELECT digest FROM ingest_snapshot_heads WHERE source=$1 AND ordering_key=$2`, s.source, record.OrderingKey).Scan(&previous)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			if previous == digest {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO ingest_snapshot_heads(source,ordering_key,digest) VALUES($1,$2,$3) ON CONFLICT(source,ordering_key) DO UPDATE SET digest=EXCLUDED.digest`, s.source, record.OrderingKey, digest); err != nil {
+				return err
+			}
+			key = contracts.RawKey(batch.From+":"+record.OrderingKey, []byte(digest))
+		}
 		payload := record.Payload
 		if payload == nil {
 			payload = []byte{}
 		}
-		result, err := tx.Exec(ctx, `INSERT INTO ingest_records(source,record_key,kind,payload,received_at,correlation_id)
-			VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(source,record_key) DO NOTHING`, s.source, record.Key, record.Kind, payload, record.ReceivedAt, record.CorrelationID)
+		auxiliary := record.Auxiliary
+		if auxiliary == nil {
+			auxiliary = []byte{}
+		}
+		headers := telemetry.TraceHeaders(ctx)
+		result, err := tx.Exec(ctx, `INSERT INTO ingest_records(source,record_key,kind,payload,received_at,correlation_id,ordering_key,auxiliary,traceparent,tracestate)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(source,record_key) DO NOTHING`, s.source, key, record.Kind, payload, record.ReceivedAt, record.CorrelationID, record.OrderingKey, auxiliary, headers["traceparent"], headers["tracestate"])
 		if err != nil {
 			return err
 		}
 		if result.RowsAffected() == 0 {
-			var payload []byte
+			var payload, auxiliary []byte
 			var kind string
-			if err := tx.QueryRow(ctx, `SELECT kind,payload FROM ingest_records WHERE source=$1 AND record_key=$2`, s.source, record.Key).Scan(&kind, &payload); err != nil {
+			var ordering string
+			if err := tx.QueryRow(ctx, `SELECT kind,payload,auxiliary,ordering_key FROM ingest_records WHERE source=$1 AND record_key=$2`, s.source, key).Scan(&kind, &payload, &auxiliary, &ordering); err != nil {
 				return err
 			}
-			if kind != record.Kind || !bytes.Equal(payload, record.Payload) {
+			if kind != record.Kind || ordering != record.OrderingKey || !bytes.Equal(payload, record.Payload) || !bytes.Equal(auxiliary, record.Auxiliary) {
 				return ErrRecordConflict
 			}
 		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE ingest_sources SET cursor=$2 WHERE source=$1`, s.source, batch.Cursor); err != nil {
 		return err
+	}
+	var pending int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ingest_records WHERE source=$1 AND status<>'done'`, s.source).Scan(&pending); err != nil {
+		return err
+	}
+	if pending > 10000 {
+		return ErrCapacity
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return err

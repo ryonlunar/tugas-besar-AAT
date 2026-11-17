@@ -30,6 +30,9 @@ type RawRecord struct {
 	Payload       []byte
 	ReceivedAt    time.Time
 	CorrelationID string
+	OrderingKey   string // Stable entity identity; a failed version blocks later versions of this entity.
+	Auxiliary     []byte // Related input needed by the mapper (for example, tsunami warnings).
+	Snapshot      bool   // Polling snapshots suppress unchanged consecutive entity versions only.
 }
 
 // Batch commits records and their resume position together. From is the position

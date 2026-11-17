@@ -40,18 +40,15 @@ const (
 )
 
 func SubjectForSource(source mapper.Source) (string, error) {
-	switch source {
-	case mapper.SourceBMKG:
-		return SubjectBMKG, nil
-	case mapper.SourcePVMBG:
-		return SubjectPVMBG, nil
-	default:
-		return "", fmt.Errorf("unknown event source %q", source)
+	if source.Valid() {
+		return "hazard.events.v1." + string(source), nil
 	}
+	return "", fmt.Errorf("unknown event source %q", source)
 }
 
 var ErrOutboxCapacity = errors.New("outbox capacity reached")
 var errEventTooLarge = errors.New("event exceeds the publication size limit")
+var ErrEventTooLarge = errEventTooLarge
 
 type Store struct {
 	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB *sql.DB
@@ -220,7 +217,7 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 		span.End()
 	}()
 	span.SetAttributes(attribute.String("source", string(source)), attribute.String("unit", s.unit))
-	if source != mapper.SourceBMKG && source != mapper.SourcePVMBG {
+	if !source.Valid() {
 		return errors.New("unknown source")
 	}
 	if attemptAt.IsZero() || acceptedAt.IsZero() {
@@ -290,6 +287,7 @@ func (s *Store) ApplyCycle(ctx context.Context, source mapper.Source, events []m
 }
 
 func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.HazardEvent, correlationID string, at time.Time) error {
+	at = at.UTC().Truncate(time.Microsecond)
 	if event.HazardID == "" {
 		id, err := newUUID()
 		if err != nil {
@@ -311,7 +309,8 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	}
 	var hazardID, oldHash string
 	var revision int64
-	err = tx.QueryRowContext(ctx, `SELECT hazard_id::text, revision, content_hash FROM hazard_events WHERE source=$1 AND source_ref_id=$2 FOR UPDATE`, string(event.Source), event.SourceRefID).Scan(&hazardID, &revision, &oldHash)
+	var retracted bool
+	err = tx.QueryRowContext(ctx, `SELECT hazard_id::text, revision, content_hash,retracted FROM hazard_events WHERE source=$1 AND source_ref_id=$2 FOR UPDATE`, string(event.Source), event.SourceRefID).Scan(&hazardID, &revision, &oldHash, &retracted)
 	isNew := errors.Is(err, sql.ErrNoRows)
 	if err != nil && !isNew {
 		return err
@@ -326,10 +325,10 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if err != nil {
 		return err
 	}
-	if !isNew && oldHash == hash {
+	if !isNew && !retracted && oldHash == hash {
 		return nil
 	}
-	if !isNew {
+	if !isNew && !retracted {
 		var equivalent bool
 		err := tx.QueryRowContext(ctx, `SELECT jsonb_build_object('source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'attributes',attributes) = ($1::jsonb - 'occurred_at') AND occurred_at=$4::timestamptz FROM hazard_events WHERE source=$2 AND source_ref_id=$3`, content, string(event.Source), event.SourceRefID, occurredAt).Scan(&equivalent)
 		if err != nil {
@@ -386,7 +385,7 @@ func (s *Store) upsertEvent(ctx context.Context, tx *sql.Tx, event mapper.Hazard
 	if isNew {
 		_, err = tx.ExecContext(ctx, `INSERT INTO hazard_events(hazard_id,source,source_ref_id,hazard_type,severity,area_name,latitude,longitude,occurred_at,ingested_at,attributes,revision,content_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`, event.HazardID, event.Source, event.SourceRefID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
 	} else {
-		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
+		_, err = tx.ExecContext(ctx, `UPDATE hazard_events SET retracted=false,hazard_type=$2,severity=$3,area_name=$4,latitude=$5,longitude=$6,occurred_at=$7,ingested_at=$8,attributes=$9::jsonb,revision=$10,content_hash=$11 WHERE hazard_id=$1`, event.HazardID, event.HazardType, event.Severity, event.AreaName, event.Latitude, event.Longitude, occurredAt.UTC(), at, jsonBytes(event.Attributes), revision, hash)
 	}
 	if err != nil {
 		return fmt.Errorf("write current event: %w", err)
@@ -455,7 +454,7 @@ func (s *Store) List(ctx context.Context, source string, limit, offset int) ([]m
 	}
 	ctx, cancel := s.readContext(ctx)
 	defer cancel()
-	rows, err := s.readDB.QueryContext(ctx, `SELECT jsonb_build_object('hazard_id',hazard_id,'source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'occurred_at',occurred_at,'ingested_at',ingested_at,'attributes',attributes) FROM hazard_events WHERE ($1='' OR source=$1) ORDER BY occurred_at DESC, hazard_id ASC LIMIT $2 OFFSET $3`, source, limit+1, offset)
+	rows, err := s.readDB.QueryContext(ctx, `SELECT jsonb_build_object('hazard_id',hazard_id,'source',source,'source_ref_id',source_ref_id,'hazard_type',hazard_type,'severity',severity,'area_name',area_name,'latitude',latitude,'longitude',longitude,'occurred_at',occurred_at,'ingested_at',ingested_at,'attributes',attributes) FROM hazard_events WHERE NOT retracted AND ($1='' OR source=$1) ORDER BY occurred_at DESC, hazard_id ASC LIMIT $2 OFFSET $3`, source, limit+1, offset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -486,7 +485,7 @@ func (s *Store) Get(ctx context.Context, hazardID string) (mapper.HazardEvent, b
 	ctx, cancel := s.readContext(ctx)
 	defer cancel()
 	var raw []byte
-	err := s.readDB.QueryRowContext(ctx, `SELECT data FROM hazard_versions WHERE hazard_id::text=$1 ORDER BY revision DESC LIMIT 1`, hazardID).Scan(&raw)
+	err := s.readDB.QueryRowContext(ctx, `SELECT v.data FROM hazard_events e JOIN hazard_versions v USING(hazard_id,revision) WHERE e.hazard_id::text=$1 AND NOT e.retracted`, hazardID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return mapper.HazardEvent{}, false, nil
 	}

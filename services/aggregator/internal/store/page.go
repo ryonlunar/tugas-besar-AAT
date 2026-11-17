@@ -31,7 +31,7 @@ func (s *Store) ReadPage(ctx context.Context, source contracts.Source, after *pa
 	}
 	rows, err := s.readDB.QueryContext(ctx, `SELECT v.data FROM hazard_events e
 		JOIN hazard_versions v ON v.hazard_id=e.hazard_id AND v.revision=e.revision
-		WHERE ($1='' OR e.source=$1) AND ($2::timestamptz IS NULL OR e.occurred_at<$2 OR (e.occurred_at=$2 AND e.hazard_id::text>$3))
+		WHERE NOT e.retracted AND ($1='' OR e.source=$1) AND ($2::timestamptz IS NULL OR e.occurred_at<$2 OR (e.occurred_at=$2 AND e.hazard_id::text>$3))
 		ORDER BY e.occurred_at DESC,e.hazard_id ASC LIMIT $4`, source, at, id, limit)
 	if err != nil {
 		return nil, err

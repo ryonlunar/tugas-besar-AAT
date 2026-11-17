@@ -101,7 +101,15 @@ func (c *PVMBGClient) getArray(ctx context.Context, path string, auth func(*http
 	return fetchArray(ctx, c.client, c.baseURL+path, c.maxBody, auth, path)
 }
 
-func fetchArray(ctx context.Context, client *http.Client, target string, maxBody int64, auth func(*http.Request), label string) (items [][]byte, err error) {
+func fetchArray(ctx context.Context, client *http.Client, target string, maxBody int64, auth func(*http.Request), label string) ([][]byte, error) {
+	body, err := fetchBody(ctx, client, target, maxBody, auth, label)
+	if err != nil {
+		return nil, err
+	}
+	return decodeArray(body, label)
+}
+
+func fetchBody(ctx context.Context, client *http.Client, target string, maxBody int64, auth func(*http.Request), label string) (body []byte, err error) {
 	started := time.Now()
 	status := 0
 	correlationID, _ := ctx.Value(correlationIDContextKey{}).(string)
@@ -140,13 +148,17 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("source request %s returned HTTP %d", label, resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	body, err = io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("read source response %s failed", label)
 	}
 	if int64(len(body)) > maxBody {
 		return nil, fmt.Errorf("source response %s exceeds configured limit", label)
 	}
+	return body, nil
+}
+
+func decodeArray(body []byte, label string) ([][]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	var raw []json.RawMessage
 	if err := dec.Decode(&raw); err != nil || raw == nil {
@@ -155,7 +167,7 @@ func fetchArray(ctx context.Context, client *http.Client, target string, maxBody
 	if err := dec.Decode(new(any)); err != io.EOF {
 		return nil, fmt.Errorf("source response %s has trailing JSON data", label)
 	}
-	items = make([][]byte, len(raw))
+	items := make([][]byte, len(raw))
 	for i, item := range raw {
 		items[i] = append([]byte(nil), item...)
 	}

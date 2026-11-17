@@ -113,7 +113,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	source := query.Get("source")
-	if source != "" && source != string(mapper.SourceBMKG) && source != string(mapper.SourcePVMBG) {
+	if source != "" && !mapper.Source(source).Valid() {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Query parameters are invalid", correlationID(r))
 		return
 	}
