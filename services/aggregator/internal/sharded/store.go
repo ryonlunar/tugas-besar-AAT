@@ -15,6 +15,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/partition"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
@@ -28,6 +29,7 @@ type Config struct {
 }
 
 type Options struct {
+	Topology                                     audit.Topology
 	ReadConns, BMKGConns, PVMBGConns, RelayConns int
 	ReadTimeout, WriteTimeout, StaleAfter        time.Duration
 	OutboxLimit                                  int64
@@ -37,11 +39,13 @@ type Options struct {
 type unit struct {
 	name, dsn string
 	store     *store.Store
+	readDB    *sql.DB
 }
 type Store struct {
-	units   []unit
-	pools   []*sql.DB
-	timeout time.Duration
+	topology audit.Topology
+	units    []unit
+	pools    []*sql.DB
+	timeout  time.Duration
 }
 
 func Open(ctx context.Context, filename string, options Options) (*Store, error) {
@@ -60,7 +64,10 @@ func Open(ctx context.Context, filename string, options Options) (*Store, error)
 		}
 		byName[c.Unit] = c.DSN
 	}
-	s := &Store{timeout: options.ReadTimeout}
+	s := &Store{timeout: options.ReadTimeout, topology: options.Topology}
+	if s.topology == nil {
+		s.topology = audit.KubernetesTopology()
+	}
 	if s.timeout <= 0 {
 		s.timeout = 200 * time.Millisecond
 	}
@@ -108,7 +115,7 @@ func Open(ctx context.Context, filename string, options Options) (*Store, error)
 		repository.SetOutboxLimit(quota)
 		repository.SetMaxEnvelopeBytes(options.MaxEnvelopeBytes)
 		repository.RequireFence()
-		s.units = append(s.units, unit{name, dsn, repository})
+		s.units = append(s.units, unit{name: name, dsn: dsn, store: repository, readDB: pools[0]})
 	}
 	group, groupCtx := errgroup.WithContext(ctx)
 	for _, u := range s.units {

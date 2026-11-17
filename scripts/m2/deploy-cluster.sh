@@ -6,6 +6,7 @@ namespace=sistem-informasi-kebencanaan-bnpb
 kube=(kubectl --context aat-dev -n "$namespace")
 python3 scripts/m2/prepare.py
 kubectl --context aat-dev apply -f infra/k8s/dev/namespace.yaml -f .state/m2/configuration.json
+"${kube[@]}" apply -f infra/k8s/cluster/audit-access.yaml
 "${kube[@]}" apply -f infra/k8s/cluster/registry.yaml
 "${kube[@]}" rollout status deployment/registry --timeout=180s
 bash scripts/m2/deploy-storage.sh

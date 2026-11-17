@@ -11,6 +11,8 @@ spec:
       maxUnavailable: 0
   template:
     spec:
+      serviceAccountName: aggregator
+      automountServiceAccountToken: true
       nodeSelector:
         aat.dev/control: "false"
       affinity:
@@ -29,6 +31,11 @@ spec:
               sleep:
                 seconds: 8
           env:
+            - name: AUDIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aat-credentials
+                  key: AUDIT_TOKEN
             - name: POSTGRES_PASSWORD
               $patch: delete
             - name: SHARD_CONFIG_FILE

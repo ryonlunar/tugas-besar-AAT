@@ -13,7 +13,7 @@ NAMESPACE = 'sistem-informasi-kebencanaan-bnpb'
 SECRET_KEYS = (
     'BMKG_API_KEY', 'PVMBG_TOKEN', 'AGGREGATOR_API_KEY', 'CONSUMER_DEMO_KEY',
     'POSTGRES_PASSWORD', 'NATS_TOKEN', 'MEDIA_CLIENT_SECRET',
-    'FIELD_TEAM_CLIENT_SECRET', 'BNPB_INTERNAL_CLIENT_SECRET',
+    'FIELD_TEAM_CLIENT_SECRET', 'BNPB_INTERNAL_CLIENT_SECRET', 'AUDIT_TOKEN',
 )
 
 
@@ -23,11 +23,14 @@ def prepare():
     credentials_path = STATE / 'credentials.json'
     if credentials_path.exists():
         credentials = json.loads(credentials_path.read_text())
-        if set(credentials) != set(SECRET_KEYS) or not all(credentials.values()):
+        if set(credentials) - set(SECRET_KEYS) or not all(credentials.values()):
             raise ValueError('Invalid saved credentials; inspect the private state directory.')
     else:
         credentials = {key: secrets.token_hex(32) for key in SECRET_KEYS}
         credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
+    for key in SECRET_KEYS:
+        credentials.setdefault(key, secrets.token_hex(32))
+    credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
     private_key, public_key = STATE / 'jwt-private.pem', STATE / 'jwt-public.pem'
     if private_key.exists() != public_key.exists():
         raise ValueError('Incomplete saved JWT key pair; refusing to replace an existing key.')

@@ -22,11 +22,14 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/poller"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 )
 
@@ -98,9 +101,9 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("configure NATS publish timeout: %w", err)
 	}
 	relay.SetLogger(logger)
-	pollerService := poller.New(repository,
-		poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes),
-		poller.NewPVMBGClient(cfg.pvmbgURL, cfg.pvmbgToken, &http.Client{Timeout: cfg.pvmbgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes),
+	bmkgClient := poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes)
+	pvmbgClient := poller.NewPVMBGClient(cfg.pvmbgURL, cfg.pvmbgToken, &http.Client{Timeout: cfg.pvmbgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes)
+	pollerService := poller.New(repository, bmkgClient, pvmbgClient,
 		mapper.New(mapper.DefaultVolcanoLocations()), logger)
 	pollerService.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
@@ -119,9 +122,13 @@ func run(logger *slog.Logger) error {
 			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
 			if distributed, ok := repository.(*sharded.Store); ok {
 				run = func() error {
-					return distributed.Coordinate(ctx, cfg.sourceIdle, cfg.sourceRetry, logger,
-						func(ctx context.Context, source contracts.Source) error {
-							return pollerService.RunSource(ctx, source, cfg.pollInterval)
+					return distributed.CoordinateSessions(ctx, []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}, cfg.sourceIdle, cfg.sourceRetry, logger,
+						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
+							read := pipeline.Reader(bmkgClient.ReadRecords)
+							if source == contracts.SourcePVMBG {
+								read = pvmbgClient.ReadRecords
+							}
+							return pipeline.RunSession(ctx, session, source, read, pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations())), distributed, cfg.pollInterval, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
 						})
 				}
 			}
@@ -136,9 +143,17 @@ func run(logger *slog.Logger) error {
 		waitForWorkers()
 	}()
 
+	handler := http.NewServeMux()
+	handler.Handle("/", api.NewHandlerWithLimit(repository, cfg.internalKey, time.Now, cfg.maxInflight))
+	if distributed, ok := repository.(*sharded.Store); ok {
+		ownerAPI := audit.NewHandler(distributed, cfg.auditToken, cfg.internalKey)
+		handler.Handle("/internal/audit/", ownerAPI)
+		handler.Handle("/internal/v1/failed-messages", ownerAPI)
+		handler.Handle("/internal/v1/failed-messages/", ownerAPI)
+	}
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           monitor.Wrap(api.NewHandlerWithLimit(repository, cfg.internalKey, time.Now, cfg.maxInflight), "/internal/v1/hazards", "/internal/v1/hazards/{id}"),
+		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,
@@ -206,6 +221,8 @@ func openDB(dsn string, maxConns int) (*sql.DB, error) {
 }
 
 type config struct {
+	processingEnabled                                      bool
+	auditToken                                             string
 	shardConfigFile                                        string
 	sourceIdle, sourceRetry                                time.Duration
 	natsReplicas                                           int
@@ -230,6 +247,11 @@ type config struct {
 func loadConfig() (config, error) {
 	var c config
 	var err error
+	c.processingEnabled, err = strconv.ParseBool(env("INGEST_PROCESSING_ENABLED", "true"))
+	if err != nil {
+		return c, errors.New("INGEST_PROCESSING_ENABLED must be boolean")
+	}
+	c.auditToken = os.Getenv("AUDIT_TOKEN")
 	c.listenAddr = ":" + env("AGGREGATOR_HTTP_PORT", "8083")
 	c.bmkgURL = env("BMKG_BASE_URL", "http://bmkg-mock:8081")
 	c.pvmbgURL = env("PVMBG_BASE_URL", "http://pvmbg-mock:8082")

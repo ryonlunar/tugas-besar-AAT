@@ -9,6 +9,7 @@ resources:
   - patroni-recovery.yaml
   - tempo.yaml
   - aggregator-peers.yaml
+  - audit-access.yaml
 replicas:
   - name: aggregator
     count: 3
