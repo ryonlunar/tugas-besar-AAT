@@ -49,27 +49,25 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 	if adapter == nil || process == nil || maxEnvelopeBytes <= 0 || maxEnvelopeBytes > 64<<10 {
 		return errors.New("source adapter and processor and valid envelope limit required")
 	}
-	var fetched atomic.Bool
+	var health atomic.Value
+	health.Store("SOURCE_FETCH_FAILED")
 	refresh := func(ctx context.Context, correlation string) error {
 		pending, err := session.Unfinished(ctx)
 		if err != nil {
 			return err
 		}
-		success := fetched.Load() && pending == 0
-		code := ""
-		if !success {
+		code := health.Load().(string)
+		if code == "" && pending > 0 && source != contracts.SourceCoastal {
 			code = "UNPROCESSED_INPUT"
-			if !fetched.Load() {
-				code = "SOURCE_FETCH_FAILED"
-			}
 		}
+		success := code == ""
 		now := time.Now().UTC()
 		return repository.ApplyCycle(ctx, source, nil, correlation, success, code, now, now)
 	}
 	group, ctx := errgroup.WithContext(ctx)
 	if polling, ok := adapter.(*PollingAdapter); ok {
 		polling.onFailure = func(ctx context.Context) error {
-			fetched.Store(false)
+			health.Store("SOURCE_FETCH_FAILED")
 			logger.WarnContext(ctx, "source fetch failed", "source", source, "reason", "SOURCE_FETCH_FAILED")
 			return refresh(ctx, "source-intake")
 		}
@@ -83,10 +81,12 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			if err := store.CheckOwnership(batchCtx); err != nil {
 				return err
 			}
-			if err := session.Append(batchCtx, batch); err != nil {
-				return err
+			if len(batch.Records) > 0 || batch.From != batch.Cursor {
+				if err := session.Append(batchCtx, batch); err != nil {
+					return err
+				}
 			}
-			fetched.Store(true)
+			health.Store(batch.DegradedReason)
 			return refresh(batchCtx, "source-intake")
 		})
 		if err == nil {

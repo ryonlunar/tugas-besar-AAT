@@ -10,6 +10,7 @@ resources:
   - tempo.yaml
   - aggregator-peers.yaml
   - audit-access.yaml
+  - field-team-receiver.yaml
 replicas:
   - name: aggregator
     count: 3
@@ -40,6 +41,26 @@ patches:
         value:
           name: NATS_URL
           value: nats://nats-ha:4222
+  - target:
+      kind: Deployment
+      name: notifier-consumer
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FIELD_ALERT_URL
+          value: http://field-team-receiver:8087
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CONSUMER_NAK_DELAY
+          value: 1s
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FIELD_ALERT_TOKEN
+          valueFrom:
+            secretKeyRef: {name: aat-credentials, key: FIELD_ALERT_TOKEN}
   - target:
       kind: Deployment
       name: bmkg-mock|pvmbg-mock|aggregator|auth|client-api|dashboard-consumer|notifier-consumer

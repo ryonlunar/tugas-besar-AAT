@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: field-alert-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: field-team-receiver
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: field-team-receiver}}
+  template:
+    metadata:
+      labels: {app: field-team-receiver, app.kubernetes.io/name: field-team-receiver, role: other}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {fsGroup: 65532}
+      containers:
+        - name: receiver
+          image: aat.local/field-team-receiver:m2-dev
+          ports:
+            - {name: http, containerPort: 8087}
+            - {name: metrics, containerPort: 9091}
+          env:
+            - name: FIELD_ALERT_TOKEN
+              valueFrom:
+                secretKeyRef: {name: aat-credentials, key: FIELD_ALERT_TOKEN}
+            - {name: METRICS_ADDR, value: ":9091"}
+            - {name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://tempo:4318"}
+          resources:
+            requests: {memory: 128Mi}
+            limits: {memory: 256Mi}
+          readinessProbe: {httpGet: {path: /ready, port: http}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: field-alert-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: field-team-receiver
+spec:
+  selector: {app: field-team-receiver}
+  ports: [{port: 8087, targetPort: http}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: field-team-receiver
+spec:
+  podSelector: {matchLabels: {app: field-team-receiver}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {app: notifier-consumer}}
+      ports: [{port: 8087, protocol: TCP}]
+    - from:
+        - podSelector: {matchLabels: {app: prometheus}}
+      ports: [{port: 9091, protocol: TCP}]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: tempo}}
+      ports: [{port: 4318, protocol: TCP}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: notifier-receiver-egress
+spec:
+  podSelector: {matchLabels: {app: notifier-consumer}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: field-team-receiver}}
+      ports: [{port: 8087, protocol: TCP}]

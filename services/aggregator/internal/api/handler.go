@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/partition"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
@@ -142,6 +143,11 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	var items []mapper.HazardEvent
 	var hasMore bool
 	sources := selectedSources(source)
+	if source == "" {
+		if _, ok := h.repository.(pagedRepository); ok {
+			sources = append(sources, contracts.SourceSatellite, contracts.SourceCoastal)
+		}
+	}
 	type stateResult struct {
 		states map[mapper.Source]store.SourceState
 		err    error
@@ -270,11 +276,8 @@ func summarize(event mapper.HazardEvent) HazardSummary {
 }
 
 func selectedSources(source string) []mapper.Source {
-	if source == string(mapper.SourceBMKG) {
-		return []mapper.Source{mapper.SourceBMKG}
-	}
-	if source == string(mapper.SourcePVMBG) {
-		return []mapper.Source{mapper.SourcePVMBG}
+	if value := mapper.Source(source); value.Valid() {
+		return []mapper.Source{value}
 	}
 	return []mapper.Source{mapper.SourceBMKG, mapper.SourcePVMBG}
 }

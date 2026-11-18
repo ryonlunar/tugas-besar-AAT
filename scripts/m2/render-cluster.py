@@ -9,7 +9,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / '.state' / 'm2'
-SERVICES = ['bmkg-mock', 'pvmbg-mock', 'aggregator', 'auth', 'client-api', 'dashboard-consumer', 'notifier-consumer']
+SERVICES = ['bmkg-mock', 'pvmbg-mock', 'aggregator', 'auth', 'client-api', 'dashboard-consumer', 'notifier-consumer', 'field-team-receiver']
 
 
 def main():

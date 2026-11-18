@@ -24,6 +24,7 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/coastal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
@@ -75,6 +76,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	sensor, err := coastalAdapter(cfg)
+	if err != nil {
+		return err
+	}
 	closeTracing, traceErr := telemetry.StartTracing("aggregator")
 	if traceErr != nil {
 		return traceErr
@@ -122,8 +127,16 @@ func run(logger *slog.Logger) error {
 			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
 			if distributed, ok := repository.(*sharded.Store); ok {
 				run = func() error {
-					return distributed.CoordinateSessions(ctx, []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}, cfg.sourceIdle, cfg.sourceRetry, logger,
+					sources := []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}
+					if sensor != nil {
+						sensor.Observe = monitor.ObserveOperation
+						sources = append(sources, contracts.SourceCoastal)
+					}
+					return distributed.CoordinateSessions(ctx, sources, cfg.sourceIdle, cfg.sourceRetry, logger,
 						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
+							if source == contracts.SourceCoastal {
+								return pipeline.RunAdapter(ctx, session, source, sensor, coastal.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+							}
 							read := pipeline.Reader(bmkgClient.ReadRecords)
 							if source == contracts.SourcePVMBG {
 								read = pvmbgClient.ReadRecords
