@@ -31,7 +31,8 @@ def event_window(audit_url, credentials):
             areas[event['area_name']] += 1
             severity[event['severity']] += 1
             series[event['hazard_type']] += 1
-            if event['hazard_type'] == 'SEISMIC' and event['attributes'].get('tsunami_warnings'):
+            warnings = event['attributes'].get('tsunami_warnings')
+            if event['hazard_type'] == 'SEISMIC' and isinstance(warnings, list) and warnings:
                 series['TSUNAMI'] += 1
         cursor = page['next_cursor']
         if cursor is None:
@@ -76,6 +77,8 @@ def main():
     code, aggregated = check.request(api + '/v1/analytics?' + query, headers=headers)
     assert code == 200 and not aggregated['partial'], aggregated
     assert aggregated['by_area'] == areas and aggregated['by_severity'] == severity
+    assert aggregated['total_events'] == sum(areas.values()) and aggregated['by_category'] == series
+    assert aggregated['coverage'] == {'available_units': 4, 'total_units': 4}
     categories = collections.Counter()
     for point in aggregated['series']:
         categories[point['category']] += point['count']

@@ -105,7 +105,11 @@ python3 scripts/m2/prepare.py
 
 Set `PANTAI_BASE_URL=http://sensor-pantai:8080` in `.state/m2/runtime.env` and run `bash scripts/m2/deploy-cluster.sh`. For an existing deployment, restart Aggregator after changing only its environment or resetting the token. For the exam, set the prescribed profile and mount the assistant's key at `/var/run/pantai/key`.
 
-Open `http://<control-node-ip>:30080/analytics/` with an Auth access token. Select an occurrence-time range. The dashboard marks counts partial when a storage unit is unavailable. Run `python3 scripts/m2/check-coastal.py` on the control VM after the practice feed has populated a stable event window. It compares analytics with Audit and samples the Field Team receiver's stored notifications.
+Open `http://<control-node-ip>:30080/analytics/` with an Auth access token and select an occurrence-time range in UTC. Use a category card to focus the trend chart. The dashboard shows which storage units contributed to partial counts.
+
+`GET /v1/analytics?from=<RFC3339>&to=<RFC3339>` uses the same Bearer token and an inclusive start with an exclusive end. `total_events` counts each event once. The tsunami series and category count represent earthquakes with BMKG warnings. `coverage` reports the number of storage units that contributed, and `unavailable_units` lists the missing units.
+
+Run `python3 scripts/m2/check-coastal.py` on the control VM after the practice feed has populated a stable event window. It compares analytics with Audit and samples the Field Team receiver's stored notifications.
 
 ## Durable ingestion and Audit checks
 

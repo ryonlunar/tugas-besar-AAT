@@ -12,12 +12,20 @@ type AnalyticsPoint struct {
 	Count    int64     `json:"count"`
 }
 
+type AnalyticsCoverage struct {
+	AvailableUnits int `json:"available_units"`
+	TotalUnits     int `json:"total_units"`
+}
+
 type Analytics struct {
-	Series           []AnalyticsPoint `json:"series"`
-	BySeverity       map[string]int64 `json:"by_severity"`
-	ByArea           map[string]int64 `json:"by_area"`
-	Partial          bool             `json:"partial"`
-	UnavailableUnits []string         `json:"unavailable_units"`
+	TotalEvents      int64             `json:"total_events"`
+	ByCategory       map[string]int64  `json:"by_category"`
+	Series           []AnalyticsPoint  `json:"series"`
+	BySeverity       map[string]int64  `json:"by_severity"`
+	ByArea           map[string]int64  `json:"by_area"`
+	Partial          bool              `json:"partial"`
+	Coverage         AnalyticsCoverage `json:"coverage"`
+	UnavailableUnits []string          `json:"unavailable_units"`
 }
 
 type analyticsGroup struct {
@@ -31,7 +39,9 @@ func (s *Store) Analytics(ctx context.Context, from, to time.Time, step string) 
 	defer cancel()
 	const statement = `
  WITH active AS MATERIALIZED (
-  SELECT occurred_at,hazard_type,severity,area_name,attributes ? 'tsunami_warnings' AS tsunami
+  SELECT occurred_at,hazard_type,severity,area_name,
+    CASE WHEN jsonb_typeof(attributes->'tsunami_warnings') = 'array'
+         THEN jsonb_array_length(attributes->'tsunami_warnings') > 0 ELSE false END AS tsunami
   FROM hazard_events WHERE NOT retracted AND occurred_at >= $1 AND occurred_at < $2
  )
  SELECT 'series', category, date_bin($3::interval,occurred_at,'1970-01-01 00:00:00+00'::timestamptz),count(*)
@@ -65,13 +75,23 @@ func (s *Store) Analytics(ctx context.Context, from, to time.Time, step string) 
 			totals[key] += count
 		}
 	}
-	result := Analytics{Series: []AnalyticsPoint{}, BySeverity: map[string]int64{}, ByArea: map[string]int64{}, Partial: len(missing) > 0, UnavailableUnits: missing}
+	result := Analytics{
+		ByCategory:       map[string]int64{},
+		Series:           []AnalyticsPoint{},
+		BySeverity:       map[string]int64{},
+		ByArea:           map[string]int64{},
+		Partial:          len(missing) > 0,
+		Coverage:         AnalyticsCoverage{AvailableUnits: len(groups), TotalUnits: len(s.units)},
+		UnavailableUnits: missing,
+	}
 	for key, count := range totals {
 		switch key.kind {
 		case "series":
 			result.Series = append(result.Series, AnalyticsPoint{key.bucket, key.label, count})
+			result.ByCategory[key.label] += count
 		case "severity":
 			result.BySeverity[key.label] = count
+			result.TotalEvents += count
 		case "area":
 			result.ByArea[key.label] = count
 		}

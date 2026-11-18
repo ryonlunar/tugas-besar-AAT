@@ -360,14 +360,41 @@ func TestDurableProcessingReplayAndAudit(t *testing.T) {
 	from := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
 	to := from.Add(24 * time.Hour)
 	analytics := repository.Analytics(ctx, from, to, "1 hour")
-	if analytics.Partial || analytics.BySeverity["AWAS"] != 1 || analytics.BySeverity["NORMAL"] != 3 || analytics.ByArea["Gunung Simulasi Red Mountain (Tamriel)"] != 4 || len(analytics.Series) != 1 || analytics.Series[0].Count != 4 {
+	if analytics.Partial || analytics.Coverage != (AnalyticsCoverage{4, 4}) ||
+		analytics.TotalEvents != 4 || analytics.ByCategory["VOLCANIC"] != 4 ||
+		analytics.BySeverity["AWAS"] != 1 || analytics.BySeverity["NORMAL"] != 3 ||
+		analytics.ByArea["Gunung Simulasi Red Mountain (Tamriel)"] != 4 ||
+		len(analytics.Series) != 1 || analytics.Series[0].Count != 4 {
 		t.Fatalf("unexpected cross-unit analytics: %+v", analytics)
 	}
+
+	// Warning counts overlap with the earthquake series, but each event contributes once to the total.
+	if _, err := repository.lookup("shard-1").readDB.ExecContext(ctx, `
+		INSERT INTO hazard_events (
+			hazard_id, source, source_ref_id, hazard_type, severity, area_name,
+			latitude, longitude, occurred_at, ingested_at, attributes, revision, content_hash
+		)
+		SELECT gen_random_uuid(),'BMKG',id,'SEISMIC','NORMAL','Padang',0,0,$1,$1,attrs,1,repeat('0',64)
+		FROM (VALUES
+			('analytics-with-warning','{"tsunami_warnings":[{"warning_id":"w1"},{"warning_id":"w2"}]}'::jsonb),
+			('analytics-empty-warnings','{"tsunami_warnings":[]}'::jsonb),
+			('analytics-legacy-warning','{"tsunami_warnings":{"legacy":"value"}}'::jsonb)
+		) AS fixture(id,attrs)
+	`, to); err != nil {
+		t.Fatal(err)
+	}
+	warnings := repository.Analytics(ctx, to, to.Add(time.Hour), "1 hour")
+	if warnings.Partial || warnings.TotalEvents != 3 || warnings.ByCategory["SEISMIC"] != 3 || warnings.ByCategory["TSUNAMI"] != 1 {
+		t.Fatalf("unexpected warning totals: %+v", warnings)
+	}
+
 	for _, db := range repository.pools[8:12] {
 		_ = db.Close()
 	}
 	partialCounts := repository.Analytics(ctx, from, to, "1 hour")
-	if !partialCounts.Partial || len(partialCounts.UnavailableUnits) != 1 || partialCounts.UnavailableUnits[0] != "shard-2" || len(partialCounts.Series) == 0 {
+	if !partialCounts.Partial || partialCounts.Coverage != (AnalyticsCoverage{3, 4}) ||
+		len(partialCounts.UnavailableUnits) != 1 || partialCounts.UnavailableUnits[0] != "shard-2" ||
+		partialCounts.TotalEvents == 0 || len(partialCounts.Series) == 0 {
 		t.Fatalf("analytics did not identify the unavailable unit: %+v", partialCounts)
 	}
 	partial, err := repository.AuditEvents(ctx, audit.Query{Limit: 1})
