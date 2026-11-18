@@ -200,7 +200,77 @@ func TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce(t *testing.T) {
 			t.Fatalf("after crash n=%d status=%+v err=%v", n, status, err)
 		}
 	})
+	t.Run("an unstorable queued report is rejected without blocking the unit", func(t *testing.T) {
+		// Pick three keys on one unit, queued in this order: a report stored
+		// before NUL was rejected at intake, a report the processor approves but
+		// PostgreSQL cannot store, and a valid report behind both.
+		for {
+			if n, err := repository.ProcessFieldReports(ctx, "drain", 100, fieldreport.Process); err != nil {
+				t.Fatal(err)
+			} else if n == 0 {
+				break
+			}
+		}
+		keys := sameUnitKeys(t, 3)
+		legacy := []byte(strings.Replace(string(body), "Air naik", `Air\u0000naik`, 1))
+		ids := []string{}
+		for i, key := range keys {
+			payload := body
+			if i == 0 {
+				payload = legacy
+			}
+			receipt, err := submit("field-team", key, payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, receipt.ReportID)
+		}
+		unstorable := func(p fieldreport.Pending) fieldreport.Outcome {
+			outcome := fieldreport.Process(p)
+			if p.ReportID == ids[1] {
+				outcome.Report.Description = "a\x00b"
+			}
+			return outcome
+		}
+		n, err := repository.ProcessFieldReports(ctx, "poison-worker", 10, unstorable)
+		if err != nil || n != 3 {
+			t.Fatalf("transitions=%d err=%v; one bad row must not roll back the batch", n, err)
+		}
+		want := []struct {
+			status string
+			reason string
+		}{
+			{fieldreport.StatusRejected, "schema_invalid"},
+			{fieldreport.StatusRejected, "storage_incompatible: sqlstate 22"},
+			{fieldreport.StatusProcessed, ""},
+		}
+		for i, id := range ids {
+			status, found, err := repository.FieldReport(ctx, "field-team", id)
+			if err != nil || !found || status.Status != want[i].status || status.Attempts != 1 {
+				t.Fatalf("report %d: %+v err=%v", i, status, err)
+			}
+			if want[i].reason != "" && (status.Reason == nil || !strings.HasPrefix(*status.Reason, want[i].reason)) {
+				t.Fatalf("report %d reason=%v want prefix %q", i, status.Reason, want[i].reason)
+			}
+		}
+	})
 	repository.Close()
+}
+
+func sameUnitKeys(t *testing.T, n int) []string {
+	t.Helper()
+	first, _ := partition.ReportUnit("field-team", "poison-0")
+	keys := []string{"poison-0"}
+	for i := 1; len(keys) < n && i < 10000; i++ {
+		key := fmt.Sprintf("poison-%d", i)
+		if unit, _ := partition.ReportUnit("field-team", key); unit == first {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) < n {
+		t.Fatal("could not find keys on one unit")
+	}
+	return keys
 }
 
 func firstKey(m map[string]bool) string {

@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/fieldreport"
 )
@@ -13,6 +16,13 @@ import (
 // AcceptFieldReport stores the original bytes, request hash, and receipt in one
 // statement. The UNIQUE(client_id, idempotency_key) constraint makes a retried
 // request return the first receipt, including after a crash following commit.
+//
+// A row that is visible on the primary is not proof of durability: when the
+// synchronous standby does not acknowledge in time, PostgreSQL has already
+// committed locally and the client received 503. A retry therefore confirms
+// the receipt with its own synchronous commit (a no-op UPDATE of that row)
+// before answering 202. The commit waits for the standby to flush WAL past the
+// original INSERT; if it cannot, the retry gets 503 again.
 func (s *Store) AcceptFieldReport(ctx context.Context, submission fieldreport.Submission) (fieldreport.Receipt, error) {
 	id, err := fieldreport.NewID()
 	if err != nil {
@@ -32,7 +42,8 @@ func (s *Store) AcceptFieldReport(ctx context.Context, submission fieldreport.Su
 		return fieldreport.Receipt{}, fmt.Errorf("%w: %v", fieldreport.ErrUnavailable, err)
 	}
 	var existingHash string
-	err = s.reportDB.QueryRowContext(ctx, `SELECT report_id::text,request_sha256 FROM field_reports WHERE client_id=$1 AND idempotency_key=$2`,
+	err = s.reportDB.QueryRowContext(ctx, `UPDATE field_reports SET request_sha256=request_sha256
+ WHERE client_id=$1 AND idempotency_key=$2 RETURNING report_id::text,request_sha256`,
 		submission.ClientID, submission.IdempotencyKey).Scan(&stored, &existingHash)
 	if err != nil {
 		return fieldreport.Receipt{}, fmt.Errorf("%w: %v", fieldreport.ErrUnavailable, err)
@@ -106,23 +117,24 @@ func (s *Store) ProcessFieldReports(ctx context.Context, worker string, limit in
 	}
 	processed := 0
 	for _, p := range pending {
-		outcome := process(p)
-		var result sql.Result
-		if outcome.Status == fieldreport.StatusProcessed {
-			observed, parseErr := time.Parse(time.RFC3339Nano, outcome.Report.ObservedAt)
-			if parseErr != nil {
-				outcome = fieldreport.Outcome{Status: fieldreport.StatusRejected, Reason: "schema_invalid: observed_at"}
-			} else {
-				result, err = tx.ExecContext(ctx, `UPDATE field_reports SET status='processed',attempts=attempts+1,processed_at=now(),processed_by=$2,
- observed_at=$3,latitude=$4,longitude=$5,description=$6 WHERE report_id=$1 AND status='accepted'`,
-					p.ReportID, worker, observed.UTC(), outcome.Report.Latitude, outcome.Report.Longitude, outcome.Report.Description)
-			}
+		// Each report gets its own savepoint. A row PostgreSQL refuses to store
+		// is rejected on its own instead of rolling back the batch forever and
+		// holding back every valid report queued behind it on this unit.
+		if _, err := tx.ExecContext(ctx, `SAVEPOINT field_report`); err != nil {
+			return 0, err
 		}
-		if outcome.Status != fieldreport.StatusProcessed {
-			result, err = tx.ExecContext(ctx, `UPDATE field_reports SET status='rejected',attempts=attempts+1,processed_at=now(),processed_by=$2,reason=$3
- WHERE report_id=$1 AND status='accepted'`, p.ReportID, worker, outcome.Reason)
+		result, err := applyFieldReportOutcome(ctx, tx, p.ReportID, worker, process(p))
+		if code, ok := storageIncompatible(err); ok {
+			if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT field_report`); err != nil {
+				return 0, err
+			}
+			result, err = applyFieldReportOutcome(ctx, tx, p.ReportID, worker,
+				fieldreport.Outcome{Status: fieldreport.StatusRejected, Reason: "storage_incompatible: sqlstate " + code})
 		}
 		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.ExecContext(ctx, `RELEASE SAVEPOINT field_report`); err != nil {
 			return 0, err
 		}
 		if n, _ := result.RowsAffected(); n == 1 {
@@ -133,4 +145,31 @@ func (s *Store) ProcessFieldReports(ctx context.Context, worker string, limit in
 		return 0, err
 	}
 	return processed, nil
+}
+
+func applyFieldReportOutcome(ctx context.Context, tx *sql.Tx, reportID, worker string, outcome fieldreport.Outcome) (sql.Result, error) {
+	if outcome.Status == fieldreport.StatusProcessed {
+		observed, err := time.Parse(time.RFC3339Nano, outcome.Report.ObservedAt)
+		if err == nil {
+			return tx.ExecContext(ctx, `UPDATE field_reports SET status='processed',attempts=attempts+1,processed_at=now(),processed_by=$2,
+ observed_at=$3,latitude=$4,longitude=$5,description=$6 WHERE report_id=$1 AND status='accepted'`,
+				reportID, worker, observed.UTC(), outcome.Report.Latitude, outcome.Report.Longitude, outcome.Report.Description)
+		}
+		outcome = fieldreport.Outcome{Status: fieldreport.StatusRejected, Reason: "schema_invalid: observed_at"}
+	}
+	return tx.ExecContext(ctx, `UPDATE field_reports SET status='rejected',attempts=attempts+1,processed_at=now(),processed_by=$2,reason=$3
+ WHERE report_id=$1 AND status='accepted'`, reportID, worker, outcome.Reason)
+}
+
+// storageIncompatible reports whether PostgreSQL refused the values of this
+// row (data exception or integrity violation). Those failures are permanent
+// for the row. Any other error, such as a lost connection or a timeout, is
+// returned to the worker so the batch is retried and no valid report is
+// rejected because of an outage.
+func storageIncompatible(err error) (string, bool) {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")) {
+		return pgErr.Code, true
+	}
+	return "", false
 }

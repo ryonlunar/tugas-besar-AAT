@@ -138,7 +138,7 @@ func (h *Handler) submitFieldReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_FIELD_REPORT", "Body does not satisfy the field report schema", corrID(r))
 		return
 	}
-	h.forward(w, r, http.MethodPost, "/internal/v1/field-reports", "", body, map[string]string{"Idempotency-Key": key, "Content-Type": "application/json"}, nil)
+	h.forward(w, r, http.MethodPost, "/internal/v1/field-reports", "", body, map[string]string{"Idempotency-Key": key, "Content-Type": "application/json"}, nil, false)
 }
 
 func (h *Handler) fieldReportStatus(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +147,7 @@ func (h *Handler) fieldReportStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Report ID is invalid", corrID(r))
 		return
 	}
-	h.forward(w, r, http.MethodGet, "/internal/v1/field-reports/"+id, "", nil, nil, nil)
+	h.forward(w, r, http.MethodGet, "/internal/v1/field-reports/"+id, "", nil, nil, nil, false)
 }
 
 func (h *Handler) listFailed(w http.ResponseWriter, r *http.Request) {
@@ -162,13 +162,16 @@ func (h *Handler) listFailed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "Query parameters are invalid", corrID(r))
 		return
 	}
-	h.forward(w, r, http.MethodGet, "/internal/v1/failed-messages", q.Encode(), nil, nil, nil)
+	h.forward(w, r, http.MethodGet, "/internal/v1/failed-messages", q.Encode(), nil, nil, nil, false)
 }
 
 func (h *Handler) inspectFailed(w http.ResponseWriter, r *http.Request) {
 	id, ok := failedMessageID(w, r)
 	if ok {
-		h.forward(w, r, http.MethodGet, "/internal/v1/failed-messages/"+url.PathEscape(id), "", nil, nil, nil)
+		// The detail carries the original payload and auxiliary bytes in
+		// base64, so it can exceed the buffered limit for payloads the journal
+		// legitimately retains. Stream it instead of buffering.
+		h.forward(w, r, http.MethodGet, "/internal/v1/failed-messages/"+url.PathEscape(id), "", nil, nil, nil, true)
 	}
 }
 
@@ -176,7 +179,7 @@ func (h *Handler) replayFailed(w http.ResponseWriter, r *http.Request) {
 	id, ok := failedMessageID(w, r)
 	if ok {
 		slog.Info("failed message replay requested", "service", "client-api", "operation", "failed_message_replay", "correlation_id", corrID(r), "client", callerFrom(r).subject, "message_id", id)
-		h.forward(w, r, http.MethodPost, "/internal/v1/failed-messages/"+url.PathEscape(id)+"/replay", "", nil, nil, nil)
+		h.forward(w, r, http.MethodPost, "/internal/v1/failed-messages/"+url.PathEscape(id)+"/replay", "", nil, nil, nil, false)
 	}
 }
 
@@ -189,10 +192,16 @@ func failedMessageID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return id, true
 }
 
+// maxBufferedResponse bounds Aggregator responses that are read fully before
+// they are relayed.
+const maxBufferedResponse = 1024 * 1024
+
 // forward relays one request to an Aggregator replica with the internal
 // credential and the caller's identity. Upstream status and body are returned
-// unchanged unless transform rewrites a successful body.
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, method, path, rawQuery string, body []byte, headers map[string]string, transform func([]byte) ([]byte, error)) {
+// unchanged unless transform rewrites a successful body. With stream set, the
+// body is copied as it arrives without a size limit; memory stays constant and
+// the request deadline still bounds the transfer.
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, method, path, rawQuery string, body []byte, headers map[string]string, transform func([]byte) ([]byte, error), stream bool) {
 	started := time.Now()
 	upstreamStatus := 0
 	defer func() {
@@ -238,8 +247,21 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, method, path, 
 	}
 	upstreamStatus = resp.StatusCode
 	defer resp.Body.Close()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
-	if err != nil || len(payload) > 1024*1024 {
+	if stream && transform == nil {
+		relayHeaders(w, resp)
+		if length := resp.Header.Get("Content-Length"); length != "" {
+			w.Header().Set("Content-Length", length)
+		}
+		w.WriteHeader(resp.StatusCode)
+		if _, err := io.Copy(w, resp.Body); err != nil {
+			// Headers are already sent; a short body tells the client the
+			// response is incomplete.
+			slog.Warn("Aggregator response stream interrupted", "service", "client-api", "correlation_id", corrID(r), "error", err)
+		}
+		return
+	}
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxBufferedResponse+1))
+	if err != nil || len(payload) > maxBufferedResponse {
 		writeError(w, http.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "Aggregator response is unavailable", corrID(r))
 		return
 	}
@@ -249,6 +271,12 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, method, path, 
 			return
 		}
 	}
+	relayHeaders(w, resp)
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(payload)
+}
+
+func relayHeaders(w http.ResponseWriter, resp *http.Response) {
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 		if retryAfter := resp.Header.Get("Retry-After"); retryAfter != "" {
 			w.Header().Set("Retry-After", retryAfter)
@@ -258,6 +286,4 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, method, path, 
 		w.Header().Set("Idempotent-Replayed", "true")
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(payload)
 }

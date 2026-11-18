@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 )
@@ -64,6 +65,11 @@ func ValidateFieldReport(body []byte) (FieldReport, error) {
 		return FieldReport{}, ErrInvalidFieldReport
 	}
 	if n := utf8.RuneCountInString(report.Description); n < 1 || n > 4096 {
+		return FieldReport{}, ErrInvalidFieldReport
+	}
+	// JSON can escape U+0000, but PostgreSQL text cannot store it. Rejecting it
+	// here keeps every accepted report storable by the processor.
+	if strings.ContainsRune(report.Description, 0) {
 		return FieldReport{}, ErrInvalidFieldReport
 	}
 	return report, nil

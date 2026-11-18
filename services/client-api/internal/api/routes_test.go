@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -246,5 +248,47 @@ func TestIdempotentReportFailsOverWithSameBody(t *testing.T) {
 	}
 	if len(bodies) != attempts+1 {
 		t.Fatalf("non-idempotent request attempts=%d", len(bodies)-attempts)
+	}
+}
+
+func TestFailedMessageInspectionRelaysLargePayloadIntact(t *testing.T) {
+	// The journal retains source payloads up to SOURCE_RESPONSE_MAX_BYTES
+	// (1 MiB by default). Base64 plus the auxiliary bytes push the detail past
+	// the buffered response limit, so inspection must still return all of it.
+	payload := make([]byte, 1<<20)
+	auxiliary := make([]byte, 256<<10)
+	if _, err := rand.Read(payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(auxiliary); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := json.Marshal(map[string]any{"data": map[string]any{"message_id": "m-1", "payload_base64": payload, "auxiliary_base64": auxiliary}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail) <= maxBufferedResponse {
+		t.Fatalf("fixture is %d bytes; it must exceed the buffered limit", len(detail))
+	}
+	h, key, now, _ := newRouteHandler(t, 16, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(detail)
+	})
+	internal := signed(t, key, "bnpb-internal", internalScope, now)
+	res := call(h, http.MethodGet, "/failed-messages/m-1", internal, "", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%.200s", res.Code, res.Body.String())
+	}
+	var got struct {
+		Data struct {
+			Payload   []byte `json:"payload_base64"`
+			Auxiliary []byte `json:"auxiliary_base64"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not complete JSON: %v", err)
+	}
+	if !bytes.Equal(got.Data.Payload, payload) || !bytes.Equal(got.Data.Auxiliary, auxiliary) {
+		t.Fatal("decoded inspection bytes differ from the original payload")
 	}
 }

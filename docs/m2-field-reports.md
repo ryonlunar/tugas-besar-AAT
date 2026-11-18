@@ -12,7 +12,7 @@ Auth assigns scopes per client on the server. A login request cannot choose them
 | `field-team` | `hazards:summary hazards:raw reports:write` | `POST /field-reports`, `GET /field-reports/{report_id}` |
 | `bnpb-internal` | `hazards:summary hazards:raw ops:failed-messages` | `GET /failed-messages`, `GET /failed-messages/{message_id}`, `POST /failed-messages/{message_id}/replay` |
 
-The failed-message routes forward to Aggregator's internal owner API. The Audit token still grants neither raw inspection nor replay.
+The failed-message routes forward to Aggregator's internal owner API. The Audit token still grants neither raw inspection nor replay. The inspection response carries the original payload and auxiliary bytes in base64, so it can exceed 1 MiB for payloads the journal retains (`SOURCE_RESPONSE_MAX_BYTES`). Client API therefore streams it without its buffered response limit, and `AGGREGATOR_REQUEST_TIMEOUT` bounds the transfer.
 
 ## Field Report intake
 
@@ -25,11 +25,13 @@ Tim Lapangan ──POST /field-reports──► Client API ──► Aggregator 
                                              accepted → processed | rejected, in the claiming transaction
 ```
 
-1. Client API verifies the token, the `reports:write` scope, the `Idempotency-Key` syntax (1–128 of `A-Z a-z 0-9 . _ : -`), the 32 KiB body limit, and `field-report.schema.json`. Invalid requests never reach storage.
+1. Client API verifies the token, the `reports:write` scope, the `Idempotency-Key` syntax (1–128 of `A-Z a-z 0-9 . _ : -`), the 32 KiB body limit, and `field-report.schema.json`. The description cannot contain U+0000, which JSON can escape but PostgreSQL `text` cannot store. Invalid requests never reach storage.
 2. Aggregator repeats the validation and inserts one row holding the original bytes, their SHA-256, the client, the key, and a random report ID. `partition.ReportUnit(client, key)` picks the unit, so every retry of one request reaches the same receipt.
 3. Patroni's strict synchronous mode requires a standby acknowledgement before commit returns. The response is `202 {"report_id":"…","status":"accepted"}` only after that commit.
 4. A retry with the same key and the same bytes returns the first receipt with `202` and `Idempotent-Replayed: true`. The same key with different bytes returns `409 IDEMPOTENCY_CONFLICT`. Keys are scoped per client.
+   A row visible on the primary does not prove that the standby has it. If the standby does not acknowledge in time, the first attempt gets `503`, yet PostgreSQL has already committed the row locally. So before returning the first receipt, a retry runs its own synchronous commit on that row (a no-op `UPDATE`). That commit completes only after the standby has flushed WAL past the original insert. Until then the retry also gets `503`, and the client keeps retrying with the same key.
 5. A worker in each Aggregator claims accepted rows with `FOR UPDATE SKIP LOCKED`, applies one transition (`processed` with parsed fields, or `rejected` with a reason), and commits it with the claim. The `WHERE status='accepted'` guard prevents a second transition. A crash before commit releases the row for another worker.
+   Each row runs inside its own savepoint. If PostgreSQL refuses a row's values (SQLSTATE class 22 or 23), only that row rolls back, and it is recorded as `rejected` with `storage_incompatible: sqlstate …`. The rest of the batch still commits, so one bad row cannot hold back valid reports on its unit. Any other error, such as a lost connection or a timeout, rolls back the whole batch for a retry, so an outage never rejects a valid report.
 
 Acceptance needs only the owning storage unit. It does not depend on the broker or the processor. `FIELD_REPORT_PROCESSING_ENABLED=false` stops processing while intake continues. When storage cannot commit, the response is `503` with `Retry-After`, and the client retries with the same key.
 
@@ -64,7 +66,16 @@ Fixture and unit checks run anywhere:
 go test ./contracts ./services/client-api/... ./services/aggregator/internal/fieldreport ./services/aggregator/internal/api
 ```
 
-Storage checks run with the disposable foundation databases (`scripts/m2/check-foundation.py` sets `AAT_FOUNDATION_DSN_FILE`). They cover idempotent retries, per-client key scope, 16 concurrent duplicates storing one row, receipts surviving a receiver restart, three concurrent workers processing each report once, and a processor crash before commit:
+Storage checks run with the disposable foundation databases (`scripts/m2/check-foundation.py` sets `AAT_FOUNDATION_DSN_FILE`). They cover:
+
+- idempotent retries and per-client key scope
+- 16 concurrent duplicates storing one row
+- receipts surviving a receiver restart
+- three concurrent workers processing each report once
+- a processor crash before commit
+- an unstorable queued row rejected without blocking the valid reports behind it
+
+Run them with:
 
 ```bash
 go test -run TestFieldReport -v ./services/aggregator/internal/sharded

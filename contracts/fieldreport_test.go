@@ -27,6 +27,7 @@ func TestValidateFieldReport(t *testing.T) {
 		"long text":      strings.Replace(valid, `"x"`, `"`+strings.Repeat("a", 4097)+`"`, 1),
 		"trailing value": valid + `{}`,
 		"invalid utf8":   strings.Replace(valid, "x", "\xff", 1),
+		"escaped nul":    strings.Replace(valid, `"x"`, `"a\u0000b"`, 1),
 		"array":          `[]`,
 		"oversized":      strings.Repeat(" ", MaxFieldReportBytes+1),
 	}
