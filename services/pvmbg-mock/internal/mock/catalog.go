@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -138,13 +140,45 @@ func (c *PVMBGCatalog) Snapshot() []VolcanicReport {
 }
 
 func (c *PVMBGCatalog) SetSchemaVersion(version int) error {
-	if version != 1 && version != 2 {
-		return errors.New("schema version must be 1 or 2")
+	if version < 1 || version > 5 {
+		return errors.New("schema version must be between 1 and 5")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.schemaVersion = version
 	return nil
+}
+
+// RenderedSnapshot follows Snapshot()'s order; v1/v2 stay byte-identical to the
+// M1 encoder. Versions 3-5 apply an incompatible transformation on top of v2's
+// shape (so confidence_level is still present from v2 onward).
+func (c *PVMBGCatalog) RenderedSnapshot() []json.RawMessage {
+	c.mu.RLock()
+	version := c.schemaVersion
+	c.mu.RUnlock()
+	reports := c.Snapshot()
+	out := make([]json.RawMessage, 0, len(reports))
+	for _, r := range reports {
+		raw, _ := json.Marshal(r)
+		if version >= 3 {
+			var m map[string]any
+			d := json.NewDecoder(bytes.NewReader(raw))
+			d.UseNumber()
+			_ = d.Decode(&m)
+			switch version {
+			case 3:
+				m["level"] = m["alert_level"]
+				delete(m, "alert_level")
+			case 4:
+				m["eruption_count_24h"] = strconv.Itoa(r.EruptionCount24h)
+			case 5:
+				delete(m, "ash_column_height_m")
+			}
+			raw, _ = json.Marshal(m)
+		}
+		out = append(out, raw)
+	}
+	return out
 }
 
 func (c *PVMBGCatalog) SetOutage(enabled bool) { c.mu.Lock(); defer c.mu.Unlock(); c.outage = enabled }

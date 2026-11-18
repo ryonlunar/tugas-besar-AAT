@@ -36,7 +36,10 @@ type VolcanoLocation struct {
 	Longitude float64
 }
 
-type Mapper struct{ volcanoes map[string]VolcanoLocation }
+type Mapper struct {
+	volcanoes           map[string]VolcanoLocation
+	volcanicAdaptations VolcanicAdaptations
+}
 
 func New(volcanoes map[string]VolcanoLocation) *Mapper {
 	copy := make(map[string]VolcanoLocation, len(volcanoes))
@@ -161,15 +164,15 @@ func (m *Mapper) MapVolcanic(reportJSON []byte, hazardID string, ingestedAt time
 	if err != nil {
 		return HazardEvent{}, err
 	}
-	alert, err := requiredString(fields, "alert_level")
+	alert, levelConsumed, err := m.resolveAlertLevel(fields)
 	if err != nil {
 		return HazardEvent{}, err
 	}
-	eruptions, err := requiredInt(fields, "eruption_count_24h")
+	eruptions, err := m.resolveEruptionCount(fields)
 	if err != nil {
 		return HazardEvent{}, err
 	}
-	ashHeight, err := requiredFloat(fields, "ash_column_height_m")
+	ashHeight, hasAshHeight, err := m.resolveAshHeight(fields)
 	if err != nil {
 		return HazardEvent{}, err
 	}
@@ -194,7 +197,10 @@ func (m *Mapper) MapVolcanic(reportJSON []byte, hazardID string, ingestedAt time
 	if err != nil {
 		return HazardEvent{}, err
 	}
-	attrs := map[string]any{"volcano_id": volcanoID, "eruption_count_24h": eruptions, "ash_column_height_m": ashHeight}
+	attrs := map[string]any{"volcano_id": volcanoID, "eruption_count_24h": eruptions}
+	if hasAshHeight {
+		attrs["ash_column_height_m"] = ashHeight
+	}
 	if raw, ok := fields["confidence_level"]; ok {
 		if string(raw) == "null" {
 			return HazardEvent{}, errors.New("confidence_level must be a number in [0,1]")
@@ -205,10 +211,76 @@ func (m *Mapper) MapVolcanic(reportJSON []byte, hazardID string, ingestedAt time
 		}
 		attrs["confidence_level"] = json.Number(string(raw))
 	}
-	if err := addExtras(attrs, fields, setOf("report_id", "volcano_id", "alert_level", "eruption_count_24h", "ash_column_height_m", "reported_at", "confidence_level")); err != nil {
+	known := setOf("report_id", "volcano_id", "alert_level", "eruption_count_24h", "ash_column_height_m", "reported_at", "confidence_level")
+	if levelConsumed {
+		known["level"] = struct{}{}
+	}
+	if err := addExtras(attrs, fields, known); err != nil {
 		return HazardEvent{}, err
 	}
 	return HazardEvent{HazardID: hazardID, Source: SourcePVMBG, SourceRefID: reportID, HazardType: HazardVolcanic, Severity: severity, AreaName: location.AreaName, Latitude: location.Latitude, Longitude: location.Longitude, OccurredAt: occurredAt, IngestedAt: ingestedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), Attributes: attrs}, nil
+}
+
+// resolveAlertLevel implements D3's level_alias adaptation. alert_level is
+// always preferred; level is only consulted when the adaptation is enabled.
+// Both present and disagreeing is never guessed — it always parks as
+// ambiguous, regardless of which one might look more plausible.
+func (m *Mapper) resolveAlertLevel(fields map[string]json.RawMessage) (value string, levelConsumed bool, err error) {
+	_, hasAlert := fields["alert_level"]
+	_, hasLevel := fields["level"]
+	if !m.volcanicAdaptations.LevelAlias || !hasLevel {
+		value, err = requiredString(fields, "alert_level")
+		return value, false, err
+	}
+	if hasAlert {
+		alertValue, err := requiredString(fields, "alert_level")
+		if err != nil {
+			return "", false, err
+		}
+		levelValue, err := requiredString(fields, "level")
+		if err != nil {
+			return "", false, err
+		}
+		if alertValue != levelValue {
+			return "", false, errors.New("ambiguous_field: 'alert_level' dan 'level' berbeda nilai")
+		}
+		return alertValue, true, nil
+	}
+	value, err = requiredString(fields, "level")
+	return value, true, err
+}
+
+// resolveEruptionCount implements D3's eruption_count_string adaptation: only
+// the canonical non-negative decimal rendering is accepted as a string
+// ("03"/"3.0"/"-1"/"" stay rejected); anything else falls through to the
+// normal type-aware error.
+func (m *Mapper) resolveEruptionCount(fields map[string]json.RawMessage) (int64, error) {
+	if m.volcanicAdaptations.EruptionCountString {
+		if raw, ok := fields["eruption_count_24h"]; ok && jsonKind(raw) == "string" {
+			var s string
+			if err := json.Unmarshal(raw, &s); err == nil {
+				if n, canonical := canonicalEruptionCountString(s); canonical {
+					return n, nil
+				}
+			}
+		}
+	}
+	return requiredInt(fields, "eruption_count_24h")
+}
+
+// resolveAshHeight implements D3's ash_height_optional adaptation: a missing
+// ash_column_height_m becomes "unknown" (attribute omitted entirely, never
+// zero-filled) instead of a required-field error. A present-but-wrong-typed
+// value is still rejected; the adaptation only covers absence.
+func (m *Mapper) resolveAshHeight(fields map[string]json.RawMessage) (value float64, present bool, err error) {
+	if _, ok := fields["ash_column_height_m"]; !ok {
+		if m.volcanicAdaptations.AshHeightOptional {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("field wajib '%s' hilang", "ash_column_height_m")
+	}
+	value, err = requiredFloat(fields, "ash_column_height_m")
+	return value, true, err
 }
 
 func mapWarning(fields map[string]json.RawMessage) (map[string]any, Severity, error) {
