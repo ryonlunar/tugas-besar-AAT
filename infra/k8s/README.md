@@ -22,7 +22,7 @@ multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
 From the host repository root, copy its committed runtime files into the VM:
 
 ```sh
-git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md docs/m2-coastal.md
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md
 multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
 multipass shell aat-dev
 ```
@@ -92,7 +92,20 @@ In Grafana, open **Explore**, select **Tempo**, choose **Trace ID**, and paste `
 
 `check-cluster.py` includes the basic checks and verifies placement, PostgreSQL synchronous replication, stream/consumer replicas, a steady-state upstream caller per source, keyset pagination, and a live HTTP-to-database trace. Node replacement, official catalog checksums, and full load/scaling acceptance require separate experiments.
 
-For Sensor Pantai, Field Team receipts, and the analytics page, see the [coastal setup and checks](../../docs/m2-coastal.md).
+### Sensor Pantai and analytics
+
+For practice, create the sensor token once and keep it in Kubernetes:
+
+```sh
+export KUBECONFIG=~/.kube/aat-dev.yaml
+kubectl apply -f infra/k8s/dev/namespace.yaml
+openssl rand -hex 32 | tr -d '\n' | kubectl -n sistem-informasi-kebencanaan-bnpb create secret generic pantai-token --from-file=token=/dev/stdin
+python3 scripts/m2/prepare.py
+```
+
+Set `PANTAI_BASE_URL=http://sensor-pantai:8080` in `.state/m2/runtime.env` and run `bash scripts/m2/deploy-cluster.sh`. For an existing deployment, restart Aggregator after changing only its environment or resetting the token. For the exam, set the prescribed profile and mount the assistant's key at `/var/run/pantai/key`.
+
+Open `http://<control-node-ip>:30080/analytics/` with an Auth access token. Select an occurrence-time range. The dashboard marks counts partial when a storage unit is unavailable. Run `python3 scripts/m2/check-coastal.py` on the control VM after the practice feed has populated a stable event window. It compares analytics with Audit and samples the Field Team receiver's stored notifications.
 
 ## Durable ingestion and Audit checks
 

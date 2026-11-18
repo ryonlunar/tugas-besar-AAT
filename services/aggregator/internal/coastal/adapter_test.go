@@ -2,6 +2,7 @@ package coastal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -68,12 +69,12 @@ func TestCursorResumesAndInvalidInputParks(t *testing.T) {
 	if string(good.Payload) != valid || string(bad.Payload) != `{"observation_id":null}` {
 		t.Fatal("raw bytes changed")
 	}
-	mutations, err := Process(ctx, nil, sourcejournal.Message{RawRecord: good})
+	mutations, err := adapter.Process(ctx, nil, sourcejournal.Message{RawRecord: good})
 	if err != nil || len(mutations) != 1 || mutations[0].Event.Severity != contracts.SeverityAwas || mutations[0].Event.SourceRefID != "reading-947" {
 		t.Fatalf("mapping %v, %v", mutations, err)
 	}
 	var parked *pipeline.PermanentError
-	if _, err := Process(ctx, nil, sourcejournal.Message{RawRecord: bad}); !errors.As(err, &parked) {
+	if _, err := adapter.Process(ctx, nil, sourcejournal.Message{RawRecord: bad}); !errors.As(err, &parked) {
 		t.Fatalf("invalid input was not parked: %v", err)
 	}
 }
@@ -94,5 +95,27 @@ func TestFailedFetchDoesNotAdvanceCursor(t *testing.T) {
 	})
 	if !errors.Is(err, stop) {
 		t.Fatal(err)
+	}
+}
+
+func TestCriticalObservationCanUseRefreshedStationCatalog(t *testing.T) {
+	a := &Adapter{}
+	m := sourcejournal.Message{
+		RawRecord: rawRecord(observationKind, "reading-947", []byte(valid), nil, time.Now(), "corr"),
+		Attempts:  1,
+	}
+	var retry *pipeline.RetryableError
+	if _, err := a.Process(context.Background(), nil, m); !errors.As(err, &retry) {
+		t.Fatalf("missing station must stay retryable: %v", err)
+	}
+	m.Attempts = 8
+	var parked *pipeline.PermanentError
+	if _, err := a.Process(context.Background(), nil, m); !errors.As(err, &parked) {
+		t.Fatalf("unresolved station must eventually park: %v", err)
+	}
+	a.setCatalog(map[string]json.RawMessage{"s-9": []byte(`{"station_id":"s-9","name":"Bay","province":"West","latitude":0,"longitude":0}`)})
+	mutations, err := a.Process(context.Background(), nil, m)
+	if err != nil || len(mutations) != 1 || mutations[0].Event.Attributes["critical"] != true || mutations[0].Event.AreaName != "West" {
+		t.Fatalf("retry or replay did not recover the original critical observation: %v, %v", mutations, err)
 	}
 }

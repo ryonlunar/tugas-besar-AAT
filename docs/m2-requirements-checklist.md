@@ -254,9 +254,9 @@ The HTTP rows below use the separately supplied coastal-sensor contract. Example
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Receiver, durable receipts and retries verified with fixtures. Exam critical-event count pending. |
+| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Full-path fixture delivered one critical observation after catalog and receiver recovery. Exam loss count pending. |
 | P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | Receiver records latency from raw intake. Sensor-to-receiver p95 and complete loss count pending. |
-| P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Validation parks original invalid inputs with reasons. Exam-profile fault evidence pending. |
+| P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Invalid observations park with a reason. Valid inputs retry while station metadata is missing. Exam-profile fault evidence pending. |
 | P5.3 | Preserve M1 latency for other sources during sensor faults. | Not done | No sensor-fault load test. |
 | P5.4a | Avoid request storms while the sensor is unhealthy. | In progress | Bounded request timeout and jittered backoff. Integrated request-rate measurement pending. |
 | P5.4b | Answer dependent reads quickly using cached data or explicit unavailability. | In progress | During a practice sensor outage, cached coastal data returned with stale status. Load criteria remain pending. |

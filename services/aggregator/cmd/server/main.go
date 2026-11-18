@@ -24,7 +24,6 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
-	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/coastal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
@@ -92,9 +91,19 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeRepository()
 
+	publishSubjects := []string{store.SubjectBMKG, store.SubjectPVMBG}
+	if cfg.shardConfigFile != "" {
+		for _, source := range []contracts.Source{contracts.SourceSatellite, contracts.SourceCoastal} {
+			subject, err := store.SubjectForSource(source)
+			if err != nil {
+				return err
+			}
+			publishSubjects = append(publishSubjects, subject)
+		}
+	}
 	publisher, err := broker.NewJetStreamPublisher(broker.JetStreamConfig{
 		URL: cfg.natsURL, Token: cfg.natsToken, Stream: cfg.natsStream,
-		Subjects: []string{store.SubjectBMKG, store.SubjectPVMBG}, StreamSubjects: []string{store.SubjectFilter},
+		Subjects: publishSubjects, StreamSubjects: []string{store.SubjectFilter},
 		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second, Replicas: cfg.natsReplicas,
 	})
 	if err != nil {
@@ -135,7 +144,7 @@ func run(logger *slog.Logger) error {
 					return distributed.CoordinateSessions(ctx, sources, cfg.sourceIdle, cfg.sourceRetry, logger,
 						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
 							if source == contracts.SourceCoastal {
-								return pipeline.RunAdapter(ctx, session, source, sensor, coastal.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+								return pipeline.RunAdapter(ctx, session, source, sensor, sensor.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
 							}
 							read := pipeline.Reader(bmkgClient.ReadRecords)
 							if source == contracts.SourcePVMBG {

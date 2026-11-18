@@ -30,6 +30,12 @@ type Repository interface {
 type PermanentError struct{ Reason string }
 
 func (e *PermanentError) Error() string { return e.Reason }
+
+type RetryableError struct{ Reason string }
+
+func (e *RetryableError) Error() string { return e.Reason }
+func Retry(reason string) error         { return &RetryableError{Reason: reason} }
+
 func Park(reason string) error {
 	if len(reason) > 512 {
 		reason = strings.ToValidUTF8(reason[:512], "")
@@ -142,6 +148,10 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			retryable := true
 			if processErr != nil {
 				reason = "canonical_write_failed"
+				var retry *RetryableError
+				if errors.As(processErr, &retry) {
+					reason = retry.Reason
+				}
 				var permanent *PermanentError
 				if errors.As(processErr, &permanent) {
 					reason = permanent.Reason

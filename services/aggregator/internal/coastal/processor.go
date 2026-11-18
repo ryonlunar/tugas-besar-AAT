@@ -34,7 +34,7 @@ type observation struct {
 	Critical   *bool     `json:"critical"`
 }
 
-func validate(raw, stationRaw []byte) (observation, error) {
+func decodeObservation(raw []byte) (observation, error) {
 	var o observation
 	if !utf8.Valid(raw) || json.Unmarshal(raw, &o) != nil {
 		return o, errors.New("coastal_observation_invalid_json")
@@ -42,27 +42,41 @@ func validate(raw, stationRaw []byte) (observation, error) {
 	if !referenceID.MatchString(o.ID) || strings.TrimSpace(o.Station) == "" || o.ObservedAt.IsZero() || o.Anomaly == nil || o.Wave == nil || *o.Wave < 0 || strings.TrimSpace(o.Quality) == "" || o.Critical == nil {
 		return o, errors.New("coastal_observation_invalid_fields")
 	}
-	var s station
-	if !utf8.Valid(stationRaw) || json.Unmarshal(stationRaw, &s) != nil || s.ID != o.Station || strings.TrimSpace(s.Name) == "" || strings.TrimSpace(s.Province) == "" || s.Latitude == nil || s.Longitude == nil || *s.Latitude < -90 || *s.Latitude > 90 || *s.Longitude < -180 || *s.Longitude > 180 {
-		return o, errors.New("coastal_station_unknown_or_invalid")
-	}
 	return o, nil
 }
 
-func Process(ctx context.Context, _ pgx.Tx, m sourcejournal.Message) ([]contracts.Mutation, error) {
+func decodeStation(stationRaw []byte, id string) (station, bool) {
+	var s station
+	if !utf8.Valid(stationRaw) || json.Unmarshal(stationRaw, &s) != nil || s.ID != id || strings.TrimSpace(s.Name) == "" || strings.TrimSpace(s.Province) == "" || s.Latitude == nil || s.Longitude == nil || *s.Latitude < -90 || *s.Latitude > 90 || *s.Longitude < -180 || *s.Longitude > 180 {
+		return s, false
+	}
+	return s, true
+}
+
+func (a *Adapter) Process(ctx context.Context, _ pgx.Tx, m sourcejournal.Message) ([]contracts.Mutation, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if m.Kind != observationKind {
 		return nil, pipeline.Park("coastal_response_invalid")
 	}
-	o, err := validate(m.Payload, m.Auxiliary)
+	o, err := decodeObservation(m.Payload)
 	if err != nil {
 		return nil, pipeline.Park(err.Error())
 	}
-	var s station
-	if err := json.Unmarshal(m.Auxiliary, &s); err != nil {
-		return nil, pipeline.Park("coastal_station_unknown_or_invalid")
+	s, known := decodeStation(m.Auxiliary, o.Station)
+	if !known {
+		// Metadata can arrive after the observation. Use the refreshed catalog
+		// on retry, including after acquiring ownership on a different replica.
+		s, known = decodeStation(a.stationMetadata(o.Station), o.Station)
+	}
+	if !known {
+		// With the worker's 2–32 second backoff, allow roughly two minutes
+		// for catalog recovery before parking an unresolved station reference.
+		if m.Attempts >= 8 {
+			return nil, pipeline.Park("coastal_station_unknown_or_invalid")
+		}
+		return nil, pipeline.Retry("coastal_station_metadata_unavailable")
 	}
 	// The sensor supplies the critical decision. The canonical severity is our
 	// presentation mapping, with no inferred thresholds from practice data.

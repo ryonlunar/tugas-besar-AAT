@@ -8,16 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"go.opentelemetry.io/otel"
 	"io"
 	"log/slog"
 	randv2 "math/rand/v2"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
+	"go.opentelemetry.io/otel"
 )
 
 const (
@@ -33,6 +34,8 @@ type Adapter struct {
 	client           http.Client
 	interval, maxAge time.Duration
 	Observe          func(string, string, error, time.Duration)
+	catalogMu        sync.RWMutex
+	catalog          map[string]json.RawMessage
 }
 
 func New(baseURL, token string, transport http.RoundTripper, interval, maxAge time.Duration) (*Adapter, error) {
@@ -52,8 +55,23 @@ type page struct {
 	NextCursor  *string           `json:"next_cursor"`
 }
 
+// Catalog entries are immutable. Refresh swaps the whole catalog while
+// processing of journaled observations can continue on another goroutine.
+func (a *Adapter) setCatalog(catalog map[string]json.RawMessage) {
+	a.catalogMu.Lock()
+	defer a.catalogMu.Unlock()
+	a.catalog = catalog
+}
+
+func (a *Adapter) stationMetadata(id string) json.RawMessage {
+	a.catalogMu.RLock()
+	defer a.catalogMu.RUnlock()
+	return a.catalog[id]
+}
+
 func (a *Adapter) Run(ctx context.Context, cursor string, commit func(context.Context, contracts.Batch) error) error {
 	stations := map[string]json.RawMessage{}
+	a.setCatalog(nil)
 	var nextStations, latest, advancedAt time.Time
 	backoff := time.Second
 	lastHealth := ""
@@ -74,6 +92,7 @@ func (a *Adapter) Run(ctx context.Context, cursor string, commit func(context.Co
 			catalog, err := a.stations(pollCtx, correlation)
 			if err == nil {
 				stations = catalog
+				a.setCatalog(catalog)
 				nextStations = started.Add(time.Minute)
 			} else {
 				nextStations = started.Add(8 * time.Second)
@@ -100,20 +119,26 @@ func (a *Adapter) Run(ctx context.Context, cursor string, commit func(context.Co
 						next = *p.NextCursor
 					}
 					for _, raw := range p.Items {
-						var identity struct {
-							ID      string `json:"observation_id"`
-							Station string `json:"station_id"`
+						o, err := decodeObservation(raw)
+						station := stations[o.Station]
+						orderingKey := ""
+						if err == nil {
+							if _, known := decodeStation(station, o.Station); known {
+								orderingKey = o.ID
+							} else {
+								nextStations = minTime(nextStations, started.Add(8*time.Second))
+							}
+							// Freshness describes the upstream feed. A station lookup
+							// failure is reported separately by the pending input.
+							if o.ObservedAt.After(latest) {
+								latest = o.ObservedAt
+								advancedAt = started
+							}
 						}
-						_ = json.Unmarshal(raw, &identity)
-						station := stations[identity.Station]
-						if len(station) == 0 {
-							nextStations = minTime(nextStations, started.Add(8*time.Second))
-						}
-						records = append(records, rawRecord(observationKind, identity.ID, raw, station, started, correlation))
-						if o, err := validate(raw, station); err == nil && o.ObservedAt.After(latest) {
-							latest = o.ObservedAt
-							advancedAt = started
-						}
+						record := rawRecord(observationKind, o.ID, raw, station, started, correlation)
+						// Preserve journal identity and key ordering across the upgrade.
+						record.OrderingKey = orderingKey
+						records = append(records, record)
 					}
 					if latest.IsZero() || started.Sub(advancedAt) > noProgressLimit || p.GeneratedAt.Sub(latest) > a.maxAge {
 						degraded = "COASTAL_OBSERVATIONS_STALE"
@@ -211,11 +236,7 @@ func (a *Adapter) get(ctx context.Context, path string, query url.Values, correl
 }
 
 func rawRecord(kind, id string, body, station []byte, at time.Time, correlation string) contracts.RawRecord {
-	orderingKey := id
-	if _, err := validate(body, station); err != nil {
-		orderingKey = ""
-	}
-	return contracts.RawRecord{Kind: kind, Key: contracts.RawKey(contracts.RawKey(kind+":"+id, body), station), OrderingKey: orderingKey, Payload: body, Auxiliary: station, ReceivedAt: at.UTC(), CorrelationID: correlation}
+	return contracts.RawRecord{Kind: kind, Key: contracts.RawKey(contracts.RawKey(kind+":"+id, body), station), OrderingKey: id, Payload: body, Auxiliary: station, ReceivedAt: at.UTC(), CorrelationID: correlation}
 }
 
 func minTime(a, b time.Time) time.Time {
