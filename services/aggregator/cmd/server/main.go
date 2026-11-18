@@ -166,7 +166,7 @@ func run(logger *slog.Logger) error {
 	}
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay"),
+		Handler:           monitor.Wrap(handler, "/internal/v1/analytics", "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,

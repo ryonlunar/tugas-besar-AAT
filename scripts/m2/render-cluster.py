@@ -20,7 +20,7 @@ def main():
     digest = hashlib.sha256()
     paths = [ROOT / 'go.mod', ROOT / 'go.sum']
     for directory in ('contracts', 'pkg', 'services'):
-        paths += [p for p in (ROOT / directory).rglob('*') if p.is_file() and (p.suffix in ('.go', '.sql', '.json') or p.name == 'Dockerfile')]
+        paths += [p for p in (ROOT / directory).rglob('*') if p.is_file() and (p.suffix in ('.go', '.sql', '.json', '.html', '.css', '.js') or p.name == 'Dockerfile')]
     for path in sorted(paths):
         digest.update(str(path.relative_to(ROOT)).encode() + b'\0' + path.read_bytes() + b'\0')
     tag = 'm2-' + digest.hexdigest()[:12]

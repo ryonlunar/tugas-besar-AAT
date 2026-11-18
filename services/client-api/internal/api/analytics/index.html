@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analitik Kebencanaan</title>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="./chart.js"></script>
+</head>
+<body>
+<main>
+  <h1>Analitik Kebencanaan</h1>
+  <form id="filters">
+    <label>Awal <input id="from" type="datetime-local" required></label>
+    <label>Akhir <input id="to" type="datetime-local" required></label>
+    <label>Access token <input id="token" type="password" autocomplete="off" required></label>
+    <button>Perbarui</button>
+  </form>
+  <p id="status" role="status">Pilih rentang waktu dan masukkan access token dari Auth.</p>
+  <div id="results" hidden>
+    <section>
+      <h2>Kejadian menurut waktu</h2>
+      <p id="granularity"></p>
+      <svg id="chart" viewBox="0 0 800 260" role="img" aria-label="Grafik jumlah kejadian menurut waktu dan jenis bahaya"></svg>
+      <div id="legend"></div>
+    </section>
+    <div class="breakdowns">
+      <section><h2>Severity</h2><table id="severity"><thead><tr><th>Level</th><th>Jumlah</th></tr></thead><tbody></tbody></table></section>
+      <section><h2>Wilayah</h2><table id="areas"><thead><tr><th>Nama wilayah</th><th>Jumlah</th></tr></thead><tbody></tbody></table></section>
+    </div>
+  </div>
+</main>
+</body>
+</html>

@@ -75,6 +75,7 @@ func NewHandler(cfg Config) *Handler {
 	h.mux.HandleFunc("GET /ready", h.ready)
 	h.mux.Handle("GET /v1/hazards", h.admit(http.HandlerFunc(h.list)))
 	h.mux.Handle("GET /v1/hazards/{id}", h.admit(http.HandlerFunc(h.detail)))
+	h.registerAnalytics()
 	return h
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

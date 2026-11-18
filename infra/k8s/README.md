@@ -22,7 +22,7 @@ multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
 From the host repository root, copy its committed runtime files into the VM:
 
 ```sh
-git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md docs/m2-coastal.md
 multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
 multipass shell aat-dev
 ```
@@ -91,6 +91,8 @@ Tracing samples 1% of new traces and follows a parent's sampling decision. Tempo
 In Grafana, open **Explore**, select **Tempo**, choose **Trace ID**, and paste `checks.http_database_trace.trace_id` printed by `check-cluster.py`. That request is explicitly sampled; other log IDs are only stored when sampled. This profile allows Viewer access to Explore and temporary panel edits; changes cannot be saved.
 
 `check-cluster.py` includes the basic checks and verifies placement, PostgreSQL synchronous replication, stream/consumer replicas, a steady-state upstream caller per source, keyset pagination, and a live HTTP-to-database trace. Node replacement, official catalog checksums, and full load/scaling acceptance require separate experiments.
+
+For Sensor Pantai, Field Team receipts, and the analytics page, see the [coastal setup and checks](../../docs/m2-coastal.md).
 
 ## Durable ingestion and Audit checks
 

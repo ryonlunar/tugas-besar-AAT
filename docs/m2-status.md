@@ -7,11 +7,11 @@ Implement and test features in parallel branches, then submit PRs. Complete-syst
 | Area | Available | Remaining |
 |---|---|---|
 | Platform | Four separate-kernel VMs; local storage; prescribed role labels/resources; deployment/restart scripts. | Tester Agent installation/practice scenarios and final demo environment. |
-| P1: Yang Pulang Membawa Laptopnya | Four identity-hashed PostgreSQL units, each with three copies; cross-unit reads; explicit partial results; Audit API. | Official earthquake dataset and checksum comparison; disk-loss/replacement experiments; geographic-skew measurements; analytics UI. |
+| P1: Yang Pulang Membawa Laptopnya | Four identity-hashed PostgreSQL units, each with three copies; cross-unit reads; explicit partial results; Audit API; browser analytics API and dashboard. | Official earthquake dataset and checksum comparison; disk-loss/replacement experiments; geographic-skew measurements; integrated analytics evidence with all five categories. |
 | P2: Dua Nakhoda, Satu Kapal | Three Aggregators; source-session ownership and fencing; read failover; worker-freeze and clock-skew checks. | Measure takeover against the formal limit; sustained 10,000 VU/120s; 3→5→2 scaling; 2× throughput; rolling-update load evidence. |
 | P3: Surat dari Tetangga | Byte-preserving journal, durable cursor/plan/state, retry/park lifecycle, ordered replay, canonical receipts, internal inspection/replay API. | Incompatible PVMBG modes and parser adaptation demo; public Ops permissions/routes; durable Field Reports; complete malformed/oversized HTTP-source experiments. |
 | P4: Atap Seng di Siang Bolong | Native-cursor adapter interface; transactional processor state; upsert/retract support through outbox and consumers. | Satellite connection, fire recognition/mapping, lateness policy, reference comparison, speed/lag/catch-up and reconnect evidence. |
-| P5: Pelampung yang Berbohong | Shared persistence/recovery and canonical COASTAL support. | Prescribed sensor deployment/adapter; sensor validation/resilience; actual notification receiver and ≤5s p95; Field Team priority. |
+| P5: Pelampung yang Berbohong | Pinned sensor deployment, durable coastal ingestion and stale status, Field Team receiver with retry/deduplication. | Exam-profile fault scenarios, critical-event loss and ≤5s p95 evidence, and integrated Field Team priority. |
 | Observability | Prometheus/Grafana/Loki; bounded OTel export and Tempo; propagated HTTP/message trace context. | New-feature metrics/traces and workload sizing during acceptance. |
 | Report/submission | Architecture and reproducible development checks. | M2 report, required evidence, demo, and release/submission artifacts. |
 

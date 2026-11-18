@@ -357,8 +357,18 @@ func TestDurableProcessingReplayAndAudit(t *testing.T) {
 		}
 	}
 
+	from := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	to := from.Add(24 * time.Hour)
+	analytics := repository.Analytics(ctx, from, to, "1 hour")
+	if analytics.Partial || analytics.BySeverity["AWAS"] != 1 || analytics.BySeverity["NORMAL"] != 3 || analytics.ByArea["Gunung Simulasi Red Mountain (Tamriel)"] != 4 || len(analytics.Series) != 1 || analytics.Series[0].Count != 4 {
+		t.Fatalf("unexpected cross-unit analytics: %+v", analytics)
+	}
 	for _, db := range repository.pools[8:12] {
 		_ = db.Close()
+	}
+	partialCounts := repository.Analytics(ctx, from, to, "1 hour")
+	if !partialCounts.Partial || len(partialCounts.UnavailableUnits) != 1 || partialCounts.UnavailableUnits[0] != "shard-2" || len(partialCounts.Series) == 0 {
+		t.Fatalf("analytics did not identify the unavailable unit: %+v", partialCounts)
 	}
 	partial, err := repository.AuditEvents(ctx, audit.Query{Limit: 1})
 	if err != nil || !partial.Partial || partial.NextCursor != nil || len(partial.UnavailableUnits) != 1 {

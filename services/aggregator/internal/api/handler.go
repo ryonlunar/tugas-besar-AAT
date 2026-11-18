@@ -63,6 +63,7 @@ func NewHandlerWithLimit(repository Repository, internalKey string, now func() t
 	h.mux.HandleFunc("GET /ready", h.ready)
 	h.mux.Handle("GET /internal/v1/hazards", h.admit(http.HandlerFunc(h.list)))
 	h.mux.Handle("GET /internal/v1/hazards/{id}", h.admit(http.HandlerFunc(h.detail)))
+	h.mux.Handle("GET /internal/v1/analytics", h.admit(http.HandlerFunc(h.analytics)))
 	return h
 }
 

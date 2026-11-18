@@ -120,12 +120,12 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P1.5b | Make the new node carry data and workload. | In progress | Existing replicas rewind/rebuild automatically; empty replacement measurements pending. |
 | P1.5c | Keep reads and writes running during node addition. | Not done | Live capacity-change test absent. |
 | P1.6 | Restore tolerance for another node loss after recovery. | In progress | All twelve replicas restored after worker resume; empty-disk replacement acceptance pending. |
-| P1.7a | Provide a separate analytics dashboard covering all five hazard categories. | Not done | Grafana metrics are not this dashboard. |
-| P1.7b | Show event-count time series with a selectable time range. | Not done | |
-| P1.7c | Show counts by severity. | Not done | |
-| P1.7d | Show counts by `area_name`. | Not done | |
-| P1.7e | Match analytics counts to cross-unit Audit results. | Not done | |
-| P1.7f | Keep analytics visible and explicitly partial during node loss. | Not done | |
+| P1.7a | Provide a separate analytics dashboard covering all five hazard categories. | In progress | Analytics page and all five series implemented. Full dataset still needs satellite integration. |
+| P1.7b | Show event-count time series with a selectable time range. | Done | Occurrence-time line chart with selectable range. |
+| P1.7c | Show counts by severity. | Done | Severity totals across active records. |
+| P1.7d | Show counts by `area_name`. | Done | Area totals in the analytics page. |
+| P1.7e | Match analytics counts to cross-unit Audit results. | In progress | A stable window of 120 practice events matched Audit. Official dataset comparison pending. |
+| P1.7f | Keep analytics visible and explicitly partial during node loss. | In progress | Disposable PostgreSQL check verified missing-unit metadata. Live node-loss evidence pending. |
 
 ## P2: Dua Nakhoda, Satu Kapal
 
@@ -236,32 +236,32 @@ The HTTP rows below use the separately supplied coastal-sensor contract. Example
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| SENSOR.1 | Run the assistant's pinned sensor image inside the cluster. | Not done | No sensor deployment. |
-| SENSOR.2 | Keep the image unchanged; do not substitute its implementation. | Not done | Prescribed image not deployed. |
-| SENSOR.3 | Store `PANTAI_AUTH_TOKEN` as a Secret. | Not done | Reserved name only. |
-| SENSOR.4 | Apply the provided practice/exam configuration and exam key when supplied. | Not done | |
-| SENSOR.5 | Use bearer authentication and handle invalid-token 401 responses. | Not done | |
-| SENSOR.6 | Use unauthenticated `GET /healthz` for readiness. | Not done | |
-| SENSOR.7 | Read station IDs, names, provinces, and coordinates from `/v1/stations`. | Not done | |
-| SENSOR.8 | Read observations with `station_id`, `limit`, and `cursor` parameters. | Not done | |
-| SENSOR.9 | Respect ordering by `observed_at`, then `observation_id`. | Not done | |
-| SENSOR.10 | Parse observation identity, time, measurements, quality, and `critical`. | Not done | Shape fixture only. |
-| SENSOR.11 | Resume observation pages using `next_cursor`. | In progress | Generic cursor journal; no sensor adapter. |
-| SENSOR.12 | Map COASTAL hazards according to the base sensor contract. | Not done | Full mapping rules are not implemented. |
-| SENSOR.13 | Avoid assumptions tied to practice IDs, seeds, order, or patterns. | Unverified | Adapter does not exist yet. |
+| SENSOR.1 | Run the assistant's pinned sensor image inside the cluster. | Done | Pinned image running on Refki’s development cluster. |
+| SENSOR.2 | Keep the image unchanged; do not substitute its implementation. | Done | Manifest uses the supplied image and exact digest. |
+| SENSOR.3 | Store `PANTAI_AUTH_TOKEN` as a Secret. | Done | Sensor and Aggregator reference the pantai-token Secret. |
+| SENSOR.4 | Apply the provided practice/exam configuration and exam key when supplied. | In progress | Practice deployed. Exam key and profile still need assessment. |
+| SENSOR.5 | Use bearer authentication and handle invalid-token 401 responses. | Done | Bearer auth, no credential redirects, and backoff for unsuccessful responses. |
+| SENSOR.6 | Use unauthenticated `GET /healthz` for readiness. | Done | Kubernetes readiness uses /healthz. |
+| SENSOR.7 | Read station IDs, names, provinces, and coordinates from `/v1/stations`. | Done | Adapter loads the station catalog and records its metadata for mapping. |
+| SENSOR.8 | Read observations with `station_id`, `limit`, and `cursor` parameters. | Done | Adapter requests all stations with limit and opaque cursor. |
+| SENSOR.9 | Respect ordering by `observed_at`, then `observation_id`. | Done | Observations are journaled in the order returned by the feed. |
+| SENSOR.10 | Parse observation identity, time, measurements, quality, and `critical`. | Done | Typed validation and fixture checks. |
+| SENSOR.11 | Resume observation pages using `next_cursor`. | Done | Cursor and raw inputs commit together. Fixture checks resume from an opaque cursor. |
+| SENSOR.12 | Map COASTAL hazards according to the base sensor contract. | Done | Valid sensor observations appeared as COASTAL hazards in Client API. |
+| SENSOR.13 | Avoid assumptions tied to practice IDs, seeds, order, or patterns. | In progress | Adapter uses contract fields and arbitrary fixture IDs. Exam scenarios remain pending. |
 
 ### Acceptance criteria
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | Not done | Existing notifier is not that delivery path. |
-| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | Not done | |
-| P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Shared parking/reasons available; sensor-specific validator and experiments absent. |
+| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Receiver, durable receipts and retries verified with fixtures. Exam critical-event count pending. |
+| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | Receiver records latency from raw intake. Sensor-to-receiver p95 and complete loss count pending. |
+| P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Validation parks original invalid inputs with reasons. Exam-profile fault evidence pending. |
 | P5.3 | Preserve M1 latency for other sources during sensor faults. | Not done | No sensor-fault load test. |
-| P5.4a | Avoid request storms while the sensor is unhealthy. | Not done | Sensor resilience controls absent. |
-| P5.4b | Answer dependent reads quickly using cached data or explicit unavailability. | Not done | |
-| P5.4c | Resume using the sensor automatically after recovery. | Not done | |
-| P5.4d | Detect stale observations even when health returns success. | Not done | |
+| P5.4a | Avoid request storms while the sensor is unhealthy. | In progress | Bounded request timeout and jittered backoff. Integrated request-rate measurement pending. |
+| P5.4b | Answer dependent reads quickly using cached data or explicit unavailability. | In progress | During a practice sensor outage, cached coastal data returned with stale status. Load criteria remain pending. |
+| P5.4c | Resume using the sensor automatically after recovery. | In progress | Practice sensor resumed ingestion from its committed cursor after restart. |
+| P5.4d | Detect stale observations even when health returns success. | Done | Fixture detects stale observation time even when the sensor responds successfully. |
 | P5.5a | Preserve Field Team service under overload. | Not done | No identity-based priority. |
 | P5.5b | Reject excess Media requests in a controlled manner. | In progress | Generic admission/429 exists; priority absent. |
 | P5.6a | Survive unannounced combinations of source, node, network, and load failures. | Not done | No combined-failure evidence. |

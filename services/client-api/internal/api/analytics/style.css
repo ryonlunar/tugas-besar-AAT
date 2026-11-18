@@ -1,0 +1,26 @@
+:root { font: 16px/1.45 system-ui, sans-serif; color: #182b32; background: #f2f6f6; }
+main { max-width: 65rem; margin: 2.5rem auto; padding: 0 1.25rem; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.6rem); margin: 0 0 1.25rem; }
+h2 { font-size: 1.13rem; margin-top: 0; }
+form { display: flex; gap: .8rem; flex-wrap: wrap; align-items: end; }
+label { display: grid; gap: .25rem; }
+input, button { font: inherit; padding: .45rem .58rem; border-radius: .35rem; border: 1px solid #82999d; }
+button { background: #165954; color: white; cursor: pointer; }
+button:disabled { opacity: .65; }
+section { background: white; border: 1px solid #cfdbdc; border-radius: .6rem; padding: 1rem; margin-bottom: 1rem; }
+.breakdowns { display: grid; grid-template-columns: 1fr 2fr; gap: 1rem; }
+#status[data-warning="true"] { padding: .65rem; background: #fff1cf; color: #694800; }
+#granularity { color: #486065; margin: -.5rem 0 .5rem; }
+#chart { display: block; width: 100%; }
+#legend { display: flex; flex-wrap: wrap; gap: .8rem; }
+#legend span::before { content: "●"; color: var(--series-color); margin-right: .35em; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: .35rem 0; border-bottom: 1px solid #e0e8e8; }
+th:last-child, td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 40rem) { .breakdowns { grid-template-columns: 1fr; gap: 0; } }
+
+#legend [data-category="SEISMIC"] { --series-color: #086d69; }
+#legend [data-category="TSUNAMI"] { --series-color: #355ab2; }
+#legend [data-category="VOLCANIC"] { --series-color: #bc4822; }
+#legend [data-category="WILDFIRE"] { --series-color: #973670; }
+#legend [data-category="COASTAL"] { --series-color: #568315; }
