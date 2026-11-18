@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/bmkgimport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
@@ -128,11 +130,17 @@ func run(logger *slog.Logger) error {
 							if source == contracts.SourceSatellite {
 								return runSatelliteSource(ctx, cfg, session, distributed, logger, monitor.ObserveOperation)
 							}
+							process := pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations()).WithVolcanicAdaptations(cfg.pvmbgAdapters))
+							if source == contracts.SourceBMKG && cfg.bmkgHistoricalCatalogFile != "" {
+								if err := runBMKGCatalogImport(ctx, cfg, session, distributed, process, logger, monitor.ObserveOperation); err != nil {
+									return err
+								}
+							}
 							read := pipeline.Reader(bmkgClient.ReadRecords)
 							if source == contracts.SourcePVMBG {
 								read = pvmbgClient.ReadRecords
 							}
-							return pipeline.RunSession(ctx, session, source, read, pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations()).WithVolcanicAdaptations(cfg.pvmbgAdapters)), distributed, cfg.pollInterval, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+							return pipeline.RunSession(ctx, session, source, read, process, distributed, cfg.pollInterval, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
 						})
 				}
 			} else if cfg.satelliteEnabled {
@@ -246,6 +254,30 @@ func runSatelliteSource(ctx context.Context, cfg config, session *sourcejournal.
 	return pipeline.RunAdapter(ctx, session, contracts.SourceSatellite, adapter, satellite.Processor(recognizer), distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe)
 }
 
+// runBMKGCatalogImport runs the historical-catalog import phase (P1.1a,
+// D11) to completion before the caller falls through to BMKG's live
+// polling. It treats the import's own completion (io.EOF, from either
+// finishing the file or finding a cursor already marked done for this
+// exact file content) as success; any other error -- including ctx
+// cancellation -- propagates so CoordinateSessions retries from the
+// durable row cursor rather than silently skipping ahead to live polling
+// with a half-imported catalog.
+func runBMKGCatalogImport(ctx context.Context, cfg config, session *sourcejournal.Session, distributed *sharded.Store, process pipeline.Processor, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
+	adapter := &bmkgimport.Adapter{
+		Path: cfg.bmkgHistoricalCatalogFile,
+		CanRead: func(ctx context.Context) (bool, error) {
+			n, err := session.Unfinished(ctx)
+			return n < 9000, err
+		},
+	}
+	err := pipeline.RunAdapter(ctx, session, contracts.SourceBMKG, adapter, process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe)
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Error("bmkg historical catalog import stopped", "reason", "CATALOG_IMPORT_FAILURE")
+		return err
+	}
+	return nil
+}
+
 func probeReadiness(client *http.Client, baseURL string) error {
 	if client == nil {
 		client = &http.Client{Timeout: time.Second}
@@ -306,6 +338,7 @@ type config struct {
 	satelliteLateness, satelliteBatchMaxWait, satelliteIdleTimeout                                      time.Duration
 	satelliteReconnectMin, satelliteReconnectMax, satelliteRequestTimeout, satelliteSessionPollInterval time.Duration
 	satelliteBatchMaxEvents, satelliteBatchMaxBytes                                                     int
+	bmkgHistoricalCatalogFile                                                                           string
 }
 
 func loadConfig() (config, error) {
@@ -470,6 +503,7 @@ func loadConfig() (config, error) {
 	if err := c.loadSatelliteConfig(); err != nil {
 		return config{}, err
 	}
+	c.bmkgHistoricalCatalogFile = strings.TrimSpace(os.Getenv("BMKG_HISTORICAL_CATALOG_FILE"))
 	return c, nil
 }
 

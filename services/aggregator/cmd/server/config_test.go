@@ -200,3 +200,29 @@ func TestConfiguredSourcesAddsSatelliteOnlyWhenEnabled(t *testing.T) {
 		t.Fatalf("enabled sources = %v, want BMKG+PVMBG+SATELIT", enabled)
 	}
 }
+
+func TestLoadConfigBMKGHistoricalCatalogFile(t *testing.T) {
+	setValidConfigEnvironment(t)
+
+	// Unset (M1/dev/CI default): catalog import stays off, startup
+	// succeeds exactly as before this feature existed.
+	t.Setenv("BMKG_HISTORICAL_CATALOG_FILE", "")
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("empty BMKG_HISTORICAL_CATALOG_FILE should be valid (disabled): %v", err)
+	}
+	if cfg.bmkgHistoricalCatalogFile != "" {
+		t.Fatalf("bmkgHistoricalCatalogFile = %q, want empty", cfg.bmkgHistoricalCatalogFile)
+	}
+
+	// Set: the path is passed through untouched (existence is checked
+	// only when the import actually runs, not at config load time).
+	t.Setenv("BMKG_HISTORICAL_CATALOG_FILE", " /data/synthetic-catalog.csv ")
+	cfg, err = loadConfig()
+	if err != nil {
+		t.Fatalf("a configured catalog path should be valid: %v", err)
+	}
+	if cfg.bmkgHistoricalCatalogFile != "/data/synthetic-catalog.csv" {
+		t.Fatalf("bmkgHistoricalCatalogFile = %q, want trimmed path", cfg.bmkgHistoricalCatalogFile)
+	}
+}
