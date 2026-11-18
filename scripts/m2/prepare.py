@@ -15,6 +15,13 @@ SECRET_KEYS = (
     'POSTGRES_PASSWORD', 'NATS_TOKEN', 'MEDIA_CLIENT_SECRET',
     'FIELD_TEAM_CLIENT_SECRET', 'BNPB_INTERNAL_CLIENT_SECRET', 'AUDIT_TOKEN',
 )
+# Secrets that come from OUTSIDE this script (e.g. the Feed Satelit token
+# the asisten hands the group, stored only in .secrets/satellite-secret.yaml
+# -- git-ignored, applied directly to the cluster). Unlike SECRET_KEYS,
+# these are never randomly generated here, and -- like SECRET_KEYS -- never
+# written into the runtime.env ConfigMap: Task 5.6's manifest wires them in
+# via secretKeyRef instead.
+EXTERNAL_SECRET_KEYS = ('SATELLITE_TOKEN',)
 
 
 def prepare():
@@ -45,7 +52,7 @@ def prepare():
     for line in (ROOT / '.env.example').read_text().splitlines():
         if line and not line.startswith('#') and '=' in line:
             key, value = line.split('=', 1)
-            if key not in SECRET_KEYS:
+            if key not in SECRET_KEYS and key not in EXTERNAL_SECRET_KEYS:
                 runtime[key] = value
     runtime.update(POSTGRES_HOST='postgres', METRICS_ADDR=':9091')
     runtime_path = STATE / 'runtime.env'
@@ -54,7 +61,7 @@ def prepare():
     for line in runtime_path.read_text().splitlines():
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)
-            if key in SECRET_KEYS:
+            if key in SECRET_KEYS or key in EXTERNAL_SECRET_KEYS:
                 raise ValueError('Keep credentials out of runtime.env.')
             runtime[key] = value
     resources = [

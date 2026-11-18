@@ -34,9 +34,10 @@ var sourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 const DefaultOutboxLimit int64 = 10000
 
 const (
-	SubjectBMKG   = "hazard.events.v1.BMKG"
-	SubjectPVMBG  = "hazard.events.v1.PVMBG"
-	SubjectFilter = "hazard.events.v1.*"
+	SubjectBMKG      = "hazard.events.v1.BMKG"
+	SubjectPVMBG     = "hazard.events.v1.PVMBG"
+	SubjectSatellite = "hazard.events.v1.SATELIT"
+	SubjectFilter    = "hazard.events.v1.*"
 )
 
 func SubjectForSource(source mapper.Source) (string, error) {
