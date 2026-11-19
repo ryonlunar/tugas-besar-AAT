@@ -39,6 +39,7 @@ type Handler struct {
 	client    *http.Client
 	mux       *http.ServeMux
 	inflight  chan struct{}
+	reserved  chan struct{}
 }
 type claims struct {
 	Scope string `json:"scope"`
@@ -67,14 +68,20 @@ func NewHandler(cfg Config) *Handler {
 	client := &http.Client{Timeout: cfg.Timeout, Transport: telemetry.HTTPTransport(transport), CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return errors.New("Aggregator redirects are not allowed")
 	}}
-	h := &Handler{cfg: cfg, client: client, mux: http.NewServeMux(), inflight: make(chan struct{}, cfg.MaxInflight)}
+	general, reserved := splitCapacity(cfg.MaxInflight)
+	h := &Handler{cfg: cfg, client: client, mux: http.NewServeMux(), inflight: make(chan struct{}, general), reserved: make(chan struct{}, reserved)}
 	if cfg.DiscoveryHost != "" {
 		h.discovery = &backendPool{host: cfg.DiscoveryHost, lookup: net.DefaultResolver.LookupHost, failed: map[string]time.Time{}}
 	}
 	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 	h.mux.HandleFunc("GET /ready", h.ready)
-	h.mux.Handle("GET /v1/hazards", h.admit(http.HandlerFunc(h.list)))
-	h.mux.Handle("GET /v1/hazards/{id}", h.admit(http.HandlerFunc(h.detail)))
+	h.mux.Handle("GET /v1/hazards", h.authorized(scopeSummary, h.list))
+	h.mux.Handle("GET /v1/hazards/{id}", h.authorized(scopeSummary, h.detail))
+	h.mux.Handle("POST /field-reports", h.authorized(scopeReportsWrite, h.submitFieldReport))
+	h.mux.Handle("GET /field-reports/{report_id}", h.authorized(scopeReportsWrite, h.fieldReportStatus))
+	h.mux.Handle("GET /failed-messages", h.authorized(scopeFailedMessages, h.listFailed))
+	h.mux.Handle("GET /failed-messages/{message_id}", h.authorized(scopeFailedMessages, h.inspectFailed))
+	h.mux.Handle("POST /failed-messages/{message_id}/replay", h.authorized(scopeFailedMessages, h.replayFailed))
 	return h
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -101,18 +108,6 @@ type responseRecorder struct {
 func (r *responseRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
-}
-func (h *Handler) admit(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case h.inflight <- struct{}{}:
-			defer func() { <-h.inflight }()
-			next.ServeHTTP(w, r)
-		default:
-			w.Header().Set("Retry-After", "1")
-			writeError(w, 429, "RATE_LIMITED", "Client API capacity is full", corrID(r))
-		}
-	})
 }
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 	if h.discovery != nil {
@@ -146,31 +141,25 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"status": "ready"})
 }
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	scope, ok := h.authenticate(w, r)
-	if !ok {
-		return
-	}
+	scope := callerFrom(r).scope
 	if !validateList(w, r, scope, corrID(r)) {
 		return
 	}
 	h.proxy(w, r, scope, "/internal/v1/hazards")
 }
 func (h *Handler) detail(w http.ResponseWriter, r *http.Request) {
-	scope, ok := h.authenticate(w, r)
-	if !ok {
-		return
-	}
+	scope := callerFrom(r).scope
 	if !validateDetail(w, r, scope, corrID(r)) {
 		return
 	}
 	h.proxy(w, r, scope, "/internal/v1/hazards/"+url.PathEscape(r.PathValue("id")))
 }
-func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (string, bool) {
+func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (caller, bool) {
 	header := r.Header.Get("Authorization")
 	parts := strings.Fields(header)
 	if len(parts) != 2 || parts[0] != "Bearer" {
 		writeError(w, 401, "UNAUTHORIZED", "Bearer token is required", corrID(r))
-		return "", false
+		return caller{}, false
 	}
 	c := &claims{}
 	token, err := jwt.ParseWithClaims(parts[1], c, func(token *jwt.Token) (any, error) {
@@ -186,20 +175,13 @@ func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		slog.Warn("access token rejected", "service", "client-api", "correlation_id", corrID(r), "reason", reason)
 		writeError(w, 401, "UNAUTHORIZED", "Bearer token is invalid or expired", corrID(r))
-		return "", false
+		return caller{}, false
 	}
 	if !validIdentityScope(c.Subject, c.Scope) {
 		writeError(w, 401, "UNAUTHORIZED", "Bearer token is invalid or expired", corrID(r))
-		return "", false
+		return caller{}, false
 	}
-	return c.Scope, true
-}
-
-func validIdentityScope(subject, scope string) bool {
-	if subject == "media" {
-		return scope == "hazards:summary"
-	}
-	return (subject == "field-team" || subject == "bnpb-internal") && scope == "hazards:summary hazards:raw"
+	return caller{subject: c.Subject, scope: c.Scope}, true
 }
 func validateList(w http.ResponseWriter, r *http.Request, scope, corr string) bool {
 	q := r.URL.Query()
@@ -281,6 +263,9 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request, scope, path stri
 	}
 	req.Header.Set("X-Internal-Key", h.cfg.AggregatorKey)
 	req.Header.Set("X-Correlation-ID", corrID(r))
+	if callerFrom(r).priority() {
+		req.Header.Set("X-Request-Priority", "high")
+	}
 	resp, err := h.readUpstream(req)
 	if err != nil {
 		reason := "UPSTREAM_REQUEST_FAILED"

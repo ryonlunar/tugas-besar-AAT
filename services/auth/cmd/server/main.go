@@ -115,7 +115,7 @@ func loadConfig() (config, error) {
 	if c.privateKeyFile == "" {
 		return c, errors.New("JWT_PRIVATE_KEY_FILE must be set")
 	}
-	c.clients = map[string]auth.Client{"media": {Secret: os.Getenv("MEDIA_CLIENT_SECRET"), Scope: "hazards:summary"}, "field-team": {Secret: os.Getenv("FIELD_TEAM_CLIENT_SECRET"), Scope: "hazards:summary hazards:raw"}, "bnpb-internal": {Secret: os.Getenv("BNPB_INTERNAL_CLIENT_SECRET"), Scope: "hazards:summary hazards:raw"}}
+	c.clients = map[string]auth.Client{"media": {Secret: os.Getenv("MEDIA_CLIENT_SECRET"), Scope: "hazards:summary"}, "field-team": {Secret: os.Getenv("FIELD_TEAM_CLIENT_SECRET"), Scope: "hazards:summary hazards:raw reports:write"}, "bnpb-internal": {Secret: os.Getenv("BNPB_INTERNAL_CLIENT_SECRET"), Scope: "hazards:summary hazards:raw ops:failed-messages"}}
 	if c.accessTTL, err = duration("ACCESS_TOKEN_TTL", "60s"); err != nil {
 		return c, err
 	}

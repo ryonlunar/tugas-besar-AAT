@@ -84,7 +84,9 @@ type cancelBody struct {
 func (b *cancelBody) Close() error { err := b.ReadCloser.Close(); b.cancel(); return err }
 
 func (h *Handler) readUpstream(request *http.Request) (*http.Response, error) {
-	if h.discovery == nil || request.Method != http.MethodGet {
+	// GETs and requests carrying an Idempotency-Key are safe to repeat on
+	// another replica: Aggregator returns the first receipt for a repeated key.
+	if h.discovery == nil || (request.Method != http.MethodGet && request.Header.Get("Idempotency-Key") == "") {
 		return h.client.Do(request)
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), h.cfg.Timeout)
@@ -114,6 +116,12 @@ func (h *Handler) readUpstream(request *http.Request) (*http.Response, error) {
 		}
 		attemptCtx, stop := context.WithTimeout(ctx, budget)
 		attempt := request.Clone(attemptCtx)
+		if request.GetBody != nil {
+			if attempt.Body, err = request.GetBody(); err != nil {
+				stop()
+				return nil, err
+			}
+		}
 		attempt.URL.Host = net.JoinHostPort(address, port)
 		attempt.Host = request.URL.Host
 		response, attemptErr := h.client.Do(attempt)

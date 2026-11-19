@@ -38,3 +38,14 @@ func Unit(source contracts.Source, refID string) (string, error) {
 	bucket := binary.BigEndian.Uint64(sum[:8]) % BucketCount
 	return fmt.Sprintf("shard-%d", bucket%UnitCount), nil
 }
+
+// ReportUnit places a Field Report by its idempotency scope, so every retry of
+// one request reaches the unit holding its receipt.
+func ReportUnit(clientID, idempotencyKey string) (string, error) {
+	if clientID == "" || idempotencyKey == "" {
+		return "", errors.New("client and idempotency key required")
+	}
+	sum := sha256.Sum256([]byte("field-report\x00" + clientID + "\x00" + idempotencyKey))
+	bucket := binary.BigEndian.Uint64(sum[:8]) % BucketCount
+	return fmt.Sprintf("shard-%d", bucket%UnitCount), nil
+}
