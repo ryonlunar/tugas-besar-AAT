@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/bmkgimport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 )
@@ -54,6 +55,15 @@ func DefaultProcessor(m *mapper.Mapper) Processor {
 				warnings[i] = related[i]
 			}
 			event, err = m.MapSeismic(input.Payload, warnings, hazardID, input.ReceivedAt)
+		case "seismic_catalog_row":
+			// Historical-catalog import (D11): Auxiliary carries the
+			// catalog's header line, Payload one data row. No related
+			// tsunami warnings exist in a one-time bulk import.
+			var raw []byte
+			raw, err = bmkgimport.ToSeismicJSON(input.Auxiliary, input.Payload)
+			if err == nil {
+				event, err = m.MapSeismic(raw, nil, hazardID, input.ReceivedAt)
+			}
 		case "volcanic_report":
 			event, err = m.MapVolcanic(input.Payload, hazardID, input.ReceivedAt)
 		case "tsunami_warning":

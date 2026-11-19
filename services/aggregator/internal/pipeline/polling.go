@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
@@ -28,10 +29,20 @@ func (p *PollingAdapter) Run(ctx context.Context, cursor string, commit func(con
 	if p.Read == nil || p.Interval <= 0 {
 		return errors.New("reader and positive poll interval required")
 	}
+	// A cursor may carry a non-numeric prefix (e.g. "catalog:<sha>:done:")
+	// handed off by a prior finite import phase (bmkgimport, D11): only
+	// the text after the LAST ':' is ever the numeric poll counter. A
+	// plain M1-style cursor has no ':' at all, so prefix stays empty and
+	// behavior is unchanged.
+	prefix := ""
+	numeric := cursor
+	if idx := strings.LastIndexByte(cursor, ':'); idx >= 0 {
+		prefix, numeric = cursor[:idx+1], cursor[idx+1:]
+	}
 	position := uint64(0)
-	if cursor != "" {
+	if numeric != "" {
 		var err error
-		position, err = strconv.ParseUint(cursor, 10, 64)
+		position, err = strconv.ParseUint(numeric, 10, 64)
 		if err != nil {
 			return fmt.Errorf("polling cursor: %w", err)
 		}
@@ -61,7 +72,7 @@ func (p *PollingAdapter) Run(ctx context.Context, cursor string, commit func(con
 				span.End()
 				return errors.New("polling cursor exhausted")
 			}
-			next := strconv.FormatUint(position+1, 10)
+			next := prefix + strconv.FormatUint(position+1, 10)
 			if err = commit(readCtx, contracts.Batch{From: cursor, Cursor: next, Records: records}); err != nil {
 				span.End()
 				return err

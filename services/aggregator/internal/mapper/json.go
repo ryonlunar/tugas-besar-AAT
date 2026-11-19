@@ -101,20 +101,45 @@ func decodeValue(raw json.RawMessage) (any, error) {
 	return value, nil
 }
 
+// jsonKind names a raw JSON token's type for type-aware incompatibility
+// messages (D1/Task 1.9): "string", "number", "boolean", "null", "object", or
+// "array". Values here always come from a successfully decoded JSON object,
+// so a syntactically valid token is guaranteed.
+func jsonKind(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "null"
+	}
+	switch trimmed[0] {
+	case '"':
+		return "string"
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case 't', 'f':
+		return "boolean"
+	case 'n':
+		return "null"
+	default:
+		return "number"
+	}
+}
+
 func requiredString(fields map[string]json.RawMessage, key string) (string, error) {
 	raw, ok := fields[key]
 	if !ok {
-		return "", fmt.Errorf("missing required field %q", key)
+		return "", fmt.Errorf("field wajib '%s' hilang", key)
 	}
 	if string(raw) == "null" {
-		return "", fmt.Errorf("field %q must not be null", key)
+		return "", fmt.Errorf("field '%s' berubah dari string menjadi null", key)
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("field %q must be a string: %w", key, err)
+		return "", fmt.Errorf("field '%s' berubah dari string menjadi %s", key, jsonKind(raw))
 	}
 	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("field %q must not be empty", key)
+		return "", fmt.Errorf("field '%s' tidak boleh kosong", key)
 	}
 	return value, nil
 }
@@ -122,14 +147,14 @@ func requiredString(fields map[string]json.RawMessage, key string) (string, erro
 func requiredFloat(fields map[string]json.RawMessage, key string) (float64, error) {
 	raw, ok := fields[key]
 	if !ok {
-		return 0, fmt.Errorf("missing required field %q", key)
+		return 0, fmt.Errorf("field wajib '%s' hilang", key)
 	}
 	if string(raw) == "null" {
-		return 0, fmt.Errorf("field %q must not be null", key)
+		return 0, fmt.Errorf("field '%s' berubah dari number menjadi null", key)
 	}
 	var value float64
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return 0, fmt.Errorf("field %q must be a number: %w", key, err)
+		return 0, fmt.Errorf("field '%s' berubah dari number menjadi %s", key, jsonKind(raw))
 	}
 	return value, nil
 }
@@ -137,14 +162,14 @@ func requiredFloat(fields map[string]json.RawMessage, key string) (float64, erro
 func requiredInt(fields map[string]json.RawMessage, key string) (int64, error) {
 	raw, ok := fields[key]
 	if !ok {
-		return 0, fmt.Errorf("missing required field %q", key)
+		return 0, fmt.Errorf("field wajib '%s' hilang", key)
 	}
 	if string(raw) == "null" {
-		return 0, fmt.Errorf("field %q must not be null", key)
+		return 0, fmt.Errorf("field '%s' berubah dari number menjadi null", key)
 	}
 	var value int64
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return 0, fmt.Errorf("field %q must be an integer: %w", key, err)
+		return 0, fmt.Errorf("field '%s' berubah dari number menjadi %s", key, jsonKind(raw))
 	}
 	return value, nil
 }
@@ -152,14 +177,14 @@ func requiredInt(fields map[string]json.RawMessage, key string) (int64, error) {
 func requiredBool(fields map[string]json.RawMessage, key string) (bool, error) {
 	raw, ok := fields[key]
 	if !ok {
-		return false, fmt.Errorf("missing required field %q", key)
+		return false, fmt.Errorf("field wajib '%s' hilang", key)
 	}
 	if string(raw) == "null" {
-		return false, fmt.Errorf("field %q must not be null", key)
+		return false, fmt.Errorf("field '%s' berubah dari boolean menjadi null", key)
 	}
 	var value bool
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return false, fmt.Errorf("field %q must be a boolean: %w", key, err)
+		return false, fmt.Errorf("field '%s' berubah dari boolean menjadi %s", key, jsonKind(raw))
 	}
 	return value, nil
 }

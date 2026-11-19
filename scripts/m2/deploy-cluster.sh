@@ -6,6 +6,11 @@ namespace=sistem-informasi-kebencanaan-bnpb
 kube=(kubectl --context aat-dev -n "$namespace")
 python3 scripts/m2/prepare.py
 kubectl --context aat-dev apply -f infra/k8s/dev/namespace.yaml -f .state/m2/configuration.json
+if [[ -f .secrets/satellite-secret.yaml ]]; then
+  "${kube[@]}" apply -f .secrets/satellite-secret.yaml
+else
+  echo 'No .secrets/satellite-secret.yaml found; Feed Satelit stays disabled (SATELLITE_TOKEN empty).' >&2
+fi
 "${kube[@]}" apply -f infra/k8s/cluster/audit-access.yaml
 "${kube[@]}" apply -f infra/k8s/cluster/registry.yaml
 "${kube[@]}" rollout status deployment/registry --timeout=180s

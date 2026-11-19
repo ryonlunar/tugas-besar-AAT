@@ -95,7 +95,7 @@ func run() error {
 		return err
 	}
 	if err := catalog.SetSchemaVersion(version); err != nil {
-		return err
+		return fmt.Errorf("PVMBG_SCHEMA_VERSION must be between 1 and 5 (1-2 compatible with M1; 3 renames alert_level to level; 4 changes eruption_count_24h to a string; 5 drops ash_column_height_m): %w", err)
 	}
 	outage, err := boolEnv("PVMBG_OUTAGE_ENABLED", false)
 	if err != nil {
