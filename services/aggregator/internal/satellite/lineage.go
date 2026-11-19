@@ -179,7 +179,7 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 				created[id] = anchor
 			}
 		case 1:
-			ids[i] = candidates[0]
+			ids[i] = reAnchorIfEarlier(members, candidates[0], fires, assignedTo, ids, created, &retracted)
 		default:
 			// Merge: the surviving ID is whichever has the earliest
 			// anchor; every other candidate is retracted.
@@ -192,12 +192,12 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 					}
 				}
 			}
-			ids[i] = survivor
 			for _, id := range candidates {
 				if id != survivor {
 					retracted = append(retracted, id)
 				}
 			}
+			ids[i] = reAnchorIfEarlier(members, survivor, fires, assignedTo, ids, created, &retracted)
 		}
 		assignedTo[i] = true
 	}
@@ -244,6 +244,38 @@ func countComponentsClaiming(previousIDsOf []map[string]bool, id string) int {
 		}
 	}
 	return n
+}
+
+// reAnchorIfEarlier returns the final fire ID for a component that
+// continues (or merges into) oldID, after checking whether a
+// chronologically earlier member has joined since oldID's anchor was
+// fixed. FireID is only ever minted once per fire and never recomputed
+// from current membership (see FireID's doc comment) -- but that
+// stability guarantee silently assumed the anchor known at creation
+// really was the eventual earliest member. A detection that arrives late
+// (within the allowed-lateness window) but is chronologically earlier
+// than every member known so far breaks that assumption: without this
+// check, the very same final set of detections could mint a different ID
+// depending on which batch boundary happened to exist when the fire was
+// first created (e.g. a disconnect/reconnect splitting the feed mid-group,
+// PR #6 review finding).
+//
+// When the true anchor of this component's full current membership is
+// earlier than oldID's recorded anchor, oldID is retracted and a fresh ID
+// is minted from the true anchor instead -- converging, after enough
+// batches, on the same final ID a single combined batch would have
+// produced from the start (P4.5/P4.8), at the cost of one extra
+// retract+upsert transition when the correction happens.
+func reAnchorIfEarlier(members []Detection, oldID string, fires map[string]FireMeta, assignedTo map[int]bool, ids []string, created map[string]Anchor, retracted *[]string) string {
+	trueAnchor := anchorOf(members)
+	meta, known := fires[oldID]
+	if !known || !earlier(trueAnchor, meta.Anchor) {
+		return oldID
+	}
+	*retracted = append(*retracted, oldID)
+	newID := newOrReactivatedID(trueAnchor, fires, assignedTo, ids)
+	created[newID] = trueAnchor
+	return newID
 }
 
 // splitWinner picks which of oldID's candidate components keeps oldID when

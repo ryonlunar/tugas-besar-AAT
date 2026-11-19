@@ -97,21 +97,31 @@ func TestAssignIDsLineage(t *testing.T) {
 		}
 	})
 
-	t.Run("e: a later-arriving but earlier-timed detection does not change the fire's ID", func(t *testing.T) {
+	t.Run("e: a later-arriving but earlier-timed detection re-anchors the fire (PR #6 review fix)", func(t *testing.T) {
 		existing := gridDetection("N20", "2026-11-12", "200", -2.5000, 113.8000, "n", base)
 		id1 := "fire-deadbeefdeadbeef" // arbitrary pre-existing ID, unrelated to any detection's own hash
 		prev := map[string]string{existing.Key(): id1}
 		fires := map[string]FireMeta{id1: {Anchor: Anchor{Key: existing.Key(), At: existing.At}, Active: true}}
 
-		// A genuinely earlier detection (late arrival) joins the same
-		// component this batch. anchorOf would now pick the earlier one,
-		// but the ID must stay id1 because there is exactly one previous
-		// ID among this component's members.
+		// A genuinely earlier detection (late arrival, e.g. the far
+		// side of a disconnect/reconnect) joins the same component
+		// this batch. Keeping id1 here would make the fire's final
+		// ID depend on which batch boundary happened to exist at
+		// creation time rather than on the final detection set alone
+		// (P4.5/P4.8, PR #6 review finding) -- so id1 is retracted
+		// and a fresh ID is minted from the true (earlier) anchor.
 		earlier := gridDetection("N20", "2026-11-12", "150", -2.5040, 113.8000, "n", base.Add(-50*time.Minute))
 
-		ids, _, _ := Assign([][]Detection{{existing, earlier}}, prev, fires)
-		if ids[0] != id1 {
-			t.Fatalf("ids[0] = %s, want %s unchanged despite a newly-joined earlier member", ids[0], id1)
+		ids, retracted, created := Assign([][]Detection{{existing, earlier}}, prev, fires)
+		wantID := FireID(earlier.Key())
+		if ids[0] != wantID {
+			t.Fatalf("ids[0] = %s, want %s (re-anchored on the true earliest member)", ids[0], wantID)
+		}
+		if len(retracted) != 1 || retracted[0] != id1 {
+			t.Fatalf("retracted = %v, want exactly [%s]", retracted, id1)
+		}
+		if anchor, ok := created[wantID]; !ok || anchor.Key != earlier.Key() {
+			t.Fatalf("created[%s] = %+v, want anchor key %s", wantID, anchor, earlier.Key())
 		}
 	})
 

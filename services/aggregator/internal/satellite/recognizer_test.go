@@ -174,3 +174,71 @@ func TestRecognizerSkipsUnchangedFire(t *testing.T) {
 		t.Fatalf("mutations = %+v, want none (nothing changed)", mutations)
 	}
 }
+
+// TestRecognizerFireIDStableAcrossReconnect is the end-to-end regression
+// for the PR #6 review finding (l0stplains): three mutually-connected
+// detections where C is chronologically earliest, processed either all
+// in one batch or with A+B first and C arriving in a second batch
+// (simulating the adapter's flush-on-disconnect splitting the group
+// across a reconnect). Both must converge on the identical final fire
+// ID, and the split-arrival case must show the re-anchor transition
+// (retract the provisional ID, upsert the final one) rather than
+// silently keeping a batch-boundary-dependent ID forever.
+func TestRecognizerFireIDStableAcrossReconnect(t *testing.T) {
+	rawA := synthEvent(0, "N20", "2026-11-12", "400", -2.5000, 113.8000, "n", 1) // 04:00
+	rawB := synthEvent(1, "N20", "2026-11-12", "405", -2.5040, 113.8000, "n", 1) // 04:05
+	rawC := synthEvent(2, "N20", "2026-11-12", "350", -2.5020, 113.8000, "n", 1) // 03:50 (earliest)
+
+	st := newMemState()
+	r := NewRecognizer(12 * time.Hour)
+	if _, err := r.ProcessBatch(context.Background(), st, "offsets-0-2", []byte(rawA+rawB+rawC)); err != nil {
+		t.Fatalf("combined batch: %v", err)
+	}
+	combinedIDs := st.activeFireIDs()
+	if len(combinedIDs) != 1 {
+		t.Fatalf("active fires (combined) = %d, want 1", len(combinedIDs))
+	}
+	wantID := combinedIDs[0]
+
+	st2 := newMemState()
+	r2 := NewRecognizer(12 * time.Hour)
+	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-0-1", []byte(rawA+rawB)); err != nil {
+		t.Fatalf("batch 1 (A+B): %v", err)
+	}
+	provisionalIDs := st2.activeFireIDs()
+	if len(provisionalIDs) != 1 {
+		t.Fatalf("active fires after A+B = %d, want 1", len(provisionalIDs))
+	}
+	provisionalID := provisionalIDs[0]
+
+	mutations, err := r2.ProcessBatch(context.Background(), st2, "offsets-2-2", []byte(rawC))
+	if err != nil {
+		t.Fatalf("batch 2 (C): %v", err)
+	}
+	finalIDs := st2.activeFireIDs()
+	if len(finalIDs) != 1 {
+		t.Fatalf("active fires after A+B+C = %d, want 1", len(finalIDs))
+	}
+	if finalIDs[0] != wantID {
+		t.Fatalf("split-arrival final ID = %s, want %s (same as the combined-batch run)", finalIDs[0], wantID)
+	}
+	if provisionalID == wantID {
+		t.Fatal("test setup invalid: the provisional ID should differ from the final one, or this isn't exercising the reconnect scenario")
+	}
+
+	var sawRetractProvisional, sawUpsertFinal bool
+	for _, m := range mutations {
+		if m.Kind == contracts.MutationRetract && m.SourceRefID == provisionalID {
+			sawRetractProvisional = true
+		}
+		if m.Kind == contracts.MutationUpsert && m.SourceRefID == wantID {
+			sawUpsertFinal = true
+		}
+	}
+	if !sawRetractProvisional {
+		t.Errorf("mutations = %+v, want a retract for the provisional ID %s", mutations, provisionalID)
+	}
+	if !sawUpsertFinal {
+		t.Errorf("mutations = %+v, want an upsert for the final ID %s", mutations, wantID)
+	}
+}
