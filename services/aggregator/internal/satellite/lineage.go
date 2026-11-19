@@ -19,8 +19,11 @@ func FireID(anchorKey string) string {
 }
 
 // Anchor is the detection that gave a fire its identity: the member with
-// the smallest (detected_at, key) at the moment its component first reached
-// two or more detections.
+// the smallest (detected_at, key) ever known to belong to its component,
+// counting a detection that was later retracted just as much as one still
+// active (PR #6 review finding, round 2: a fire's identity must not depend
+// on whether a transport batch boundary happened to let a since-retracted
+// member be evaluated while it was still active).
 type Anchor struct {
 	Key string
 	At  time.Time
@@ -34,10 +37,13 @@ type FireMeta struct {
 	Active bool
 }
 
-// anchorOf returns the component's anchor detection: the member with the
-// smallest (detected_at, key), matching the ordering Components already
-// establishes but computed independently here so Assign does not depend on
-// its caller having pre-sorted members.
+// anchorOf returns the earliest-(detected_at, key) detection among
+// members, matching the ordering Components already establishes but
+// computed independently here so Assign does not depend on its caller
+// having pre-sorted members. Callers that need a batch-boundary-immune
+// anchor must pass an anchor pool that already includes every detection
+// -- active or since-retracted -- ever connected to this component, not
+// just its currently-active members (see materialize's anchorPools).
 func anchorOf(members []Detection) Anchor {
 	best := members[0]
 	for _, d := range members[1:] {
@@ -63,13 +69,24 @@ func earlier(a, b Anchor) bool {
 // persisting prev/fires between calls and translating the results into
 // upsert/retract Mutations.
 //
+// anchorPools[i] is the full anchor-candidacy pool for components[i]:
+// normally identical to components[i], but the caller (materialize) may
+// widen it with detections that are no longer active (e.g. retracted
+// within the very same batch that created this component) yet are still
+// geographically connected to it -- so a detection that briefly existed
+// in the feed still counts toward this fire's identity even though it
+// never survives into the component itself (PR #6 review finding, round
+// 2). len(anchorPools) must equal len(components); anchorPools[i] must be
+// non-empty. Passing components itself as anchorPools reproduces the
+// pre-expansion behavior exactly.
+//
 // ids[i] is the fire ID for components[i], in the same order. retracted
 // lists every previously-active fire ID that no longer has a surviving
 // component in this batch (a merge's losing side, or a fire that
 // disappeared entirely). created maps every brand-new fire ID introduced
 // by this call to the anchor that produced it, so the recognizer can record
 // FireMeta for it going forward.
-func Assign(components [][]Detection, prev map[string]string, fires map[string]FireMeta) (ids []string, retracted []string, created map[string]Anchor) {
+func Assign(components [][]Detection, anchorPools [][]Detection, prev map[string]string, fires map[string]FireMeta) (ids []string, retracted []string, created map[string]Anchor) {
 	created = make(map[string]Anchor)
 	ids = make([]string, len(components))
 
@@ -112,14 +129,6 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 		touching := splitSource[oldID]
 		meta, known := fires[oldID]
 
-		if len(touching) == 1 && countComponentsClaiming(previousIDsOf, oldID) == 1 {
-			// This old ID maps to exactly one component, and that
-			// component did not absorb any OTHER old ID either way
-			// here -- but it might still be a merge target decided by
-			// a different oldID's loop iteration, so only claim it if
-			// nobody has claimed it yet.
-		}
-
 		if len(touching) > 1 {
 			// Split: oldID's members landed in multiple components.
 			// The surviving component is the one containing the
@@ -128,7 +137,7 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 			// fire's lineage), otherwise the one containing the
 			// globally earliest former member of oldID among this
 			// batch's surviving members.
-			winner := splitWinner(components, touching, meta, known)
+			winner := splitWinner(components, anchorPools, touching, meta, known)
 			for _, idx := range touching {
 				if idx == winner {
 					if !assignedTo[idx] || ids[idx] == oldID {
@@ -151,7 +160,7 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 	// resolve merges (multiple old IDs -> one component) by earliest
 	// anchor, or a plain continuation (exactly one old ID -> one
 	// component, and that old ID did not split elsewhere).
-	for i, members := range components {
+	for i := range components {
 		if assignedTo[i] {
 			continue
 		}
@@ -172,14 +181,14 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 
 		switch len(candidates) {
 		case 0:
-			anchor := anchorOf(members)
+			anchor := anchorOf(anchorPools[i])
 			id := newOrReactivatedID(anchor, fires, assignedTo, ids)
 			ids[i] = id
 			if _, exists := fires[id]; !exists {
 				created[id] = anchor
 			}
 		case 1:
-			ids[i] = reAnchorIfEarlier(members, candidates[0], fires, assignedTo, ids, created, &retracted)
+			ids[i] = reAnchorIfEarlier(anchorPools[i], candidates[0], fires, assignedTo, ids, created, &retracted)
 		default:
 			// Merge: the surviving ID is whichever has the earliest
 			// anchor; every other candidate is retracted.
@@ -197,7 +206,7 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 					retracted = append(retracted, id)
 				}
 			}
-			ids[i] = reAnchorIfEarlier(members, survivor, fires, assignedTo, ids, created, &retracted)
+			ids[i] = reAnchorIfEarlier(anchorPools[i], survivor, fires, assignedTo, ids, created, &retracted)
 		}
 		assignedTo[i] = true
 	}
@@ -236,38 +245,30 @@ func Assign(components [][]Detection, prev map[string]string, fires map[string]F
 	return ids, retracted, created
 }
 
-func countComponentsClaiming(previousIDsOf []map[string]bool, id string) int {
-	n := 0
-	for _, set := range previousIDsOf {
-		if set[id] {
-			n++
-		}
-	}
-	return n
-}
-
 // reAnchorIfEarlier returns the final fire ID for a component that
 // continues (or merges into) oldID, after checking whether a
-// chronologically earlier member has joined since oldID's anchor was
-// fixed. FireID is only ever minted once per fire and never recomputed
-// from current membership (see FireID's doc comment) -- but that
-// stability guarantee silently assumed the anchor known at creation
-// really was the eventual earliest member. A detection that arrives late
-// (within the allowed-lateness window) but is chronologically earlier
-// than every member known so far breaks that assumption: without this
-// check, the very same final set of detections could mint a different ID
-// depending on which batch boundary happened to exist when the fire was
-// first created (e.g. a disconnect/reconnect splitting the feed mid-group,
-// PR #6 review finding).
+// chronologically earlier member has ever joined its anchor pool since
+// oldID's anchor was fixed. FireID is only ever minted once per fire and
+// never recomputed from current membership (see FireID's doc comment) --
+// but that stability guarantee silently assumed the anchor known at
+// creation really was the eventual earliest member. anchorPool breaks
+// that assumption in two ways the caller must already have accounted
+// for: a detection that arrives late (within the allowed-lateness window)
+// but is chronologically earlier than every member known so far (round
+// 1), or one that is briefly observed and retracted before it can ever
+// become an active component member (round 2, PR #6 review). Without
+// this check, the very same final set of detections could mint a
+// different ID depending on which batch boundary happened to exist when
+// the fire was first created.
 //
-// When the true anchor of this component's full current membership is
-// earlier than oldID's recorded anchor, oldID is retracted and a fresh ID
-// is minted from the true anchor instead -- converging, after enough
-// batches, on the same final ID a single combined batch would have
-// produced from the start (P4.5/P4.8), at the cost of one extra
-// retract+upsert transition when the correction happens.
-func reAnchorIfEarlier(members []Detection, oldID string, fires map[string]FireMeta, assignedTo map[int]bool, ids []string, created map[string]Anchor, retracted *[]string) string {
-	trueAnchor := anchorOf(members)
+// When the true anchor (anchorOf(anchorPool)) is earlier than oldID's
+// recorded anchor, oldID is retracted and a fresh ID is minted from the
+// true anchor instead -- converging, after enough batches, on the same
+// final ID a single combined batch would have produced from the start
+// (P4.5/P4.8), at the cost of one extra retract+upsert transition when
+// the correction happens.
+func reAnchorIfEarlier(anchorPool []Detection, oldID string, fires map[string]FireMeta, assignedTo map[int]bool, ids []string, created map[string]Anchor, retracted *[]string) string {
+	trueAnchor := anchorOf(anchorPool)
 	meta, known := fires[oldID]
 	if !known || !earlier(trueAnchor, meta.Anchor) {
 		return oldID
@@ -280,8 +281,9 @@ func reAnchorIfEarlier(members []Detection, oldID string, fires map[string]FireM
 
 // splitWinner picks which of oldID's candidate components keeps oldID when
 // oldID's former membership has split across more than one component this
-// batch.
-func splitWinner(components [][]Detection, candidateIdx []int, meta FireMeta, known bool) int {
+// batch. anchorPools is index-aligned with components, exactly as in
+// Assign.
+func splitWinner(components [][]Detection, anchorPools [][]Detection, candidateIdx []int, meta FireMeta, known bool) int {
 	if known {
 		for _, idx := range candidateIdx {
 			for _, d := range components[idx] {
@@ -293,11 +295,11 @@ func splitWinner(components [][]Detection, candidateIdx []int, meta FireMeta, kn
 	}
 	// Anchor detection not present (retracted or not in this batch at
 	// all): fall back to the component containing the earliest member
-	// among the candidates.
+	// among the candidates' anchor pools.
 	best := candidateIdx[0]
-	bestAnchor := anchorOf(components[best])
+	bestAnchor := anchorOf(anchorPools[best])
 	for _, idx := range candidateIdx[1:] {
-		a := anchorOf(components[idx])
+		a := anchorOf(anchorPools[idx])
 		if earlier(a, bestAnchor) {
 			best, bestAnchor = idx, a
 		}

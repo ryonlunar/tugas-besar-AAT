@@ -565,3 +565,82 @@ func TestAdapterReturnsPromptlyOnContextCancel(t *testing.T) {
 		t.Fatal("Run() did not return after ctx cancel")
 	}
 }
+
+// TestAdapterEnforcesBackpressureBetweenBatchesOnOpenConnection is the
+// regression for the PR #6 review finding (l0stplains, P4.4): CanRead was
+// only ever checked by awaitReadable before a new connection opened. A
+// long-lived SSE connection that keeps flushing batches (MaxEvents: 1 here,
+// so every single event is its own batch) never revisited CanRead and
+// could keep committing past the backlog threshold indefinitely. The
+// adapter must now end the connection right after a flush once CanRead
+// says no, and resume cleanly (no gap, no duplicate) once it says yes
+// again.
+func TestAdapterEnforcesBackpressureBetweenBatchesOnOpenConnection(t *testing.T) {
+	const total = 20
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for id := from; id < total; id++ {
+			fmt.Fprint(w, sseDetectionEvent(t, id))
+			flush(w)
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	client := newTestClient(t, server.URL)
+
+	var mu sync.Mutex
+	var batches []contracts.Batch
+	var allowed atomic.Bool
+	allowed.Store(true)
+	var commits atomic.Int64
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	commit := func(_ context.Context, batch contracts.Batch) error {
+		mu.Lock()
+		batches = append(batches, batch)
+		n := len(batches)
+		mu.Unlock()
+		if commits.Add(1) == 1 {
+			// After the very first batch commits, backpressure kicks
+			// in. If the adapter only checked CanRead before opening
+			// a connection, it would keep committing every remaining
+			// event on this same still-open stream without ever
+			// pausing.
+			allowed.Store(false)
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				allowed.Store(true)
+			}()
+		}
+		if n >= total {
+			cancel()
+		}
+		return nil
+	}
+	adapter := &Adapter{
+		Client: client, MaxEvents: 1, MaxWait: time.Hour, IdleTimeout: 5 * time.Second,
+		ReconnectMin: 10 * time.Millisecond, ReconnectMax: 50 * time.Millisecond,
+		CanRead: func(context.Context) (bool, error) { return allowed.Load(), nil },
+	}
+
+	runErr := make(chan error, 1)
+	go func() { runErr <- adapter.Run(ctx, "", commit) }()
+
+	select {
+	case <-runErr:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not finish within 5s")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	assertContiguousBatches(t, batches, total)
+	if got := requests.Load(); got < 2 {
+		t.Fatalf("server received %d requests, want >=2 (the adapter must reconnect once backpressure kicks in, not keep reading the same connection)", got)
+	}
+}

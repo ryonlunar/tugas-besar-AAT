@@ -170,6 +170,25 @@ func (a *Adapter) awaitReadable(ctx context.Context) error {
 	}
 }
 
+// pauseForBackpressure reports whether runOnce should end its connection
+// now rather than keep reading. Checked directly after every successful
+// flush (never mid-batch), so a long-lived SSE connection cannot keep
+// accumulating commits past the backlog threshold just because it never
+// disconnects on its own (PR #6 review finding, P4.4): ending the
+// connection here sends control back to Run's outer loop, which calls the
+// blocking awaitReadable before opening the next one, and resumes from
+// the cursor flush already durably advanced to.
+func (a *Adapter) pauseForBackpressure(ctx context.Context) (bool, error) {
+	if a.CanRead == nil {
+		return false, nil
+	}
+	allowed, err := a.CanRead(ctx)
+	if err != nil {
+		return false, fmt.Errorf("satellite adapter: CanRead: %w", err)
+	}
+	return !allowed, nil
+}
+
 // backoffFor picks a reconnect delay. Feed errors classify by their HTTP
 // status (ClassifyFeedError); any other error (a mid-stream read failure,
 // a plain transport error from OpenStream) is treated as transient.
@@ -371,6 +390,11 @@ func (a *Adapter) runOnce(ctx context.Context, cursor int64, commit func(context
 			}
 			waitTimer = nil
 			waitC = nil
+			if stop, bpErr := a.pauseForBackpressure(ctx); bpErr != nil {
+				return expected, "backpressure_check_failed", bpErr
+			} else if stop {
+				return expected, "backpressure", nil
+			}
 
 		case r := <-results:
 			idleTimer.Reset(idleTimeout)
@@ -423,6 +447,11 @@ func (a *Adapter) runOnce(ctx context.Context, cursor int64, commit func(context
 					return expected, "max_bytes_flush_failed", flushErr
 				}
 				waitTimer, waitC = nil, nil
+				if stop, bpErr := a.pauseForBackpressure(ctx); bpErr != nil {
+					return expected, "backpressure_check_failed", bpErr
+				} else if stop {
+					return expected, "backpressure", nil
+				}
 				continue
 			}
 			if a.MaxEvents > 0 && batch.count >= int64(a.MaxEvents) {
@@ -430,6 +459,11 @@ func (a *Adapter) runOnce(ctx context.Context, cursor int64, commit func(context
 					return expected, "max_events_flush_failed", flushErr
 				}
 				waitTimer, waitC = nil, nil
+				if stop, bpErr := a.pauseForBackpressure(ctx); bpErr != nil {
+					return expected, "backpressure_check_failed", bpErr
+				} else if stop {
+					return expected, "backpressure", nil
+				}
 				continue
 			}
 			if isHeartbeat {
@@ -439,6 +473,11 @@ func (a *Adapter) runOnce(ctx context.Context, cursor int64, commit func(context
 					return expected, "heartbeat_flush_failed", flushErr
 				}
 				waitTimer, waitC = nil, nil
+				if stop, bpErr := a.pauseForBackpressure(ctx); bpErr != nil {
+					return expected, "backpressure_check_failed", bpErr
+				} else if stop {
+					return expected, "backpressure", nil
+				}
 				continue
 			}
 			if waitTimer == nil && a.MaxWait > 0 {

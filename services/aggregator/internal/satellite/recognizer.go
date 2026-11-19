@@ -384,7 +384,40 @@ func (b *batchOverlay) materialize(ctx context.Context) ([]contracts.Mutation, e
 	}
 
 	groups, singletons := Components(activeDetections)
-	ids, retractedIDs, created := Assign(groups, prev, firesMeta)
+
+	// anchorPools[i] widens groups[i] with any detection that is no
+	// longer active (e.g. retracted within this very same batch, before
+	// it could ever become a surviving component member) but is still
+	// geographically/time connected to it -- so a detection that briefly
+	// existed in the feed still counts toward this fire's identity, and
+	// the result stops depending on whether a batch boundary happened to
+	// let that detection be evaluated while still active (PR #6 review
+	// finding, round 2). Clustering/membership (groups itself, used for
+	// BuildEvent and FireID persistence below) is unaffected -- only
+	// anchor selection inside Assign sees the widened pool.
+	anchorPools := make([][]Detection, len(groups))
+	for i, group := range groups {
+		pool := append([]Detection(nil), group...)
+		for _, d := range universe {
+			if d.Status != StatusRetracted {
+				continue // only a since-retracted detection needs rescuing here
+			}
+			dd := d.ToDetection()
+			connected := false
+			for _, m := range group {
+				if Connected(dd, m) {
+					connected = true
+					break
+				}
+			}
+			if connected {
+				pool = append(pool, dd)
+			}
+		}
+		anchorPools[i] = pool
+	}
+
+	ids, retractedIDs, created := Assign(groups, anchorPools, prev, firesMeta)
 
 	finalFireID := map[string]string{}
 	for i, group := range groups {
@@ -413,7 +446,7 @@ func (b *batchOverlay) materialize(ctx context.Context) ([]contracts.Mutation, e
 			if meta, ok := firesMeta[id]; ok {
 				anchor = meta.Anchor
 			} else {
-				anchor = anchorOf(group)
+				anchor = anchorOf(anchorPools[i])
 			}
 		}
 		event := BuildEvent(id, group)

@@ -11,7 +11,8 @@ func TestAssignIDsLineage(t *testing.T) {
 	t.Run("a: new component gets FireID of its anchor", func(t *testing.T) {
 		d1 := gridDetection("N20", "2026-11-12", "200", -2.5000, 113.8000, "n", base)
 		d2 := gridDetection("N20", "2026-11-12", "205", -2.5080, 113.8000, "n", base.Add(5*time.Minute))
-		ids, retracted, created := Assign([][]Detection{{d1, d2}}, map[string]string{}, map[string]FireMeta{})
+		components := [][]Detection{{d1, d2}}
+		ids, retracted, created := Assign(components, components, map[string]string{}, map[string]FireMeta{})
 		want := FireID(d1.Key()) // d1 is earliest -> anchor
 		if len(ids) != 1 || ids[0] != want {
 			t.Fatalf("ids = %v, want [%s]", ids, want)
@@ -36,7 +37,8 @@ func TestAssignIDsLineage(t *testing.T) {
 			id2: {Anchor: Anchor{Key: anchorB.Key(), At: anchorB.At}, Active: true},
 		}
 
-		ids, retracted, _ := Assign([][]Detection{{anchorA, bridge, anchorB}}, prev, fires)
+		components := [][]Detection{{anchorA, bridge, anchorB}}
+		ids, retracted, _ := Assign(components, components, prev, fires)
 		if len(ids) != 1 || ids[0] != id1 {
 			t.Fatalf("ids = %v, want [%s] (earlier anchor survives)", ids, id1)
 		}
@@ -58,7 +60,8 @@ func TestAssignIDsLineage(t *testing.T) {
 		newNearA := gridDetection("N20", "2026-11-12", "101", -2.5003, 113.8000, "n", base.Add(time.Minute))
 		newNearC := gridDetection("N20", "2026-11-12", "201", -3.0003, 114.0000, "n", base.Add(21*time.Minute))
 
-		ids, retracted, created := Assign([][]Detection{{anchorA, newNearA}, {memberC, newNearC}}, prev, fires)
+		components := [][]Detection{{anchorA, newNearA}, {memberC, newNearC}}
+		ids, retracted, created := Assign(components, components, prev, fires)
 		if ids[0] != id1 {
 			t.Fatalf("ids[0] = %s, want %s (contains the still-active anchor detection)", ids[0], id1)
 		}
@@ -88,7 +91,8 @@ func TestAssignIDsLineage(t *testing.T) {
 		newNearB := gridDetection("N20", "2026-11-12", "111", -2.5083, 113.8000, "n", base.Add(11*time.Minute))
 		newNearC := gridDetection("N20", "2026-11-12", "301", -3.0003, 114.0000, "n", base.Add(2*time.Hour+time.Minute))
 
-		ids, _, _ := Assign([][]Detection{{memberB, newNearB}, {memberC, newNearC}}, prev, fires)
+		components := [][]Detection{{memberB, newNearB}, {memberC, newNearC}}
+		ids, _, _ := Assign(components, components, prev, fires)
 		if ids[0] != id1 {
 			t.Fatalf("ids[0] = %s, want %s (B is the earliest surviving former member)", ids[0], id1)
 		}
@@ -112,7 +116,8 @@ func TestAssignIDsLineage(t *testing.T) {
 		// and a fresh ID is minted from the true (earlier) anchor.
 		earlier := gridDetection("N20", "2026-11-12", "150", -2.5040, 113.8000, "n", base.Add(-50*time.Minute))
 
-		ids, retracted, created := Assign([][]Detection{{existing, earlier}}, prev, fires)
+		components := [][]Detection{{existing, earlier}}
+		ids, retracted, created := Assign(components, components, prev, fires)
 		wantID := FireID(earlier.Key())
 		if ids[0] != wantID {
 			t.Fatalf("ids[0] = %s, want %s (re-anchored on the true earliest member)", ids[0], wantID)
@@ -131,7 +136,8 @@ func TestAssignIDsLineage(t *testing.T) {
 		collidingID := FireID(x.Key())
 		fires := map[string]FireMeta{collidingID: {Anchor: Anchor{Key: x.Key(), At: x.At}, Active: true}}
 
-		ids, _, created := Assign([][]Detection{{x, y}}, map[string]string{}, fires)
+		components := [][]Detection{{x, y}}
+		ids, _, created := Assign(components, components, map[string]string{}, fires)
 		want := FireID(x.Key() + "#1")
 		if ids[0] != want {
 			t.Fatalf("ids[0] = %s, want %s (deterministic suffix, not colliding with the active fire)", ids[0], want)

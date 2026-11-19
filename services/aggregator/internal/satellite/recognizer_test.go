@@ -242,3 +242,64 @@ func TestRecognizerFireIDStableAcrossReconnect(t *testing.T) {
 		t.Errorf("mutations = %+v, want an upsert for the final ID %s", mutations, wantID)
 	}
 }
+
+// TestRecognizerFireIDStableWhenAnchorIsRetracted is the regression for
+// the second round of PR #6 review (l0stplains): three mutually-connected
+// detections where C is chronologically earliest, then C itself is
+// retracted. Round 1's fix (re-anchor when a later-arriving detection is
+// earlier) only moves a fire's recorded anchor FORWARD in time -- it does
+// nothing when the earliest member is later retracted, so whether C ever
+// got the chance to be durably recorded as the anchor still depended on
+// the batch boundary: processing A+B+C+retract(C) in one call never lets
+// C exist long enough to be considered (C is excluded from clustering the
+// moment it's retracted, before materialize ever runs), while processing
+// A+B+C in one batch and retract(C) in a second batch lets C become the
+// recorded anchor first, and retraction alone never un-does that. Both
+// orderings must converge on the same final ID.
+func TestRecognizerFireIDStableWhenAnchorIsRetracted(t *testing.T) {
+	rawA := synthEvent(0, "N20", "2026-11-12", "400", -2.5000, 113.8000, "n", 1) // 04:00
+	rawB := synthEvent(1, "N20", "2026-11-12", "405", -2.5040, 113.8000, "n", 1) // 04:05
+	rawC := synthEvent(2, "N20", "2026-11-12", "350", -2.5020, 113.8000, "n", 1) // 03:50 (earliest)
+
+	// Discover C's own detection_key (needed for the retract event)
+	// without depending on any clustering outcome.
+	var keyC string
+	probe := newMemState()
+	if _, err := NewRecognizer(12*time.Hour).ProcessBatch(context.Background(), probe, "probe", []byte(rawC)); err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	for k := range probe.detections {
+		keyC = k
+	}
+	if keyC == "" {
+		t.Fatal("could not determine C's detection_key")
+	}
+	rawRetractC := synthRetract(3, keyC, "test")
+
+	st1 := newMemState()
+	r1 := NewRecognizer(12 * time.Hour)
+	if _, err := r1.ProcessBatch(context.Background(), st1, "offsets-0-3", []byte(rawA+rawB+rawC+rawRetractC)); err != nil {
+		t.Fatalf("combined batch: %v", err)
+	}
+	combinedIDs := st1.activeFireIDs()
+	if len(combinedIDs) != 1 {
+		t.Fatalf("active fires (combined) = %d, want 1", len(combinedIDs))
+	}
+
+	st2 := newMemState()
+	r2 := NewRecognizer(12 * time.Hour)
+	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-0-2", []byte(rawA+rawB+rawC)); err != nil {
+		t.Fatalf("batch1 (A+B+C): %v", err)
+	}
+	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-3-3", []byte(rawRetractC)); err != nil {
+		t.Fatalf("batch2 (retract C): %v", err)
+	}
+	splitIDs := st2.activeFireIDs()
+	if len(splitIDs) != 1 {
+		t.Fatalf("active fires (split) = %d, want 1", len(splitIDs))
+	}
+
+	if combinedIDs[0] != splitIDs[0] {
+		t.Fatalf("fire ID depends on the batch boundary around the retract: combined=%s split=%s, want identical", combinedIDs[0], splitIDs[0])
+	}
+}
