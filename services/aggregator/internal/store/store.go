@@ -51,7 +51,7 @@ var errEventTooLarge = errors.New("event exceeds the publication size limit")
 var ErrEventTooLarge = errEventTooLarge
 
 type Store struct {
-	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB *sql.DB
+	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB, reportDB *sql.DB
 	staleAfter                                              time.Duration
 	readTimeout, writeTimeout                               time.Duration
 	outboxLimit                                             int64
@@ -85,7 +85,7 @@ func NewWithPools(readDB, bmkgWriteDB, pvmbgWriteDB, relayDB *sql.DB, staleAfter
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Second
 	}
-	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
+	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, reportDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
 }
 
 func (s *Store) SetMaxEnvelopeBytes(limit int) {
@@ -96,6 +96,14 @@ func (s *Store) SetMaxEnvelopeBytes(limit int) {
 }
 
 func (s *Store) SetUnit(name string) { s.unit = name }
+
+// SetReportPool gives Field Report intake its own connections, so source
+// ingestion cannot exhaust the pool that acknowledges Tim Lapangan reports.
+func (s *Store) SetReportPool(db *sql.DB) {
+	if db != nil {
+		s.reportDB = db
+	}
+}
 
 func (s *Store) SetOutboxLimit(limit int64) {
 	if limit <= 0 {

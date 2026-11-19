@@ -96,7 +96,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | C1 | Add `WILDFIRE` and `COASTAL` hazard types. | Done | Go types, schemas, fixtures. |
 | C2 | Add `SATELIT` and `SENSOR_PANTAI` sources. | Done | Go types, schemas, fixtures. |
 | C3 | Preserve BMKG/PVMBG contracts except specified admin extensions. | Done | Existing mocks retained. |
-| C4 | Give Tim Lapangan the `POST /field-reports` write path. | In progress | Request schema only; endpoint absent. |
+| C4 | Give Tim Lapangan the `POST /field-reports` write path. | Done | Client API route with `reports:write`; see [field reports](m2-field-reports.md). |
 | C5 | Integrate the assistant's satellite feed and coastal sensor. | Not done | Neither adapter is connected. |
 
 ## P1: Yang Pulang Membawa Laptopnya
@@ -166,11 +166,11 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P3.4a | Replay failed messages after adapting the parser. | In progress | Repaired-parser replay verified on PostgreSQL; mock modes/code adaptation demo pending. |
 | P3.4b | Recover replayed messages without duplicate effects. | Done | Crash-after-commit and cross-unit retry protected by canonical receipts. |
 | P3.4c | Preserve processing order per `source_ref_id`. | Done | OrderingKey blocks later entity versions; saved-plan sequences protect delayed delivery. |
-| P3.5 | Allow failed-message inspection only to BNPB Internal Ops. | In progress | Owner inspection/replay API exists; public BNPB Ops authorization/routes remain Bimo feature work. |
-| P3.6a | Return a fast 202 from `POST /field-reports`. | In progress | Request schema only. |
-| P3.6b | Accept reports while downstream processing is slow or stopped. | Not done | |
-| P3.6c | Lose no accepted report after receiver death. | Not done | |
-| P3.6d | Process accepted reports without duplicate effects. | Not done | |
+| P3.5 | Allow failed-message inspection only to BNPB Internal Ops. | Done (fixtures) | `/failed-messages` routes require `ops:failed-messages`, granted only to `bnpb-internal`; live demo pending. |
+| P3.6a | Return a fast 202 from `POST /field-reports`. | Done (fixtures) | 202 after one synchronous-replicated insert; latency measurement pending. |
+| P3.6b | Accept reports while downstream processing is slow or stopped. | Done (fixtures) | Processor is decoupled; `FIELD_REPORT_PROCESSING_ENABLED=false` demonstrates it. |
+| P3.6c | Lose no accepted report after receiver death. | Done (fixtures) | Receipt commits before 202; restart test in `sharded/fieldreport_integration_test.go`; live pod-kill demo pending. |
+| P3.6d | Process accepted reports without duplicate effects. | Done (fixtures) | Idempotency-Key per client, `SKIP LOCKED` claim, guarded status transition; concurrent-worker and crash tests. |
 
 ## P4: Atap Seng di Siang Bolong
 
@@ -262,8 +262,8 @@ The HTTP rows below use the separately supplied coastal-sensor contract. Example
 | P5.4b | Answer dependent reads quickly using cached data or explicit unavailability. | Not done | |
 | P5.4c | Resume using the sensor automatically after recovery. | Not done | |
 | P5.4d | Detect stale observations even when health returns success. | Not done | |
-| P5.5a | Preserve Field Team service under overload. | Not done | No identity-based priority. |
-| P5.5b | Reject excess Media requests in a controlled manner. | In progress | Generic admission/429 exists; priority absent. |
+| P5.5a | Preserve Field Team service under overload. | Done (fixtures) | Reserved admission quarter in Client API and Aggregator; load-test evidence pending. |
+| P5.5b | Reject excess Media requests in a controlled manner. | Done (fixtures) | Media limited to the general pool; excess gets 429 + `Retry-After`. |
 | P5.6a | Survive unannounced combinations of source, node, network, and load failures. | Not done | No combined-failure evidence. |
 | P5.6b | Recover without manual intervention during the recovery window. | Not done | |
 | P5.7 | Let every member diagnose failures from dashboards, metrics, and traces. | In progress | Core metrics/logs/traces are available; team diagnosis and integrated fault exercises remain pending. |

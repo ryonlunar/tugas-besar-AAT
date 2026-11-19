@@ -193,6 +193,7 @@ FIELD_ACCESS_TOKEN=$(jq -r .access_token .secrets/demo-session/field-team.json)
 | Kelompok | Variabel | Fungsi |
 |---|---|---|
 | Pool PostgreSQL | `DB_READ_MAX_CONNS`, `DB_BMKG_WRITE_MAX_CONNS`, `DB_PVMBG_WRITE_MAX_CONNS`, `DB_RELAY_MAX_CONNS`, `DB_READ_TIMEOUT`, `DB_WRITE_TIMEOUT` | Memisahkan kapasitas baca, ingest, dan relay serta membatasi durasi operasi |
+| Field Report | `FIELD_REPORT_PROCESSING_ENABLED`, `FIELD_REPORT_PROCESS_INTERVAL`, `FIELD_REPORT_MAX_INFLIGHT`, `DB_REPORT_MAX_CONNS` | Intake laporan Tim Lapangan dan pemrosesannya |
 | API dan HTTP | `API_MAX_INFLIGHT`, `AGGREGATOR_MAX_INFLIGHT`, `AGGREGATOR_REQUEST_TIMEOUT`, `HTTP_READ_HEADER_TIMEOUT`, `HTTP_IDLE_TIMEOUT`, `HTTP_WRITE_TIMEOUT` | Admission limit dan timeout HTTP |
 | Auth | `AUTH_MAX_INFLIGHT`, `AUTH_BODY_MAX_BYTES`, `AUTH_READ_TIMEOUT` | Batas request bersamaan, ukuran body, dan waktu baca |
 | Retention JetStream | `NATS_MAX_AGE`, `NATS_MAX_BYTES`, `NATS_MAX_MSGS`, `NATS_MAX_MSG_SIZE`, `NATS_DUPLICATE_WINDOW` | Batas penyimpanan dan window dedup; default 24 jam, 256 MiB, 100.000 pesan, 64 KiB, dan 2 menit |

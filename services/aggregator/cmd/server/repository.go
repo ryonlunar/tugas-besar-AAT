@@ -7,6 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/fieldreport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/poller"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded"
@@ -17,6 +18,7 @@ type runtimeRepository interface {
 	api.Repository
 	poller.Repository
 	outbox.Queue
+	fieldreport.Repository
 }
 
 func openRepository(cfg config, registerer prometheus.Registerer) (runtimeRepository, func(), error) {
@@ -24,7 +26,7 @@ func openRepository(cfg config, registerer prometheus.Registerer) (runtimeReposi
 	defer cancel()
 	if cfg.shardConfigFile != "" {
 		repository, err := sharded.Open(ctx, cfg.shardConfigFile, sharded.Options{
-			ReadConns: cfg.readConns, BMKGConns: cfg.bmkgWriteConns, PVMBGConns: cfg.pvmbgWriteConns, RelayConns: cfg.relayConns,
+			ReadConns: cfg.readConns, BMKGConns: cfg.bmkgWriteConns, PVMBGConns: cfg.pvmbgWriteConns, RelayConns: cfg.relayConns, ReportConns: cfg.reportConns,
 			ReadTimeout: cfg.dbReadTimeout, WriteTimeout: cfg.dbWriteTimeout, StaleAfter: cfg.staleAfter,
 			OutboxLimit: cfg.outboxMaxPending, MaxEnvelopeBytes: cfg.natsMaxMsgSize,
 		})
@@ -66,6 +68,11 @@ func openRepository(cfg config, registerer prometheus.Registerer) (runtimeReposi
 		return nil, nil, err
 	}
 	pools = append(pools, relayDB)
+	reportDB, err := openDB(cfg.databaseURL, cfg.reportConns)
+	if err != nil {
+		return nil, nil, err
+	}
+	pools = append(pools, reportDB)
 
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer startupCancel()
@@ -74,6 +81,7 @@ func openRepository(cfg config, registerer prometheus.Registerer) (runtimeReposi
 	}
 	repository := store.NewWithPools(readDB, bmkgDB, pvmbgDB, relayDB, cfg.staleAfter)
 	repository.SetTimeouts(cfg.dbReadTimeout, cfg.dbWriteTimeout)
+	repository.SetReportPool(reportDB)
 	repository.SetOutboxLimit(cfg.outboxMaxPending)
 	repository.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	if err := repository.Migrate(startupCtx); err != nil {

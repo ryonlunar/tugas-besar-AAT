@@ -38,6 +38,7 @@ type Handler struct {
 	now         func() time.Time
 	mux         *http.ServeMux
 	inflight    chan struct{}
+	reserved    chan struct{}
 }
 
 type requestContextKey struct{}
@@ -55,7 +56,8 @@ func NewHandlerWithLimit(repository Repository, internalKey string, now func() t
 	if maxInflight < 1 {
 		maxInflight = 128
 	}
-	h := &Handler{repository: repository, internalKey: internalKey, now: now, mux: http.NewServeMux(), inflight: make(chan struct{}, maxInflight)}
+	general, reserved := SplitCapacity(maxInflight)
+	h := &Handler{repository: repository, internalKey: internalKey, now: now, mux: http.NewServeMux(), inflight: make(chan struct{}, general), reserved: make(chan struct{}, reserved)}
 	h.mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -71,10 +73,22 @@ func (h *Handler) admit(next http.Handler) http.Handler {
 		case h.inflight <- struct{}{}:
 			defer func() { <-h.inflight }()
 			next.ServeHTTP(w, r)
+			return
 		default:
-			w.Header().Set("Retry-After", "1")
-			writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Aggregator request capacity is full", correlationID(r))
 		}
+		// Only Client API sets this header, after verifying a Tim Lapangan or
+		// BNPB token; the internal key check in each handler still applies.
+		if r.Header.Get("X-Request-Priority") == "high" {
+			select {
+			case h.reserved <- struct{}{}:
+				defer func() { <-h.reserved }()
+				next.ServeHTTP(w, r)
+				return
+			default:
+			}
+		}
+		w.Header().Set("Retry-After", "1")
+		writeError(w, http.StatusTooManyRequests, "RATE_LIMITED", "Aggregator request capacity is full", correlationID(r))
 	})
 }
 

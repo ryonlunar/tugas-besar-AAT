@@ -24,6 +24,7 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/fieldreport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
@@ -137,6 +138,11 @@ func run(logger *slog.Logger) error {
 			}
 		},
 		func() { _ = relay.Run(ctx) },
+		func() {
+			if cfg.fieldReportProcessing {
+				fieldreport.RunWorker(ctx, repository, env("POD_NAME", "aggregator"), cfg.fieldReportInterval, logger, monitor.ObserveOperation)
+			}
+		},
 	)
 	defer func() {
 		stop()
@@ -145,6 +151,9 @@ func run(logger *slog.Logger) error {
 
 	handler := http.NewServeMux()
 	handler.Handle("/", api.NewHandlerWithLimit(repository, cfg.internalKey, time.Now, cfg.maxInflight))
+	reports := fieldreport.NewHandler(repository, cfg.internalKey, cfg.fieldReportMaxInflight)
+	handler.Handle("/internal/v1/field-reports", reports)
+	handler.Handle("/internal/v1/field-reports/", reports)
 	if distributed, ok := repository.(*sharded.Store); ok {
 		ownerAPI := audit.NewHandler(distributed, cfg.auditToken, cfg.internalKey)
 		handler.Handle("/internal/audit/", ownerAPI)
@@ -153,7 +162,7 @@ func run(logger *slog.Logger) error {
 	}
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay"),
+		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay", "/internal/v1/field-reports", "/internal/v1/field-reports/{report_id}"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,
@@ -222,6 +231,9 @@ func openDB(dsn string, maxConns int) (*sql.DB, error) {
 
 type config struct {
 	processingEnabled                                      bool
+	fieldReportProcessing                                  bool
+	fieldReportInterval                                    time.Duration
+	fieldReportMaxInflight, reportConns                    int
 	auditToken                                             string
 	shardConfigFile                                        string
 	sourceIdle, sourceRetry                                time.Duration
@@ -250,6 +262,19 @@ func loadConfig() (config, error) {
 	c.processingEnabled, err = strconv.ParseBool(env("INGEST_PROCESSING_ENABLED", "true"))
 	if err != nil {
 		return c, errors.New("INGEST_PROCESSING_ENABLED must be boolean")
+	}
+	c.fieldReportProcessing, err = strconv.ParseBool(env("FIELD_REPORT_PROCESSING_ENABLED", "true"))
+	if err != nil {
+		return c, errors.New("FIELD_REPORT_PROCESSING_ENABLED must be boolean")
+	}
+	if c.fieldReportInterval, err = envDuration("FIELD_REPORT_PROCESS_INTERVAL", "500ms"); err != nil || c.fieldReportInterval <= 0 {
+		return c, errors.New("FIELD_REPORT_PROCESS_INTERVAL must be a positive duration")
+	}
+	if c.fieldReportMaxInflight, err = envInt("FIELD_REPORT_MAX_INFLIGHT", 64, 1, 10000); err != nil {
+		return c, err
+	}
+	if c.reportConns, err = envInt("DB_REPORT_MAX_CONNS", 4, 1, 50); err != nil {
+		return c, err
 	}
 	c.auditToken = os.Getenv("AUDIT_TOKEN")
 	c.listenAddr = ":" + env("AGGREGATOR_HTTP_PORT", "8083")
