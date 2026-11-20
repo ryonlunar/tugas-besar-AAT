@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"testing"
 	"time"
 
@@ -191,13 +192,17 @@ func TestLoadConfigSatellite(t *testing.T) {
 }
 
 func TestConfiguredSourcesAddsSatelliteOnlyWhenEnabled(t *testing.T) {
-	disabled := configuredSources(config{satelliteEnabled: false})
+	disabled := configuredSources(config{}, false)
 	if len(disabled) != 2 {
 		t.Fatalf("disabled sources = %v, want exactly BMKG+PVMBG", disabled)
 	}
-	enabled := configuredSources(config{satelliteEnabled: true})
+	enabled := configuredSources(config{satelliteEnabled: true}, false)
 	if len(enabled) != 3 {
 		t.Fatalf("enabled sources = %v, want BMKG+PVMBG+SATELIT", enabled)
+	}
+	both := configuredSources(config{satelliteEnabled: true}, true)
+	if len(both) != 4 || both[3] != contracts.SourceCoastal {
+		t.Fatalf("enabled sources = %v, want both satellite and coastal", both)
 	}
 }
 

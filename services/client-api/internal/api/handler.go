@@ -82,6 +82,7 @@ func NewHandler(cfg Config) *Handler {
 	h.mux.Handle("GET /failed-messages", h.authorized(scopeFailedMessages, h.listFailed))
 	h.mux.Handle("GET /failed-messages/{message_id}", h.authorized(scopeFailedMessages, h.inspectFailed))
 	h.mux.Handle("POST /failed-messages/{message_id}/replay", h.authorized(scopeFailedMessages, h.replayFailed))
+	h.registerAnalytics()
 	return h
 }
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

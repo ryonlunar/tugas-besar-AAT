@@ -79,6 +79,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	sensor, err := coastalAdapter(cfg)
+	if err != nil {
+		return err
+	}
 	closeTracing, traceErr := telemetry.StartTracing("aggregator")
 	if traceErr != nil {
 		return traceErr
@@ -91,9 +95,19 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeRepository()
 
+	publishSubjects := []string{store.SubjectBMKG, store.SubjectPVMBG}
+	if cfg.shardConfigFile != "" {
+		for _, source := range []contracts.Source{contracts.SourceSatellite, contracts.SourceCoastal} {
+			subject, err := store.SubjectForSource(source)
+			if err != nil {
+				return err
+			}
+			publishSubjects = append(publishSubjects, subject)
+		}
+	}
 	publisher, err := broker.NewJetStreamPublisher(broker.JetStreamConfig{
 		URL: cfg.natsURL, Token: cfg.natsToken, Stream: cfg.natsStream,
-		Subjects: publisherSubjects(cfg), StreamSubjects: []string{store.SubjectFilter},
+		Subjects: publishSubjects, StreamSubjects: []string{store.SubjectFilter},
 		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second, Replicas: cfg.natsReplicas,
 	})
 	if err != nil {
@@ -112,6 +126,9 @@ func run(logger *slog.Logger) error {
 	pollerService.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
 
+	if sensor != nil {
+		sensor.Observe = monitor.ObserveOperation
+	}
 	pollerService.Observe = monitor.ObserveOperation
 	relay.Observe = monitor.ObserveOperation
 	closeMetrics, err := monitor.Listen("http://127.0.0.1" + cfg.listenAddr + "/ready")
@@ -126,8 +143,11 @@ func run(logger *slog.Logger) error {
 			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
 			if distributed, ok := repository.(*sharded.Store); ok {
 				run = func() error {
-					return distributed.CoordinateSessions(ctx, configuredSources(cfg), cfg.sourceIdle, cfg.sourceRetry, logger,
+					return distributed.CoordinateSessions(ctx, configuredSources(cfg, sensor != nil), cfg.sourceIdle, cfg.sourceRetry, logger,
 						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
+							if source == contracts.SourceCoastal {
+								return pipeline.RunAdapter(ctx, session, source, sensor, sensor.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+							}
 							if source == contracts.SourceSatellite {
 								return runSatelliteSource(ctx, cfg, session, distributed, logger, monitor.ObserveOperation)
 							}
@@ -176,7 +196,7 @@ func run(logger *slog.Logger) error {
 	}
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay", "/internal/v1/field-reports", "/internal/v1/field-reports/{report_id}"),
+		Handler:           monitor.Wrap(handler, "/internal/v1/analytics", "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay", "/internal/v1/field-reports", "/internal/v1/field-reports/{report_id}"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,
@@ -211,25 +231,15 @@ func startBackgroundTasks(tasks ...func()) func() {
 	return func() { wg.Wait() }
 }
 
-// configuredSources is a pure function over cfg so Task 5.2's test can
-// assert on it without constructing a real repository/server.
-func configuredSources(cfg config) []contracts.Source {
+func configuredSources(cfg config, coastalEnabled bool) []contracts.Source {
 	sources := []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}
 	if cfg.satelliteEnabled {
 		sources = append(sources, contracts.SourceSatellite)
 	}
-	return sources
-}
-
-// publisherSubjects is the JetStream subject allowlist for this instance's
-// profile; SATELIT is only ever added when the source is actually enabled,
-// so a dev/CI/M1 profile's stream configuration never changes shape.
-func publisherSubjects(cfg config) []string {
-	subjects := []string{store.SubjectBMKG, store.SubjectPVMBG}
-	if cfg.satelliteEnabled {
-		subjects = append(subjects, store.SubjectSatellite)
+	if coastalEnabled {
+		sources = append(sources, contracts.SourceCoastal)
 	}
-	return subjects
+	return sources
 }
 
 // runSatelliteSource wires a satellite.Client/Adapter/Recognizer into

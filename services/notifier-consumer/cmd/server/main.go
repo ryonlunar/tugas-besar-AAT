@@ -84,14 +84,18 @@ func run(port string) error {
 	defer state.Close()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	runner := &jetstreamconsumer.Runner{Config: config, Sink: state}
+
 	closeTracing, traceErr := telemetry.StartTracing("notifier-consumer")
 	if traceErr != nil {
 		return traceErr
 	}
 	defer closeTracing()
 	monitor := telemetry.New()
-	runner.Observe = monitor.ObserveOperation
+	sink, err := newDeliverySink(state, monitor)
+	if err != nil {
+		return err
+	}
+	runner := &jetstreamconsumer.Runner{Config: config, Sink: sink, Observe: monitor.ObserveOperation}
 	monitor.Registry.MustRegister(jetstreamconsumer.StoreMetrics(state))
 	closeMetrics, err := monitor.Listen("http://127.0.0.1:" + port + "/ready")
 	if err != nil {

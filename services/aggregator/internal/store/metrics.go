@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 )
 
@@ -33,6 +34,9 @@ func (c *metricsCollector) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	sources := []mapper.Source{mapper.SourceBMKG, mapper.SourcePVMBG}
+	if c.store.unit == "shard-3" {
+		sources = append(sources, contracts.SourceCoastal)
+	}
 	states, err := c.store.SourceStates(ctx, sources, time.Now().UTC())
 	var pending int64
 	var oldest float64

@@ -31,6 +31,12 @@ spec:
               sleep:
                 seconds: 8
           env:
+            - name: PANTAI_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: pantai-token
+                  key: token
+                  optional: true
             - name: AUDIT_TOKEN
               valueFrom:
                 secretKeyRef:
