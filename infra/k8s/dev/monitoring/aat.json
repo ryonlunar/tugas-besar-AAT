@@ -1148,6 +1148,153 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 22,
+      "title": "Satellite feed lag",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Distance from the sampled feed head to the durable intake cursor.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(aat_satellite_feed_lag_offsets)",
+          "legendFormat": "Offsets behind",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "title": "Satellite unfinished batches",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 8,
+        "y": 63,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Batches waiting for canonical processing, including parked batches.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(aat_satellite_unfinished_batches)",
+          "legendFormat": "Unfinished",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "title": "Satellite storage latency · p95",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 16,
+        "y": 63,
+        "w": 8,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "First input in a batch to canonical commit, for batches that produce mutations.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by(le) (rate(aat_satellite_intake_to_storage_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "Intake to commit",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
     }
   ],
   "templating": {

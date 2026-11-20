@@ -138,6 +138,10 @@ func run(logger *slog.Logger) error {
 	defer closeMetrics()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	var satelliteStats *satelliteMetrics
+	if cfg.satelliteEnabled {
+		satelliteStats = newSatelliteMetrics(monitor.Registry)
+	}
 	waitForWorkers := startBackgroundTasks(
 		func() {
 			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
@@ -146,10 +150,10 @@ func run(logger *slog.Logger) error {
 					return distributed.CoordinateSessions(ctx, configuredSources(cfg, sensor != nil), cfg.sourceIdle, cfg.sourceRetry, logger,
 						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
 							if source == contracts.SourceCoastal {
-								return pipeline.RunAdapter(ctx, session, source, sensor, sensor.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+								return pipeline.RunAdapter(ctx, session, source, sensor, sensor.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation, nil)
 							}
 							if source == contracts.SourceSatellite {
-								return runSatelliteSource(ctx, cfg, session, distributed, logger, monitor.ObserveOperation)
+								return runSatelliteSource(ctx, cfg, session, distributed, logger, monitor.ObserveOperation, satelliteStats)
 							}
 							process := pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations()).WithVolcanicAdaptations(cfg.pvmbgAdapters))
 							if source == contracts.SourceBMKG && cfg.bmkgHistoricalCatalogFile != "" {
@@ -248,7 +252,7 @@ func configuredSources(cfg config, coastalEnabled bool) []contracts.Source {
 // PollingAdapter-only 10000 cap, which does not apply to a non-polling
 // adapter) so a slow processor never lets the satellite source run away
 // unbounded (D4/P4.4d).
-func runSatelliteSource(ctx context.Context, cfg config, session *sourcejournal.Session, distributed *sharded.Store, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
+func runSatelliteSource(ctx context.Context, cfg config, session *sourcejournal.Session, distributed *sharded.Store, logger *slog.Logger, observe func(string, string, error, time.Duration), stats *satelliteMetrics) error {
 	client, err := satellite.NewClient(cfg.satelliteBaseURL, cfg.satelliteToken, cfg.satelliteRequestTimeout)
 	if err != nil {
 		return err
@@ -265,12 +269,22 @@ func runSatelliteSource(ctx context.Context, cfg config, session *sourcejournal.
 			n, err := session.Unfinished(ctx)
 			return n < 9000, err
 		},
-		Observe: func(outcome, reason string, err error, elapsed time.Duration) {
-			observe("satellite_adapter_"+outcome, reason, err, elapsed)
+		Observe: func(outcome, _ string, err error, elapsed time.Duration) {
+			observe("satellite_adapter_"+outcome, "SATELIT", err, elapsed)
 		},
 	}
+	ctx, stopMetrics := context.WithCancel(ctx)
+	metricsDone := make(chan struct{})
+	go func() {
+		defer close(metricsDone)
+		stats.sample(ctx, cfg.satelliteSessionPollInterval, client, session, observe)
+	}()
+	defer func() {
+		stopMetrics()
+		<-metricsDone
+	}()
 	recognizer := satellite.NewRecognizer(cfg.satelliteLateness)
-	return pipeline.RunAdapter(ctx, session, contracts.SourceSatellite, adapter, satellite.Processor(recognizer), distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe)
+	return pipeline.RunAdapter(ctx, session, contracts.SourceSatellite, adapter, satellite.Processor(recognizer), distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe, stats.observeStored)
 }
 
 // runBMKGCatalogImport runs the historical-catalog import phase (P1.1a,
@@ -289,7 +303,7 @@ func runBMKGCatalogImport(ctx context.Context, cfg config, session *sourcejourna
 			return n < 9000, err
 		},
 	}
-	err := pipeline.RunAdapter(ctx, session, contracts.SourceBMKG, adapter, process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe)
+	err := pipeline.RunAdapter(ctx, session, contracts.SourceBMKG, adapter, process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe, nil)
 	if err != nil && !errors.Is(err, io.EOF) {
 		logger.Error("bmkg historical catalog import stopped", "reason", "CATALOG_IMPORT_FAILURE")
 		return err
