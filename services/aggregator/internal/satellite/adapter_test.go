@@ -95,7 +95,6 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 			fmt.Fprint(w, sseDetectionEvent(t, id))
 			flush(w)
 		}
-		<-r.Context().Done()
 	}))
 	defer server.Close()
 	client := newTestClient(t, server.URL)
@@ -116,7 +115,7 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 	}
 
 	adapter := &Adapter{
-		Client: client, MaxEvents: 200, MaxBytes: 10 << 20, MaxWait: 50 * time.Millisecond,
+		Client: client, MaxEvents: 200, MaxBytes: 10 << 20,
 		IdleTimeout: 5 * time.Second, ReconnectMin: 10 * time.Millisecond, ReconnectMax: 100 * time.Millisecond,
 	}
 
@@ -137,10 +136,14 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 	if len(batches) != 3 {
 		t.Fatalf("got %d batches, want 3", len(batches))
 	}
-	wantRanges := [][2]string{{"", "200"}, {"200", "400"}, {"400", "450"}}
+	wantRanges := []struct{ from, cursor, key string }{
+		{"", "200", "offsets-0-199"},
+		{"200", "400", "offsets-200-399"},
+		{"400", "450", "offsets-400-449"},
+	}
 	for i, want := range wantRanges {
-		if batches[i].From != want[0] || batches[i].Cursor != want[1] {
-			t.Errorf("batch[%d] From/Cursor = %s/%s, want %s/%s", i, batches[i].From, batches[i].Cursor, want[0], want[1])
+		if batches[i].From != want.from || batches[i].Cursor != want.cursor {
+			t.Errorf("batch[%d] From/Cursor = %q/%q, want %q/%q", i, batches[i].From, batches[i].Cursor, want.from, want.cursor)
 		}
 		if len(batches[i].Records) != 1 {
 			t.Fatalf("batch[%d] has %d records, want 1", i, len(batches[i].Records))
@@ -152,8 +155,8 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 		if record.OrderingKey != "satellite-feed" {
 			t.Errorf("batch[%d] OrderingKey = %q, want satellite-feed", i, record.OrderingKey)
 		}
-		if record.Key != fmt.Sprintf("offsets-%s-%s", want[0], mustPrevStr(t, want[1])) {
-			t.Errorf("batch[%d] Key = %q, want offsets-%s-%s", i, record.Key, want[0], mustPrevStr(t, want[1]))
+		if record.Key != want.key {
+			t.Errorf("batch[%d] Key = %q, want %q", i, record.Key, want.key)
 		}
 	}
 	for i := 1; i < len(batches); i++ {
@@ -161,15 +164,6 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 			t.Errorf("batch[%d].From = %s, want %s (chained with previous Cursor)", i, batches[i].From, batches[i-1].Cursor)
 		}
 	}
-}
-
-func mustPrevStr(t *testing.T, s string) string {
-	t.Helper()
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		t.Fatalf("parse %q: %v", s, err)
-	}
-	return strconv.FormatInt(n-1, 10)
 }
 
 func TestAdapterSkipsHeartbeatRecords(t *testing.T) {
