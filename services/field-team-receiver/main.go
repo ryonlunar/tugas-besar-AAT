@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -94,24 +95,49 @@ func (i inbox) receive(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type receipt struct {
+	Notification json.RawMessage `json:"notification"`
+	ReceivedAt   string          `json:"received_at"`
+}
+
 func (i inbox) list(w http.ResponseWriter, r *http.Request) {
-	rows, err := i.db.QueryContext(r.Context(), `SELECT payload,received_at FROM notifications ORDER BY rowid DESC LIMIT 100`)
+	values, paginated := r.URL.Query()["after"]
+	query := `SELECT rowid,payload,received_at FROM notifications ORDER BY rowid DESC LIMIT 100`
+	var params []any
+	if paginated {
+		if len(values) != 1 {
+			http.Error(w, "invalid cursor", 400)
+			return
+		}
+		after, err := strconv.ParseInt(values[0], 10, 64)
+		if err != nil || after < 0 {
+			http.Error(w, "invalid cursor", 400)
+			return
+		}
+		query = `SELECT rowid,payload,received_at FROM notifications WHERE rowid > ? ORDER BY rowid LIMIT 101`
+		params = []any{after}
+	}
+	rows, err := i.db.QueryContext(r.Context(), query, params...)
 	if err != nil {
 		http.Error(w, "inbox unavailable", 503)
 		return
 	}
 	defer rows.Close()
-	type receipt struct {
-		Notification json.RawMessage `json:"notification"`
-		ReceivedAt   string          `json:"received_at"`
-	}
 	result := []receipt{}
+	var last int64
+	var next string
 	for rows.Next() {
 		var item receipt
-		if err := rows.Scan(&item.Notification, &item.ReceivedAt); err != nil {
+		if len(result) == 100 {
+			next = strconv.FormatInt(last, 10)
+			break
+		}
+		var payload []byte
+		if err := rows.Scan(&last, &payload, &item.ReceivedAt); err != nil {
 			http.Error(w, "inbox unavailable", 503)
 			return
 		}
+		item.Notification = payload
 		result = append(result, item)
 	}
 	if rows.Err() != nil {
@@ -119,6 +145,13 @@ func (i inbox) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if paginated {
+		_ = json.NewEncoder(w).Encode(struct {
+			Items      []receipt `json:"items"`
+			NextCursor string    `json:"next_cursor,omitempty"`
+		}{result, next})
+		return
+	}
 	_ = json.NewEncoder(w).Encode(result)
 }
 
