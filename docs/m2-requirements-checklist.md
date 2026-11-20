@@ -1,6 +1,6 @@
 # Milestone 2 requirements checklist
 
-**Updated:** 20 November 2026, integrated implementation reviewed at `2a13a8c`.
+**Updated:** 20 November 2026, integrated development cluster and live satellite smoke check.
 
 The integrated baseline includes the BMKG catalog importer, PVMBG schema modes and replay, satellite recognition, coastal alerts, Field Reports and Ops, and browser analytics. The full Go suite, vet, disposable PostgreSQL tests, and a synthetic end-to-end run passed. The [status summary](m2-status.md) lists the remaining setup and acceptance work.
 
@@ -25,7 +25,7 @@ IDs follow the specification's numbered criteria. Letter suffixes split compound
 | M1.1 | Communicate across services through network calls; share no business logic. | Done | HTTP and NATS boundaries retained. |
 | M1.2 | Give each store one owning service; use its API externally. | Done | Aggregator owns canonical PostgreSQL. |
 | M1.3a | Package each service separately, with its own Dockerfile. | Done | Eight application Dockerfiles, including the Field Team receiver. |
-| M1.3b | Start the complete system through one orchestration command. | In progress | Integrated app deploy script and manifests exist. The historical catalog input and official assessment setup still need to be exercised. |
+| M1.3b | Start the complete system through one orchestration command. | In progress | The integrated development profile passed on four VMs. Official inputs and the assessment profile still need a complete run. |
 | M1.4 | Start/stop services independently and demonstrate real faults. | In progress | Independent service rollout and receiver replacement/worker-freeze checks exist; final M2 scenarios remain pending. |
 | M1.5 | Keep BMKG and PVMBG credentials mutually invalid. | Done | Live credential-isolation check passed. |
 | M1.6a | Load credentials/configuration externally; commit no active secrets. | Done | Generated private configuration and Secrets. |
@@ -38,7 +38,7 @@ IDs follow the specification's numbered criteria. Letter suffixes split compound
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| K1 | Run all BNPB components on Kubernetes. | In progress | Integrated app manifests render successfully. A full Kubernetes run of this revision remains pending. |
+| K1 | Run all BNPB components on Kubernetes. | Done (fixtures) | Integrated rollout and baseline checks passed on the four-node practice cluster. |
 | K2 | Use at least two nodes with separate kernels. | Done | Four separate Linux VM kernels; live placement checked. |
 | K3 | Use separate-kernel nodes for the assessed demo. | In progress | Four separate-kernel VMs verified on Refki's laptop; final assessed deployment still needs validation. |
 | K4 | Declare control-plane/worker roles and permitted node-failure targets. | Done | Control-plane/worker roles and worker-only failure targets documented. |
@@ -69,7 +69,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| O1 | Show service latency, error rate, and throughput in one dashboard. | In progress | Core service and Field Team receipt metrics exist. P4 feed lag and intake-to-store p95 instrumentation are missing. |
+| O1 | Show service latency, error rate, and throughput in one dashboard. | In progress | Core, Field Team, and satellite metrics and panels exist. Workload sizing and integrated assessment evidence remain pending. |
 | O2 | Trace a request across every participating service, including step durations. | In progress | HTTP/database and async source-to-consumer traces verified; new-feature traces pending. |
 | O3 | Show structured, correlated logs for the complete system. | In progress | M1 flow verified; new ingestion flow pending. |
 
@@ -102,7 +102,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P1.1a | Load the assistant's historical earthquake dataset. | In progress | Resumable import passed with a synthetic CSV. Mount the official CSV in every Aggregator replica and verify its load against Audit. |
+| P1.1a | Load the assistant's historical earthquake dataset. | In progress | Resumable import passed with a synthetic CSV. Deployment can package the same immutable file for all Aggregators. Official load and Audit comparison remain pending. |
 | P1.1b | Ensure no node stores the entire canonical dataset. | Done | Four units with three copies each; each node is excluded from one unit. |
 | P1.1c | Spread storage and writes across multiple nodes. | Done | Live canonical data and primary writes span four logical units on separate nodes. |
 | P1.1d | Report data distribution per node. | In progress | Current per-unit counts/physical nodes reported by check-cluster; official-dataset measurements pending. |
@@ -177,9 +177,9 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| SAT.1 | Connect to `satellite.naufarrel.dev`. | In progress | SSE adapter verified with a local feed. Live k3s test pending. |
-| SAT.2 | Authenticate with the group bearer token stored as a Secret. | In progress | Secret wired into the k3s deployment. Live group-token test pending. |
-| SAT.3 | Read session state from `GET /v1/session`. | In progress | Session client and probe exist. The running adapter does not sample session state for feed lag. |
+| SAT.1 | Connect to `satellite.naufarrel.dev`. | Done | The deployed Aggregator connected and processed practice data. A bounded direct stream probe also resumed at the requested offset. |
+| SAT.2 | Authenticate with the group bearer token stored as a Secret. | Done | Live practice requests authenticated successfully. Kubernetes deployment reads the group credential through a Secret. |
+| SAT.3 | Read session state from `GET /v1/session`. | Done | Practice endpoint confirmed the 60× profile. The source owner polls it for the lag measurement. |
 | SAT.4 | Consume SSE from `GET /v1/stream?from=<offset>`. | Done (fixtures) | The combined fixture read from offset zero into a fresh journal and reached both consumers. |
 | SAT.5 | Handle `detection`, `update`, `retract`, and `heartbeat`. | Done (fixtures) | All four event types covered by adapter and recognizer tests. |
 | SAT.6 | Resume using offsets or `Last-Event-ID`, preserving feed order. | Done (fixtures) | Resume checks use the committed next offset. |
@@ -219,12 +219,12 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P4.2d | Report arrivals beyond the bound; never silently discard them. | In progress | Late detections are retained and counted. Official measurement pending. |
 | P4.3 | Apply updates/retractions, including disappearing fires, without new duplicate events. | Done (fixtures) | Update, merge, split, and disappearance scenarios verify final fire membership and identity. |
 | P4.4a | Lose no feed data at 60× speed. | Not done | A 1,800-detection synthetic fire passed. End-to-end loss at 60× and the maximum official event size remain unmeasured. |
-| P4.4b | Catch up within 60 seconds after a burst ends. | Not done | Measure catch-up against the feed head and confirm canonical processing has drained. |
-| P4.4c | Report p95 intake-to-canonical-storage latency. | Not done | Add an intake-to-durable-canonical-commit measurement and report p95 during the 60× run. |
-| P4.4d | Show processing lag during bursts in a dashboard. | Not done | Add a dashboard signal comparing feed head progress with the journal and canonical processing. |
+| P4.4b | Catch up within 60 seconds after a burst ends. | In progress | Fixture queues drained. Live feed lag fell by about 11,000 offsets during a short smoke check, with over 1.3 million remaining. A timed burst run is pending. |
+| P4.4c | Report p95 intake-to-canonical-storage latency. | In progress | Fixture verified samples from a batch's first input to canonical commit. Record p95 during the official run. |
+| P4.4d | Show processing lag during bursts in a dashboard. | In progress | Grafana panels use the measured feed-to-journal lag and unfinished batches. Capture them during the official burst. |
 | P4.5 | Recover interrupted recognition to the same final result, without loss or duplicates. | In progress | Saved-plan reuse, timeout recovery, and regrouping across batch boundaries passed fixtures. Live restart comparison pending. |
 | P4.6 | Compare the full result with the assistant's reference; explain differences. | Not done | |
-| P4.7 | Demonstrate several minutes of live-feed processing. | Not done | |
+| P4.7 | Demonstrate several minutes of live-feed processing. | In progress | Deployed Aggregator processed live practice batches and published metrics. The multi-minute assessed demo remains pending. |
 | P4.8 | Reconnect and resume without missing or duplicating data. | In progress | SSE reconnect and resume passed with simulated interruption. Live verification pending. |
 
 ## P5: Pelampung yang Berbohong
@@ -253,8 +253,8 @@ The HTTP rows below use the separately supplied coastal-sensor contract. Example
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Integrated fixture delivered one critical observation after catalog and receiver recovery. Compare every expected critical ID with durable receipts. The public receiver read returns at most 100 receipts. |
-| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | Receiver records raw-intake-to-receipt latency. The official run needs full ID reconciliation and latency that accounts for sensor polling. |
+| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Fixture delivered the critical observation after catalog and receiver recovery. The evidence checker scans all receipt pages and compares them with an independent expected-ID list. |
+| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | The checker uses independent wall-clock availability timestamps for end-to-end p95. Run it against the complete expected critical set during assessment. |
 | P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Invalid observations park with a reason. Valid inputs retry while station metadata is missing. Exam-profile fault evidence pending. |
 | P5.3 | Preserve M1 latency for other sources during sensor faults. | Not done | No sensor-fault load test. |
 | P5.4a | Avoid request storms while the sensor is unhealthy. | In progress | Bounded request timeout and jittered backoff. Integrated request-rate measurement pending. |

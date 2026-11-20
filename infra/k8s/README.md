@@ -67,7 +67,9 @@ multipass exec aat-dev -- bash -lc "cd ~/aat && python3 scripts/m2/check-cluster
 
 The deployment uses four PostgreSQL units with three replicas each, three Aggregators, and three NATS brokers. Broker connections use two-second heartbeats to detect silent peers. Each node is excluded from one storage unit. Only Aggregator receives application database credentials, with TLS certificate verification enabled. A local registry on port 30500 distributes development images over the trusted VM network; do not expose it publicly.
 
-Feed Satelit's bearer token is external to this repository: save it as `.secrets/satellite-secret.yaml` in the control VM’s repository (git-ignored) with `stringData: {token: "..."}` or `data: {token: <base64>}`, named `satellite-secret`. `deploy-cluster.sh` applies it automatically when present; without it, `SATELLITE_TOKEN` stays empty and the source stays disabled, same as a dev/CI profile with `SATELLITE_BASE_URL` unset. Set `SATELLITE_BASE_URL` in `.env.example` (or `.state/m2/runtime.env`) before deploying to actually enable it.
+Set `SATELLITE_BASE_URL=https://satellite.naufarrel.dev` in the control VM's `.state/m2/runtime.env` to enable Feed Satelit. Place the group credential in the ignored `.secrets/satellite-secret.yaml` as a Secret named `satellite-secret` with key `token`. The deployment applies that file or uses the existing Secret. Clear the URL to deploy with the source disabled. Grafana shows feed offsets behind, unfinished batches, and p95 from the first input in a batch to the canonical commit. Catch-up requires the feed lag and unfinished batches to return to zero.
+
+To import the historical BMKG catalog, place the official CSV at `.state/m2/bmkg-catalog.csv` in the control VM before deploying. The deploy command packages it in the Aggregator image in the local registry. The image tag includes the CSV digest so every replica, including replacements, imports the same bytes. Use Audit to compare the imported count and checksum with the reference.
 
 The replicated profile allows up to 256 KiB per JetStream event so wildfire events can keep their detection keys. If upgrading an existing VM whose `.state/m2/runtime.env` still sets `NATS_MAX_MSG_SIZE=65536`, clear that value or set it to `262144` before deploying. Aggregator widens the existing stream in place.
 
@@ -114,6 +116,8 @@ Open `http://<control-node-ip>:30080/analytics/` with an Auth access token and s
 `GET /v1/analytics?from=<RFC3339>&to=<RFC3339>` uses the same Bearer token and an inclusive start with an exclusive end. `total_events` counts each event once. The tsunami series and category count represent earthquakes with BMKG warnings. `coverage` reports the number of storage units that contributed, and `unavailable_units` lists the missing units.
 
 Run `python3 scripts/m2/check-coastal.py` on the control VM after the practice feed has populated a stable event window. It compares analytics with Audit and samples the Field Team receiver's stored notifications.
+
+After a critical-alert scenario, run `python3 scripts/m2/check-field-alerts.py path/to/expected-critical.json`. The expected file is an independent JSON array of objects with `observation_id` and, for end-to-end latency, `available_at` as a wall-clock RFC3339 timestamp. The check scans all durable receipts, reports missing or duplicate IDs, and compares p95 with five seconds. Raw intake-to-receipt timing is also reported for diagnosis. Use the sensor's emission time on the experiment clock for `available_at`, since `observed_at` can be virtual time.
 
 ## Durable ingestion and Audit checks
 

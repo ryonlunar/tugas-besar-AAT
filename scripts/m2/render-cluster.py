@@ -15,6 +15,8 @@ SERVICES = ['bmkg-mock', 'pvmbg-mock', 'aggregator', 'auth', 'client-api', 'dash
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['tag', 'render'])
+    parser.add_argument('--catalog-tag', help='Aggregator image tag containing the historical BMKG catalog.')
+    parser.add_argument('--without-satellite', action='store_true', help='Omit the satellite Secret reference for a profile without this source.')
     args = parser.parse_args()
     os.umask(0o077)
     digest = hashlib.sha256()
@@ -29,12 +31,27 @@ def main():
         return
     render = STATE / 'render'
     render.mkdir(parents=True, exist_ok=True)
+    images = [{'name': 'aat.local/' + service,
+               'newTag': args.catalog_tag if service == 'aggregator' and args.catalog_tag else tag}
+              for service in SERVICES]
+    patches = [{'target': {'kind': 'Deployment', 'name': '|'.join(SERVICES)},
+                'patch': '- op: replace\n  path: /spec/template/spec/containers/0/imagePullPolicy\n  value: IfNotPresent\n'}]
+    if args.catalog_tag:
+        patches.append({'target': {'kind': 'Deployment', 'name': 'aggregator'},
+                        'patch': '- op: add\n  path: /spec/template/spec/containers/0/env/-\n'
+                                 '  value: {name: BMKG_HISTORICAL_CATALOG_FILE, value: /data/bmkg/catalog.csv}\n'})
+    if args.without_satellite:
+        patches.append({'patch': json.dumps({
+            'apiVersion': 'apps/v1', 'kind': 'Deployment', 'metadata': {'name': 'aggregator'},
+            'spec': {'template': {'spec': {'containers': [{'name': 'aggregator', 'env': [
+                {'name': 'SATELLITE_TOKEN', '$patch': 'delete'},
+            ]}]}}},
+        })})
     (render / 'kustomization.yaml').write_text(json.dumps({
         'apiVersion': 'kustomize.config.k8s.io/v1beta1', 'kind': 'Kustomization',
         'resources': ['../../../infra/k8s/cluster'],
-        'images': [{'name': 'aat.local/' + service, 'newTag': tag} for service in SERVICES],
-        'patches': [{'target': {'kind': 'Deployment', 'name': '|'.join(SERVICES)},
-                     'patch': '- op: replace\n  path: /spec/template/spec/containers/0/imagePullPolicy\n  value: IfNotPresent\n'}],
+        'images': images,
+        'patches': patches,
     }, indent=2) + '\n')
     rendered = STATE / 'cluster-applications.yaml'
     rendered.write_bytes(subprocess.check_output(['kubectl', '--context', 'aat-dev', 'kustomize', str(render)]))

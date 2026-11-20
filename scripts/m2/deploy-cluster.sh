@@ -6,12 +6,19 @@ namespace=sistem-informasi-kebencanaan-bnpb
 kube=(kubectl --context aat-dev -n "$namespace")
 python3 scripts/m2/prepare.py
 kubectl --context aat-dev apply -f infra/k8s/dev/namespace.yaml -f .state/m2/configuration.json
-if [[ -f .secrets/satellite-secret.yaml ]]; then
-  "${kube[@]}" apply -f .secrets/satellite-secret.yaml
+runtime_setting() {
+  python3 -c 'import json, sys; print(next(r["data"] for r in json.load(open(".state/m2/configuration.json"))["items"] if r["kind"]=="ConfigMap").get(sys.argv[1], ""))' "$1"
+}
+render_args=()
+if [[ -n $(runtime_setting SATELLITE_BASE_URL) ]]; then
+  if [[ -f .secrets/satellite-secret.yaml ]]; then
+    "${kube[@]}" apply -f .secrets/satellite-secret.yaml
+  fi
+  "${kube[@]}" get secret satellite-secret -o name >/dev/null
 else
-  echo 'No .secrets/satellite-secret.yaml found; Feed Satelit stays disabled (SATELLITE_TOKEN empty).' >&2
+  render_args=(--without-satellite)
 fi
-sensor_url=$(python3 -c 'import json; print(next(r["data"] for r in json.load(open(".state/m2/configuration.json"))["items"] if r["kind"]=="ConfigMap").get("PANTAI_BASE_URL",""))')
+sensor_url=$(runtime_setting PANTAI_BASE_URL)
 if [[ "$sensor_url" == http://sensor-pantai:8080 ]]; then
   "${kube[@]}" get secret pantai-token -o name >/dev/null
   "${kube[@]}" apply -f infra/k8s/coastal/sensor.yaml
@@ -40,7 +47,24 @@ for service in bmkg-mock pvmbg-mock aggregator auth client-api dashboard-consume
   fi
   sudo buildah push --tls-verify=false "$image" "docker://aat-control:30500/$service:$tag"
 done
-python3 scripts/m2/render-cluster.py render
+catalog=.state/m2/bmkg-catalog.csv
+if [[ -f "$catalog" ]]; then
+  catalog_sha=$(sha256sum "$catalog")
+  catalog_tag="$tag-bmkg-${catalog_sha:0:16}"
+  catalog_image="aat.local/aggregator:$catalog_tag"
+  if ! sudo buildah inspect --type image "$catalog_image" >/dev/null 2>&1; then
+    catalog_context=$(mktemp -d)
+    trap 'rm -rf -- "$catalog_context"' EXIT
+    install -m 644 "$catalog" "$catalog_context/catalog.csv"
+    printf 'FROM aat.local/aggregator:%s\nCOPY catalog.csv /data/bmkg/catalog.csv\n' "$tag" > "$catalog_context/Containerfile"
+    sudo buildah bud --pull=never --format docker --isolation chroot -t "$catalog_image" "$catalog_context"
+    rm -rf -- "$catalog_context"
+    trap - EXIT
+  fi
+  sudo buildah push --tls-verify=false "$catalog_image" "docker://aat-control:30500/aggregator:$catalog_tag"
+  render_args+=(--catalog-tag "$catalog_tag")
+fi
+python3 scripts/m2/render-cluster.py render "${render_args[@]}"
 
 if ! "${kube[@]}" get configmap aat-storage-cutover >/dev/null 2>&1; then
   # Stop the sole legacy writer before taking its canonical snapshot. Keep the
