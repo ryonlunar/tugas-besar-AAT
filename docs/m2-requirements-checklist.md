@@ -1,14 +1,13 @@
 # Milestone 2 requirements checklist
 
-**Updated:** 17 November 2026, durable ingestion and Audit foundation.
+**Updated:** 20 November 2026, integrated implementation reviewed at `2a13a8c`.
 
-The BMKG/PVMBG flow now runs on four k3s VMs with replicated storage/broker, coordinated Aggregators, durable raw intake, processing plans/receipts, replay, and Audit API. New sources, public write/Ops routes, analytics, and official acceptance workloads remain pending. Read the [handoff](m2-handoff.md) for owner responsibilities and the [status summary](m2-status.md) for an overview. This checklist is the detailed reference for implementation and evidence.
-
-Feature work proceeds in separate branches and PRs, with focused tests. Full-system simulations, final measurements, and report preparation follow integration of the parallel feature PRs.
+The integrated baseline includes the BMKG catalog importer, PVMBG schema modes and replay, satellite recognition, coastal alerts, Field Reports and Ops, and browser analytics. The full Go suite, vet, disposable PostgreSQL tests, and a synthetic end-to-end run passed. The [status summary](m2-status.md) lists the remaining setup and acceptance work.
 
 | Status | Meaning |
 |---|---|
 | Done | Implemented and verified for the stated scope. |
+| Done (fixtures) | Verified with controlled inputs. Any live or official evidence still required is listed in the row. |
 | In progress | Partial implementation, prototype, or incomplete acceptance evidence. |
 | Not done | Required implementation or artifact is missing. |
 | Unverified | External action or condition cannot be confirmed from local files. |
@@ -25,8 +24,8 @@ IDs follow the specification's numbered criteria. Letter suffixes split compound
 |---|---|---|---|
 | M1.1 | Communicate across services through network calls; share no business logic. | Done | HTTP and NATS boundaries retained. |
 | M1.2 | Give each store one owning service; use its API externally. | Done | Aggregator owns canonical PostgreSQL. |
-| M1.3a | Package each service separately, with its own Dockerfile. | Done | Seven application Dockerfiles. |
-| M1.3b | Start the complete system through one orchestration command. | In progress | Existing stack deploys; complete M2 stack pending. |
+| M1.3a | Package each service separately, with its own Dockerfile. | Done | Eight application Dockerfiles, including the Field Team receiver. |
+| M1.3b | Start the complete system through one orchestration command. | In progress | Integrated app deploy script and manifests exist. The historical catalog input and official assessment setup still need to be exercised. |
 | M1.4 | Start/stop services independently and demonstrate real faults. | In progress | Independent service rollout and receiver replacement/worker-freeze checks exist; final M2 scenarios remain pending. |
 | M1.5 | Keep BMKG and PVMBG credentials mutually invalid. | Done | Live credential-isolation check passed. |
 | M1.6a | Load credentials/configuration externally; commit no active secrets. | Done | Generated private configuration and Secrets. |
@@ -39,14 +38,14 @@ IDs follow the specification's numbered criteria. Letter suffixes split compound
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| K1 | Run all BNPB components on Kubernetes. | In progress | Existing stack runs on k3s; new M2 components pending. |
+| K1 | Run all BNPB components on Kubernetes. | In progress | Integrated app manifests render successfully. A full Kubernetes run of this revision remains pending. |
 | K2 | Use at least two nodes with separate kernels. | Done | Four separate Linux VM kernels; live placement checked. |
 | K3 | Use separate-kernel nodes for the assessed demo. | In progress | Four separate-kernel VMs verified on Refki's laptop; final assessed deployment still needs validation. |
 | K4 | Declare control-plane/worker roles and permitted node-failure targets. | Done | Control-plane/worker roles and worker-only failure targets documented. |
-| K5 | Document one command deploying the complete system. | In progress | Development deploy script only. |
+| K5 | Document one command deploying the complete system. | In progress | The k3s guide documents the orchestration command. Official catalog and assessment configuration still require a verified setup. |
 | K6 | Set memory requests/limits according to Appendix B. | Done | Current pod templates match; values below. |
 | K7a | Put credentials in Secrets and ordinary settings in ConfigMaps. | Done | Implemented for existing services. |
-| K7b | Configure the new source/audit credentials securely. | In progress | Audit Secret injected; satellite/coastal credentials await feature integration. |
+| K7b | Configure the new source/audit credentials securely. | In progress | Manifests reference mounted or injected Audit, satellite, and coastal credentials. Verify the official credentials on the assessment cluster. |
 | K8 | Technically block non-owners from accessing another service's store. | Done | API-to-PostgreSQL denial verified. |
 | TOPOLOGY | Declare node count/type, physical hosts, and host CPU/RAM in README. | Done | Root README documents the reference setup on Refki's laptop: four VMs, 12 logical CPUs, and 32 GiB RAM. Teammates may use different machines. |
 
@@ -70,7 +69,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| O1 | Show service latency, error rate, and throughput in one dashboard. | In progress | Core HTTP, source, processing, and broker metrics work; new features/load sizing pending. |
+| O1 | Show service latency, error rate, and throughput in one dashboard. | In progress | Core service and Field Team receipt metrics exist. P4 feed lag and intake-to-store p95 instrumentation are missing. |
 | O2 | Trace a request across every participating service, including step durations. | In progress | HTTP/database and async source-to-consumer traces verified; new-feature traces pending. |
 | O3 | Show structured, correlated logs for the complete system. | In progress | M1 flow verified; new ingestion flow pending. |
 
@@ -78,7 +77,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| T1 | Install the prescribed, unchanged image as one agent per node. | Not done | Agent not installed. |
+| T1 | Install the prescribed, unchanged image as one agent per node. | Not done | No installation or agent readiness evidence for the integrated assessment cluster. |
 | T2a | Allow its required privileges, RBAC, and scheduling. | Not done | Installation/permission validation pending. |
 | T2b | Do not stop, replace, or obstruct the agent. | In progress | Namespace ingress allowed; full exercise pending. |
 | T4 | Show the agent's action logs during tests. | Not done | No agent test evidence. |
@@ -97,13 +96,13 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | C2 | Add `SATELIT` and `SENSOR_PANTAI` sources. | Done | Go types, schemas, fixtures. |
 | C3 | Preserve BMKG/PVMBG contracts except specified admin extensions. | Done | Existing mocks retained. |
 | C4 | Give Tim Lapangan the `POST /field-reports` write path. | Done | Client API route with `reports:write`; see [field reports](m2-field-reports.md). |
-| C5 | Integrate the assistant's satellite feed and coastal sensor. | Not done | Neither adapter is connected. |
+| C5 | Integrate the assistant's satellite feed and coastal sensor. | In progress | Both adapters are wired and passed together in a loopback fixture. Pinned sensor practice ran separately. Official satellite and exam sensor runs remain pending. |
 
 ## P1: Yang Pulang Membawa Laptopnya
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P1.1a | Load the assistant's historical earthquake dataset. | Not done | Synthetic fixtures only. |
+| P1.1a | Load the assistant's historical earthquake dataset. | In progress | Resumable import passed with a synthetic CSV. Mount the official CSV in every Aggregator replica and verify its load against Audit. |
 | P1.1b | Ensure no node stores the entire canonical dataset. | Done | Four units with three copies each; each node is excluded from one unit. |
 | P1.1c | Spread storage and writes across multiple nodes. | Done | Live canonical data and primary writes span four logical units on separate nodes. |
 | P1.1d | Report data distribution per node. | In progress | Current per-unit counts/physical nodes reported by check-cluster; official-dataset measurements pending. |
@@ -120,11 +119,11 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P1.5b | Make the new node carry data and workload. | In progress | Existing replicas rewind/rebuild automatically; empty replacement measurements pending. |
 | P1.5c | Keep reads and writes running during node addition. | Not done | Live capacity-change test absent. |
 | P1.6 | Restore tolerance for another node loss after recovery. | In progress | All twelve replicas restored after worker resume; empty-disk replacement acceptance pending. |
-| P1.7a | Provide a separate analytics dashboard covering all five hazard categories. | In progress | Analytics page and all five series implemented. Full dataset still needs satellite integration. |
+| P1.7a | Provide a separate analytics dashboard covering all five hazard categories. | Done | The embedded dashboard presents Gempa, Tsunami, Gunung api, Kebakaran hutan, and Pesisir. |
 | P1.7b | Show event-count time series with a selectable time range. | Done | Occurrence-time line chart with selectable range. |
 | P1.7c | Show counts by severity. | Done | Severity totals across active records. |
 | P1.7d | Show counts by `area_name`. | Done | Area totals in the analytics page. |
-| P1.7e | Match analytics counts to cross-unit Audit results. | In progress | A stable window of 120 practice events matched Audit. Official dataset comparison pending. |
+| P1.7e | Match analytics counts to cross-unit Audit results. | In progress | An integrated fixture matched Audit across all five categories, plus severity, area, and the unique total. Official dataset comparison pending. |
 | P1.7f | Keep analytics visible and explicitly partial during node loss. | In progress | Disposable PostgreSQL check verified missing-unit metadata. Live node-loss evidence pending. |
 
 ## P2: Dua Nakhoda, Satu Kapal
@@ -133,9 +132,9 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 |---|---|---|---|
 | P2.1a | Run at least three Aggregators across different nodes behind one entry point. | Done | Three Aggregators on separate workers behind Client API. |
 | P2.1b | Stop routing requests to unhealthy instances. | Done | Distinct-peer read failover and failed-peer suppression; development freeze checked. |
-| P2.2a | Allow only one active fetcher per source. | Done | Current BMKG/PVMBG loops use exclusive PostgreSQL sessions. |
+| P2.2a | Allow only one active fetcher per source. | In progress | All configured source adapters run under exclusive PostgreSQL sessions. Verify single ownership for every live source on the integrated cluster. |
 | P2.2b | Prevent duplicate canonical hazards. | Done | Canonical identities, input receipts, and plan sequencing prevent repeated effects in current flow. |
-| P2.2c | Prove upstream requests are not multiplied across instances. | Done | Steady upstream logs show one caller per current source. |
+| P2.2c | Prove upstream requests are not multiplied across instances. | In progress | Core BMKG/PVMBG upstream logs verified before feature integration. Repeat on the assessed configuration and during scaling. |
 | P2.3 | Resume fetching within 60 seconds after owner death, without gaps or duplicates. | In progress | Live takeover/recovery exercised; formal source-gap timing still needed. |
 | P2.4 | Prevent competing successful owners under clock shifts, including +45s/−30s. | In progress | +45/-30-second experiment passed with unchanged ownership; repeat on final feature-complete flow. |
 | P2.5 | Reject a resumed frozen owner's writes until ownership is refreshed. | In progress | Stale-generation writes rejected and VM freeze exercised; final combined-flow evidence pending. |
@@ -166,7 +165,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P3.4a | Replay failed messages after adapting the parser. | In progress | Explicit adaptation and ordered replay passed on PostgreSQL. Live demo pending. |
 | P3.4b | Recover replayed messages without duplicate effects. | Done | Crash-after-commit and cross-unit retry protected by canonical receipts. |
 | P3.4c | Preserve processing order per `source_ref_id`. | Done | OrderingKey blocks later entity versions; saved-plan sequences protect delayed delivery. |
-| P3.5 | Allow failed-message inspection only to BNPB Internal Ops. | Done (fixtures) | `/failed-messages` routes require `ops:failed-messages`, granted only to `bnpb-internal`; live demo pending. |
+| P3.5 | Allow failed-message inspection only to BNPB Internal Ops. | Done (fixtures) | `/failed-messages` requires `ops:failed-messages`, granted only to `bnpb-internal`. Long journal keys can still produce IDs rejected by the public route. |
 | P3.6a | Return a fast 202 from `POST /field-reports`. | Done (fixtures) | 202 after one synchronous-replicated insert; latency measurement pending. |
 | P3.6b | Accept reports while downstream processing is slow or stopped. | Done (fixtures) | Processor is decoupled; `FIELD_REPORT_PROCESSING_ENABLED=false` demonstrates it. |
 | P3.6c | Lose no accepted report after receiver death. | Done (fixtures) | Receipt commits before 202; restart test in `sharded/fieldreport_integration_test.go`; live pod-kill demo pending. |
@@ -180,7 +179,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 |---|---|---|---|
 | SAT.1 | Connect to `satellite.naufarrel.dev`. | In progress | SSE adapter verified with a local feed. Live k3s test pending. |
 | SAT.2 | Authenticate with the group bearer token stored as a Secret. | In progress | Secret wired into the k3s deployment. Live group-token test pending. |
-| SAT.3 | Read session state from `GET /v1/session`. | In progress | Session client implemented. Runtime lag measurement pending. |
+| SAT.3 | Read session state from `GET /v1/session`. | In progress | Session client and probe exist. The running adapter does not sample session state for feed lag. |
 | SAT.4 | Consume SSE from `GET /v1/stream?from=<offset>`. | Done (fixtures) | The combined fixture read from offset zero into a fresh journal and reached both consumers. |
 | SAT.5 | Handle `detection`, `update`, `retract`, and `heartbeat`. | Done (fixtures) | All four event types covered by adapter and recognizer tests. |
 | SAT.6 | Resume using offsets or `Last-Event-ID`, preserving feed order. | Done (fixtures) | Resume checks use the committed next offset. |
@@ -198,7 +197,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | FIRE.4c | Apply transitive connectivity across detections. | Done (fixtures) | Satellite recognizer tests. |
 | FIRE.5a | Treat connected groups of at least two detections as one fire. | Done (fixtures) | Satellite recognizer tests. |
 | FIRE.5b | Merge detections from different satellites into the same fire. | Done (fixtures) | Satellite recognizer tests. |
-| FIRE.5c | Exclude singleton fires but report singleton counts. | In progress | Singletons are excluded. Count for the official feed remains pending. |
+| FIRE.5c | Exclude singleton fires but report singleton counts. | In progress | Recognition excludes singletons. Produce a reproducible singleton count for the official run. |
 | MAP.1 | Emit fire hazards as `SATELIT` / `WILDFIRE`. | Done (fixtures) | Satellite recognizer tests. |
 | MAP.2 | Generate stable fire reference IDs across reprocessing. | Done (fixtures) | Satellite recognizer tests. |
 | MAP.3 | Assign the province nearest the fire's center using a static reference table. | In progress | Nearest-province lookup uses a placeholder table. Confirm the reference coordinates. |
@@ -219,10 +218,10 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P4.2c | Apply late detections within that bound to the existing fire. | Done (fixtures) | Late data updates the existing fire ID across different batch boundaries. |
 | P4.2d | Report arrivals beyond the bound; never silently discard them. | In progress | Late detections are retained and counted. Official measurement pending. |
 | P4.3 | Apply updates/retractions, including disappearing fires, without new duplicate events. | Done (fixtures) | Update, merge, split, and disappearance scenarios verify final fire membership and identity. |
-| P4.4a | Lose no feed data at 60× speed. | Not done | |
-| P4.4b | Catch up within 60 seconds after a burst ends. | Not done | |
-| P4.4c | Report p95 intake-to-canonical-storage latency. | Not done | |
-| P4.4d | Show processing lag during bursts in a dashboard. | Not done | |
+| P4.4a | Lose no feed data at 60× speed. | Not done | A 1,800-detection synthetic fire passed. End-to-end loss at 60× and the maximum official event size remain unmeasured. |
+| P4.4b | Catch up within 60 seconds after a burst ends. | Not done | Measure catch-up against the feed head and confirm canonical processing has drained. |
+| P4.4c | Report p95 intake-to-canonical-storage latency. | Not done | Add an intake-to-durable-canonical-commit measurement and report p95 during the 60× run. |
+| P4.4d | Show processing lag during bursts in a dashboard. | Not done | Add a dashboard signal comparing feed head progress with the journal and canonical processing. |
 | P4.5 | Recover interrupted recognition to the same final result, without loss or duplicates. | In progress | Saved-plan reuse, timeout recovery, and regrouping across batch boundaries passed fixtures. Live restart comparison pending. |
 | P4.6 | Compare the full result with the assistant's reference; explain differences. | Not done | |
 | P4.7 | Demonstrate several minutes of live-feed processing. | Not done | |
@@ -254,21 +253,21 @@ The HTTP rows below use the separately supplied coastal-sensor contract. Example
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Full-path fixture delivered one critical observation after catalog and receiver recovery. Exam loss count pending. |
-| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | Receiver records latency from raw intake. Sensor-to-receiver p95 and complete loss count pending. |
+| P5.1a | Deliver every critical event to the actual Field Team notification receiver. | In progress | Integrated fixture delivered one critical observation after catalog and receiver recovery. Compare every expected critical ID with durable receipts. The public receiver read returns at most 100 receipts. |
+| P5.1b | Achieve zero critical-event loss and p95 delivery latency ≤5 seconds. | In progress | Receiver records raw-intake-to-receipt latency. The official run needs full ID reconciliation and latency that accounts for sensor polling. |
 | P5.2 | Quarantine invalid sensor data with reasons instead of storing canonical hazards. | In progress | Invalid observations park with a reason. Valid inputs retry while station metadata is missing. Exam-profile fault evidence pending. |
 | P5.3 | Preserve M1 latency for other sources during sensor faults. | Not done | No sensor-fault load test. |
 | P5.4a | Avoid request storms while the sensor is unhealthy. | In progress | Bounded request timeout and jittered backoff. Integrated request-rate measurement pending. |
 | P5.4b | Answer dependent reads quickly using cached data or explicit unavailability. | In progress | During a practice sensor outage, cached coastal data returned with stale status. Load criteria remain pending. |
 | P5.4c | Resume using the sensor automatically after recovery. | In progress | Practice sensor resumed ingestion from its committed cursor after restart. |
 | P5.4d | Detect stale observations even when health returns success. | Done | Fixture detects stale observation time even when the sensor responds successfully. |
-| P5.5a | Preserve Field Team service under overload. | Done (fixtures) | Reserved admission quarter in Client API and Aggregator; load-test evidence pending. |
+| P5.5a | Preserve Field Team service under overload. | Done (fixtures) | Reserved admission for Field Team traffic and a separate Field Report intake cap are implemented. Verify reads and writes during the integrated Media load test. |
 | P5.5b | Reject excess Media requests in a controlled manner. | Done (fixtures) | Media limited to the general pool; excess gets 429 + `Retry-After`. |
-| P5.6a | Survive unannounced combinations of source, node, network, and load failures. | Not done | No combined-failure evidence. |
-| P5.6b | Recover without manual intervention during the recovery window. | Not done | |
+| P5.6a | Survive unannounced combinations of source, node, network, and load failures. | Not done | Both delivery services use local volumes on the declared non-target control plane. Verify combined faults, including their pod or network interruptions, on the assessed cluster. |
+| P5.6b | Recover without manual intervention during the recovery window. | Not done | Run the recovery window without manual intervention and compare accepted reports, source progress, and critical receipts afterward. |
 | P5.7 | Let every member diagnose failures from dashboards, metrics, and traces. | In progress | Core metrics/logs/traces are available; team diagnosis and integrated fault exercises remain pending. |
-| P5.8a | Define reliability targets for the Field Team warning path. | Not done | |
-| P5.8b | Report reliability/error-budget consumption during game day. | Not done | |
+| P5.8a | Define reliability targets for the Field Team warning path. | Not done | Record the Field Team alert SLO and measurement boundary before the game-day run. |
+| P5.8b | Report reliability/error-budget consumption during game day. | Not done | Compare the game-day run with the declared alert SLO and quantify the budget consumed. |
 
 ## Audit API: Appendix A
 
