@@ -1,17 +1,15 @@
 # M2 implementation status
 
-This is the shared implementation status, not a completed M2 submission. Requirements refer to the M2 specification and the supplied coastal-sensor contract. See the [detailed checklist](m2-requirements-checklist.md) for individual criteria.
-
-Implement and test features in parallel branches, then submit PRs. Complete-system simulations, formal measurements, and report preparation follow integration of those PRs.
+This tracks implementation and evidence for the M2 submission. Requirements refer to the M2 specification and the supplied coastal-sensor contract. See the [detailed checklist](m2-requirements-checklist.md) for individual criteria.
 
 | Area | Available | Remaining |
 |---|---|---|
 | Platform | Four separate-kernel VMs; local storage; prescribed role labels/resources; deployment/restart scripts. | Tester Agent installation/practice scenarios and final demo environment. |
-| P1: Yang Pulang Membawa Laptopnya | Four identity-hashed PostgreSQL units, each with three copies; cross-unit reads; explicit partial results; Audit API; browser analytics API and dashboard. | Official earthquake dataset and checksum comparison; disk-loss/replacement experiments; geographic-skew measurements; integrated analytics evidence with all five categories. |
+| P1: Yang Pulang Membawa Laptopnya | Four identity-hashed PostgreSQL units, each with three copies; cross-unit reads; explicit partial results; Audit API; resumable BMKG catalog importer tested on a fixture; browser analytics. | Official earthquake dataset and checksum comparison; disk-loss/replacement experiments; geographic-skew measurements; integrated analytics evidence with all five categories. |
 | P2: Dua Nakhoda, Satu Kapal | Three Aggregators; source-session ownership and fencing; read failover; worker-freeze and clock-skew checks. | Measure takeover against the formal limit; sustained 10,000 VU/120s; 3→5→2 scaling; 2× throughput; rolling-update load evidence. |
-| P3: Surat dari Tetangga | Byte-preserving journal, durable cursor/plan/state, retry/park lifecycle, ordered replay, canonical receipts, internal inspection/replay API; BNPB-only public Ops routes; durable idempotent Field Reports ([details](m2-field-reports.md)). | Incompatible PVMBG modes and parser adaptation demo; complete malformed/oversized HTTP-source experiments; live Field Report pod-kill demo. |
-| P4: Atap Seng di Siang Bolong | Native-cursor adapter interface; transactional processor state; upsert/retract support through outbox and consumers. | Satellite connection, fire recognition/mapping, lateness policy, reference comparison, speed/lag/catch-up and reconnect evidence. |
-| P5: Pelampung yang Berbohong | Pinned sensor deployment, durable coastal ingestion and stale status, Field Team receiver with retry/deduplication. | Exam-profile fault scenarios, critical-event loss and ≤5s p95 evidence, and integrated Field Team priority. |
+| P3: Surat dari Tetangga | Byte-preserving journal, durable cursor/plan/state, retry/park lifecycle, ordered replay, canonical receipts, PVMBG schema modes and replay; BNPB-only public Ops routes; durable idempotent Field Reports ([details](m2-field-reports.md)). | Incompatible PVMBG modes and parser adaptation demo; complete malformed/oversized HTTP-source experiments; live Field Report pod-kill demo. |
+| P4: Atap Seng di Siang Bolong | SSE resume, fire recognition in feed order, transactional state and revisions. A 1,800-detection fixture passed through PostgreSQL and both JetStream consumers. | Live feed and reference comparison, 60× catch-up, lag dashboard, and p95 latency. |
+| P5: Pelampung yang Berbohong | Pinned sensor deployment, durable coastal ingestion and stale status, Field Team receiver with retry/deduplication, reserved API capacity. | Exam-profile fault scenarios, critical-event loss and ≤5s p95 evidence, and integrated Field Team priority. |
 | Observability | Prometheus/Grafana/Loki; bounded OTel export and Tempo; propagated HTTP/message trace context. | New-feature metrics/traces and workload sizing during acceptance. |
 | Report/submission | Architecture and reproducible development checks. | M2 report, required evidence, demo, and release/submission artifacts. |
 
@@ -35,4 +33,4 @@ Verification reports are written under ignored `.state/m2/`. Protocol tests use 
 - Partial pages have no continuation cursor; restart the scan after recovery. An unavailable unit must not be interpreted as an empty unit.
 - Raw intake allows at most 10,000 unfinished records per source. HTTP bodies and normalized events have separate size limits. Completed raw inputs and history have no automatic cleanup; measure disk use with the official workload.
 - A committed normalized plan is immutable during delivery retries. Parser fixes apply to inputs which failed before a plan committed. Processor state belongs in the supplied transaction, rather than a process-local cache.
-- A local development Audit token is generated as a Secret. Replace it with the assistant-issued token for assessment. New satellite/coastal credentials and integrations remain pending.
+- A local development Audit token is generated as a Secret. Replace it with the assistant-issued token for assessment. Supply the assistant-issued source tokens for the live satellite and coastal runs.

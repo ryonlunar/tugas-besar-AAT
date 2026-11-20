@@ -150,10 +150,10 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P3.admin-a | Add a PVMBG field-renaming schema mode. | Not done | Existing compatible modes only. |
-| P3.admin-b | Add a PVMBG field-type-change mode. | Not done | |
-| P3.admin-c | Add a PVMBG missing-required-field mode. | Not done | |
-| P3.1 | Declare and demonstrate automatically accepted versus rejected schema changes. | In progress | M1 policy exists; new modes/proof pending. |
+| P3.admin-a | Add a PVMBG field-renaming schema mode. | Done | Mock mode `rename_field`. |
+| P3.admin-b | Add a PVMBG field-type-change mode. | Done | Mock mode `type_change`. |
+| P3.admin-c | Add a PVMBG missing-required-field mode. | Done | Mock mode `missing_required_field`. |
+| P3.1 | Declare and demonstrate automatically accepted versus rejected schema changes. | In progress | Three incompatible modes and opt-in adaptations verified locally. Live demo pending. |
 | P3.2a | Preserve unprocessable bytes, source, and receipt time. | In progress | Admitted bytes and cursors commit atomically; full malformed/oversized HTTP-source demonstrations pending. |
 | P3.2b | Retain each processing failure's reason. | Done | Failure reason/status/attempts retained with input bytes and metadata. |
 | P3.2c | Classify retryable failures versus failures requiring a system change. | Done | Permanent mapping/input errors park; transient canonical failures retry with backoff. |
@@ -163,7 +163,7 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 | P3.3c | Handle invalid UTF-8 safely and preserve failed input. | In progress | Invalid UTF-8 preserved and rejected safely in tests; live demonstration pending. |
 | P3.3d | Handle oversized messages safely. | In progress | Body admission and normalized-envelope guards implemented; complete source experiment pending. |
 | P3.3e | Keep processing other messages when bad messages arrive. | Done | PostgreSQL test proves an unrelated entity continues behind a parked input. |
-| P3.4a | Replay failed messages after adapting the parser. | In progress | Repaired-parser replay verified on PostgreSQL; mock modes/code adaptation demo pending. |
+| P3.4a | Replay failed messages after adapting the parser. | In progress | Explicit adaptation and ordered replay passed on PostgreSQL. Live demo pending. |
 | P3.4b | Recover replayed messages without duplicate effects. | Done | Crash-after-commit and cross-unit retry protected by canonical receipts. |
 | P3.4c | Preserve processing order per `source_ref_id`. | Done | OrderingKey blocks later entity versions; saved-plan sequences protect delayed delivery. |
 | P3.5 | Allow failed-message inspection only to BNPB Internal Ops. | Done (fixtures) | `/failed-messages` routes require `ops:failed-messages`, granted only to `bnpb-internal`; live demo pending. |
@@ -178,55 +178,55 @@ CPU limits are optional. Load-testing tools are excluded from this table.
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| SAT.1 | Connect to `satellite.naufarrel.dev`. | Not done | No live adapter. |
-| SAT.2 | Authenticate with the group bearer token stored as a Secret. | Not done | Reserved configuration names only. |
-| SAT.3 | Read session state from `GET /v1/session`. | Not done | |
-| SAT.4 | Consume SSE from `GET /v1/stream?from=<offset>`. | Not done | Interface/fixture only. |
-| SAT.5 | Handle `detection`, `update`, `retract`, and `heartbeat`. | Not done | |
-| SAT.6 | Resume using offsets or `Last-Event-ID`, preserving feed order. | In progress | Durable cursor protocol; no SSE integration. |
-| SAT.7 | Handle 400, 401, 429, and 503 feed responses. | Not done | |
+| SAT.1 | Connect to `satellite.naufarrel.dev`. | In progress | SSE adapter verified with a local feed. Live k3s test pending. |
+| SAT.2 | Authenticate with the group bearer token stored as a Secret. | In progress | Secret wired into the k3s deployment. Live group-token test pending. |
+| SAT.3 | Read session state from `GET /v1/session`. | In progress | Session client implemented. Runtime lag measurement pending. |
+| SAT.4 | Consume SSE from `GET /v1/stream?from=<offset>`. | Done (fixtures) | The combined fixture read from offset zero into a fresh journal and reached both consumers. |
+| SAT.5 | Handle `detection`, `update`, `retract`, and `heartbeat`. | Done (fixtures) | All four event types covered by adapter and recognizer tests. |
+| SAT.6 | Resume using offsets or `Last-Event-ID`, preserving feed order. | Done (fixtures) | Resume checks use the committed next offset. |
+| SAT.7 | Handle 400, 401, 429, and 503 feed responses. | Done (fixtures) | HTTP status classification and backoff tested. |
 
 ### Fire definition and canonical mapping
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| FIRE.1 | Deduplicate detections by satellite, date, time, latitude, and longitude. | Not done | Transport dedup is not detection dedup. |
-| FIRE.2 | Build UTC detection time from `acq_date` and `acq_time`. | Not done | |
-| FIRE.3 | Exclude low-confidence detections. | Not done | |
-| FIRE.4a | Connect detections within 1.0 km. | Not done | |
-| FIRE.4b | Require detection-time separation of at most 360 minutes. | Not done | |
-| FIRE.4c | Apply transitive connectivity across detections. | Not done | |
-| FIRE.5a | Treat connected groups of at least two detections as one fire. | Not done | |
-| FIRE.5b | Merge detections from different satellites into the same fire. | Not done | |
-| FIRE.5c | Exclude singleton fires but report singleton counts. | Not done | |
-| MAP.1 | Emit fire hazards as `SATELIT` / `WILDFIRE`. | Not done | Schema/fixture ready; mapper absent. |
-| MAP.2 | Generate stable fire reference IDs across reprocessing. | Not done | |
-| MAP.3 | Assign the province nearest the fire's center using a static reference table. | Not done | |
-| MAP.4 | Store the fire center as latitude/longitude. | Not done | |
-| MAP.5 | Set `occurred_at` to the earliest detection time. | Not done | |
-| MAP.6a | Set AWAS for ≥20 detections or total FRP ≥100 MW. | Not done | |
-| MAP.6b | Otherwise set SIAGA for ≥6 detections or total FRP ≥30 MW. | Not done | |
-| MAP.6c | Otherwise set WASPADA. | Not done | |
-| MAP.7 | Include count, satellites, highest confidence, total FRP, and detection keys. | Not done | Synthetic attribute fixture only. |
+| FIRE.1 | Deduplicate detections by satellite, date, time, latitude, and longitude. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.2 | Build UTC detection time from `acq_date` and `acq_time`. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.3 | Exclude low-confidence detections. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.4a | Connect detections within 1.0 km. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.4b | Require detection-time separation of at most 360 minutes. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.4c | Apply transitive connectivity across detections. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.5a | Treat connected groups of at least two detections as one fire. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.5b | Merge detections from different satellites into the same fire. | Done (fixtures) | Satellite recognizer tests. |
+| FIRE.5c | Exclude singleton fires but report singleton counts. | In progress | Singletons are excluded. Count for the official feed remains pending. |
+| MAP.1 | Emit fire hazards as `SATELIT` / `WILDFIRE`. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.2 | Generate stable fire reference IDs across reprocessing. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.3 | Assign the province nearest the fire's center using a static reference table. | In progress | Nearest-province lookup uses a placeholder table. Confirm the reference coordinates. |
+| MAP.4 | Store the fire center as latitude/longitude. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.5 | Set `occurred_at` to the earliest detection time. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.6a | Set AWAS for ≥20 detections or total FRP ≥100 MW. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.6b | Otherwise set SIAGA for ≥6 detections or total FRP ≥30 MW. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.6c | Otherwise set WASPADA. | Done (fixtures) | Satellite recognizer tests. |
+| MAP.7 | Include count, satellites, highest confidence, total FRP, and detection keys. | Done (fixtures) | Full attributes tested, including 1,800 detection keys in the replicated profile. |
 
 ### Acceptance criteria
 
 | ID | Requirement | Status | Current evidence / gap |
 |---|---|---|---|
-| P4.1 | Produce one correct canonical hazard per fire. | Not done | Recognition/mapping absent. |
-| P4.2a | Group by detection time, not BNPB arrival time. | Not done | |
-| P4.2b | Declare the accepted lateness bound. | Not done | |
-| P4.2c | Apply late detections within that bound to the existing fire. | Not done | |
-| P4.2d | Report arrivals beyond the bound; never silently discard them. | Not done | |
-| P4.3 | Apply updates/retractions, including disappearing fires, without new duplicate events. | In progress | Storage/outbox support revisioned retractions and reactivation; satellite recognizer absent. |
+| P4.1 | Produce one correct canonical hazard per fire. | In progress | Synthetic clustering and 1,800-key event verified through storage and delivery. Assistant reference pending. |
+| P4.2a | Group by detection time, not BNPB arrival time. | Done (fixtures) | Connectivity uses UTC detection times. |
+| P4.2b | Declare the accepted lateness bound. | Done | Default `SATELLITE_ALLOWED_LATENESS=12h` with per-satellite event-time watermarks. |
+| P4.2c | Apply late detections within that bound to the existing fire. | Done (fixtures) | Late data updates the existing fire ID across different batch boundaries. |
+| P4.2d | Report arrivals beyond the bound; never silently discard them. | In progress | Late detections are retained and counted. Official measurement pending. |
+| P4.3 | Apply updates/retractions, including disappearing fires, without new duplicate events. | Done (fixtures) | Update, merge, split, and disappearance scenarios verify final fire membership and identity. |
 | P4.4a | Lose no feed data at 60× speed. | Not done | |
 | P4.4b | Catch up within 60 seconds after a burst ends. | Not done | |
 | P4.4c | Report p95 intake-to-canonical-storage latency. | Not done | |
 | P4.4d | Show processing lag during bursts in a dashboard. | Not done | |
-| P4.5 | Recover interrupted recognition to the same final result, without loss or duplicates. | In progress | Processor state/plan commits and crash retries tested; actual recognizer/reference proof absent. |
+| P4.5 | Recover interrupted recognition to the same final result, without loss or duplicates. | In progress | Saved-plan reuse, timeout recovery, and regrouping across batch boundaries passed fixtures. Live restart comparison pending. |
 | P4.6 | Compare the full result with the assistant's reference; explain differences. | Not done | |
 | P4.7 | Demonstrate several minutes of live-feed processing. | Not done | |
-| P4.8 | Reconnect and resume without missing or duplicating data. | In progress | Cursor journal tested; feed reconnect unimplemented. |
+| P4.8 | Reconnect and resume without missing or duplicating data. | In progress | SSE reconnect and resume passed with simulated interruption. Live verification pending. |
 
 ## P5: Pelampung yang Berbohong
 

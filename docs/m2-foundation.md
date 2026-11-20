@@ -1,6 +1,6 @@
 # M2 foundation
 
-This document describes the M2 storage and ingestion design. The multi-node profile connects BMKG/PVMBG ingestion to four replicated storage units, three coordinated Aggregators, and replicated JetStream. Raw journaling, processing/replay, canonical receipts, and Audit API are connected to that flow. New M2 source adapters and public Field Report/Ops routes remain feature work. See the [handoff](m2-handoff.md) for entry points and ownership.
+This document describes the M2 storage and ingestion design. The multi-node profile connects BMKG, PVMBG, Feed Satelit, and Sensor Pantai to four replicated storage units, three coordinated Aggregators, and replicated JetStream. It also serves the Audit API, Field Reports, and BNPB Ops routes. See the [handoff](m2-handoff.md) for entry points and ownership.
 
 ## Storage decision
 
@@ -47,7 +47,7 @@ Each upstream source has one journal home: BMKG on shard-0, PVMBG on shard-1, SA
 
 Target settings are a 10-second server idle timeout, heartbeat every third of that timeout, 2-second database operation deadlines, and a jittered 2-second acquisition retry. Source HTTP deadlines remain independent. Ownership decisions do not compare client wall clocks. Event/log timestamps and freshness indicators still use wall clocks, so deliberate clock-skew experiments can distort those timestamps without changing ownership. PostgreSQL session locks provide exclusivity; its [idle timeout](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-IDLE-SESSION-TIMEOUT) releases an abandoned connection. See also [advisory locks](https://www.postgresql.org/docs/16/explicit-locking.html#ADVISORY-LOCKS).
 
-The running BMKG/PVMBG path uses durable intake and a separate processor worker inside each source ownership session. Before reading upstream, the new owner installs its generation on every canonical unit. Canonical transactions check both the original ownership session and a locked fence row; abandoned transactions have a two-second server timeout. Each unit commits changes, versions, an outbox entry, and a receipt together. The worker marks the journal input complete only after all affected units succeed. A partial cross-unit commit is retried through receipts.
+Each source ownership session has durable intake and a separate processing loop. Before reading upstream, the new owner installs its generation on every canonical unit. Canonical transactions check both the original ownership session and a locked fence row; abandoned transactions have a two-second server timeout. Each unit commits changes, versions, an outbox entry, and a receipt together. The worker marks the journal input complete only after all affected units succeed. A partial cross-unit commit is retried through receipts.
 
 Normalization runs in a transaction on the source's journal home. The processor may update recognition state through the supplied `pgx.Tx`; that state and the normalized plan commit together. The worker reuses a committed plan after a crash. A monotonic plan sequence prevents an older delivery retry from overwriting newer canonical state, including retractions of identities that do not yet exist. Validation and envelope-size checks happen before committing a plan, so failed mappings remain reparsable after a parser fix.
 
@@ -88,7 +88,7 @@ Preserve the existing auth routes and 60-second access-token TTL. Extend server-
 
 The field-report body follows [field-report.schema.json](../contracts/field-report.schema.json), with a [runnable validation fixture](../contracts/examples/field-report.json): `go test ./contracts -run TestSchemasAndExamples -v`. Require the `Idempotency-Key` header (1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`), scoped to the authenticated client; persist the original bytes, request hash, and receipt together before 202. The response is `{"report_id":"<uuid>","status":"accepted"}`. Broker duplicate windows alone are insufficient for durable idempotency. A report is independently stored input, not automatically a new canonical hazard.
 
-Reserve `SATELLITE_BASE_URL` and `SATELLITE_TOKEN` for the satellite adapter. The [coastal profile](../infra/k8s/README.md#sensor-pantai-and-analytics) uses `PANTAI_BASE_URL` and the `pantai-token` Secret. Tokens belong in Secrets and ordinary settings in ConfigMaps. Active Audit, processing, sharding, ownership, broker-replication, and tracing variables are listed in `.env.example`; the single-node and Compose paths remain the defaults when `SHARD_CONFIG_FILE` is empty.
+Configure the satellite adapter with `SATELLITE_BASE_URL` and the `satellite-secret` Secret. The [coastal profile](../infra/k8s/README.md#sensor-pantai-and-analytics) uses `PANTAI_BASE_URL` and the `pantai-token` Secret. Tokens belong in Secrets and ordinary settings in ConfigMaps. Active Audit, processing, sharding, ownership, broker-replication, and tracing variables are listed in `.env.example`; the single-node and Compose paths remain the defaults when `SHARD_CONFIG_FILE` is empty.
 
 ## Run the storage protocol checks
 
