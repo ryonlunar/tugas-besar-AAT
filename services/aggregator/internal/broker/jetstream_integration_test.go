@@ -171,3 +171,57 @@ func TestJetStreamPublisherRestartsWithPositiveDuplicateWindow(t *testing.T) {
 		})
 	}
 }
+
+func TestJetStreamWidensExistingStreamWithoutLosingMessages(t *testing.T) {
+	url, token := os.Getenv("AAT_TEST_NATS_URL"), os.Getenv("AAT_TEST_NATS_TOKEN")
+	if url == "" || token == "" {
+		t.Skip("disposable NATS is required")
+	}
+	conn, err := nats.Connect(url, nats.Token(token), nats.Timeout(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	js, err := conn.JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, subject := "AAT_SIZE_UPGRADE", "aat.test.upgrade"
+	defer js.DeleteStream(stream)
+	cfg := JetStreamConfig{
+		URL: url, Token: token, Stream: stream, Subjects: []string{subject},
+		MaxAge: time.Hour, MaxBytes: 1 << 20, MaxMsgs: 100, MaxMsgSize: DefaultEnvelopeBytes,
+		DuplicateWindow: time.Minute, ConnectTimeout: time.Second,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	publish := func(cfg JetStreamConfig, data []byte, id string) {
+		t.Helper()
+		publisher, err := NewJetStreamPublisher(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer publisher.Close()
+		if err := publisher.Publish(ctx, subject, data, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(cfg, []byte("existing"), "before")
+	upgraded := cfg
+	upgraded.MaxMsgSize = MaxEnvelopeBytes
+	large := make([]byte, DefaultEnvelopeBytes+4096)
+	publish(upgraded, large, "after")
+	publish(cfg, []byte("compatible"), "smaller-publisher")
+
+	info, err := js.StreamInfo(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Config.MaxMsgSize != MaxEnvelopeBytes || info.State.Msgs != 3 {
+		t.Fatalf("stream after upgrade: limit=%d, messages=%d", info.Config.MaxMsgSize, info.State.Msgs)
+	}
+	msg, err := js.GetMsg(stream, 2)
+	if err != nil || len(msg.Data) != len(large) {
+		t.Fatalf("large message was not retained intact: %v", err)
+	}
+}

@@ -50,12 +50,12 @@ func New(repository Repository, bmkg BMKGSource, pvmbg PVMBGSource, sourceMapper
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Poller{repository: repository, bmkg: bmkg, pvmbg: pvmbg, mapper: sourceMapper, logger: logger, now: time.Now, maxEnvelopeBytes: 64 << 10, outboxLimit: store.DefaultOutboxLimit}
+	return &Poller{repository: repository, bmkg: bmkg, pvmbg: pvmbg, mapper: sourceMapper, logger: logger, now: time.Now, maxEnvelopeBytes: broker.DefaultEnvelopeBytes, outboxLimit: store.DefaultOutboxLimit}
 }
 
 func (p *Poller) SetMaxEnvelopeBytes(limit int) {
-	if limit <= 0 || limit > 64<<10 {
-		limit = 64 << 10
+	if limit <= 0 || limit > broker.MaxEnvelopeBytes {
+		limit = broker.DefaultEnvelopeBytes
 	}
 	p.maxEnvelopeBytes = limit
 }
@@ -245,8 +245,8 @@ func (p *Poller) logRejectedRecord(source mapper.Source, correlationID, kind str
 }
 
 func eventFitsEnvelope(event mapper.HazardEvent, correlationID string, at time.Time, maxBytes int) (bool, error) {
-	if maxBytes <= 0 || maxBytes > 64<<10 {
-		maxBytes = 64 << 10
+	if maxBytes <= 0 || maxBytes > broker.MaxEnvelopeBytes {
+		maxBytes = broker.DefaultEnvelopeBytes
 	}
 	messageID := event.HazardID + ":9223372036854775807"
 	envelope := map[string]any{

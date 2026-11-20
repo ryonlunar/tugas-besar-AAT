@@ -504,7 +504,11 @@ func loadConfig() (config, error) {
 	if c.natsMaxMsgs, err = envInt64("NATS_MAX_MSGS", 100000, 1, 1<<40); err != nil {
 		return config{}, err
 	}
-	if c.natsMaxMsgSize, err = envInt("NATS_MAX_MSG_SIZE", 65536, 1, 65536); err != nil {
+	defaultEnvelopeBytes := broker.DefaultEnvelopeBytes
+	if c.shardConfigFile != "" {
+		defaultEnvelopeBytes = broker.MaxEnvelopeBytes
+	}
+	if c.natsMaxMsgSize, err = envInt("NATS_MAX_MSG_SIZE", defaultEnvelopeBytes, 1, broker.MaxEnvelopeBytes); err != nil {
 		return config{}, err
 	}
 	if c.natsMaxMsgSize > int(^uint32(0)>>1) {

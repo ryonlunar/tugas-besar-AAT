@@ -12,6 +12,7 @@ import (
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 	"go.opentelemetry.io/otel"
@@ -52,7 +53,7 @@ func RunSession(ctx context.Context, session *sourcejournal.Session, source cont
 // RunAdapter uses opaque adapter cursors unchanged. The coordinator must supply
 // a live session and a fenced context. Polling and streaming share the worker.
 func RunAdapter(ctx context.Context, session *sourcejournal.Session, source contracts.Source, adapter contracts.SourceAdapter, process Processor, repository Repository, maxEnvelopeBytes int, processingEnabled bool, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
-	if adapter == nil || process == nil || maxEnvelopeBytes <= 0 || maxEnvelopeBytes > 64<<10 {
+	if adapter == nil || process == nil || maxEnvelopeBytes <= 0 || maxEnvelopeBytes > broker.MaxEnvelopeBytes {
 		return errors.New("source adapter and processor and valid envelope limit required")
 	}
 	var health atomic.Value

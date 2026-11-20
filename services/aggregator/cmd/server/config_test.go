@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"testing"
 	"time"
 
+	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 )
 
@@ -229,5 +229,20 @@ func TestLoadConfigBMKGHistoricalCatalogFile(t *testing.T) {
 	}
 	if cfg.bmkgHistoricalCatalogFile != "/data/synthetic-catalog.csv" {
 		t.Fatalf("bmkgHistoricalCatalogFile = %q, want trimmed path", cfg.bmkgHistoricalCatalogFile)
+	}
+}
+
+func TestEnvelopeSizeDefaultsFollowStorageProfile(t *testing.T) {
+	setValidConfigEnvironment(t)
+	t.Setenv("NATS_MAX_MSG_SIZE", "")
+	t.Setenv("SHARD_CONFIG_FILE", "")
+	cfg, err := loadConfig()
+	if err != nil || cfg.natsMaxMsgSize != 64<<10 {
+		t.Fatalf("Compose default %d, %v", cfg.natsMaxMsgSize, err)
+	}
+	t.Setenv("SHARD_CONFIG_FILE", "/run/shards/shards.json")
+	cfg, err = loadConfig()
+	if err != nil || cfg.natsMaxMsgSize != 256<<10 {
+		t.Fatalf("replicated default %d, %v", cfg.natsMaxMsgSize, err)
 	}
 }

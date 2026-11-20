@@ -36,6 +36,11 @@ type JetStreamPublisher struct {
 	js     nats.JetStreamContext
 }
 
+const (
+	DefaultEnvelopeBytes = 64 << 10
+	MaxEnvelopeBytes     = 256 << 10
+)
+
 // MessageFits counts the payload and encoded message-ID header against the stream limit.
 func MessageFits(payload []byte, messageID string, maxBytes int) bool {
 	return MessageFitsWithContext(context.Background(), payload, messageID, maxBytes)
@@ -197,9 +202,18 @@ func (p *JetStreamPublisher) ensureStreamLocked(ctx context.Context) error {
 		return fmt.Errorf("inspect JetStream stream: %w", err)
 	}
 	actual := info.Config
-	if actual.Name != desired.Name || actual.Retention != desired.Retention || actual.Storage != desired.Storage || actual.Replicas != desired.Replicas || actual.MaxAge != desired.MaxAge || actual.MaxBytes != desired.MaxBytes || actual.MaxMsgs != desired.MaxMsgs || actual.MaxMsgSize != desired.MaxMsgSize || actual.Duplicates != desired.Duplicates || actual.Discard != desired.Discard || !sameStrings(actual.Subjects, desired.Subjects) {
+	if actual.MaxMsgSize <= 0 || actual.Name != desired.Name || actual.Retention != desired.Retention || actual.Storage != desired.Storage || actual.Replicas != desired.Replicas || actual.MaxAge != desired.MaxAge || actual.MaxBytes != desired.MaxBytes || actual.MaxMsgs != desired.MaxMsgs || actual.Duplicates != desired.Duplicates || actual.Discard != desired.Discard || !sameStrings(actual.Subjects, desired.Subjects) {
 		return errors.New("existing JetStream stream does not match the declared contract")
 	}
+	// Widen the existing stream in place. A smaller publisher limit still
+	// applies locally and can coexist with a wider stream during a rollout.
+	if actual.MaxMsgSize > 0 && actual.MaxMsgSize < desired.MaxMsgSize {
+		actual.MaxMsgSize = desired.MaxMsgSize
+		if _, err := p.js.UpdateStream(&actual, nats.Context(ctx)); err != nil {
+			return fmt.Errorf("raise JetStream message size limit: %w", err)
+		}
+	}
+
 	return nil
 }
 

@@ -86,12 +86,12 @@ func NewWithPools(readDB, bmkgWriteDB, pvmbgWriteDB, relayDB *sql.DB, staleAfter
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Second
 	}
-	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, reportDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
+	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, reportDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: broker.DefaultEnvelopeBytes}
 }
 
 func (s *Store) SetMaxEnvelopeBytes(limit int) {
-	if limit <= 0 || limit > 64<<10 {
-		limit = 64 << 10
+	if limit <= 0 || limit > broker.MaxEnvelopeBytes {
+		limit = broker.DefaultEnvelopeBytes
 	}
 	s.maxEnvelopeBytes = limit
 }
