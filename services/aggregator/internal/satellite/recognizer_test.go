@@ -175,15 +175,7 @@ func TestRecognizerSkipsUnchangedFire(t *testing.T) {
 	}
 }
 
-// TestRecognizerFireIDStableAcrossReconnect is the end-to-end regression
-// for the PR #6 review finding (l0stplains): three mutually-connected
-// detections where C is chronologically earliest, processed either all
-// in one batch or with A+B first and C arriving in a second batch
-// (simulating the adapter's flush-on-disconnect splitting the group
-// across a reconnect). Both must converge on the identical final fire
-// ID, and the split-arrival case must show the re-anchor transition
-// (retract the provisional ID, upsert the final one) rather than
-// silently keeping a batch-boundary-dependent ID forever.
+// A late detection joins the same fire whether it came before or after a flush.
 func TestRecognizerFireIDStableAcrossReconnect(t *testing.T) {
 	rawA := synthEvent(0, "N20", "2026-11-12", "400", -2.5000, 113.8000, "n", 1) // 04:00
 	rawB := synthEvent(1, "N20", "2026-11-12", "405", -2.5040, 113.8000, "n", 1) // 04:05
@@ -222,63 +214,36 @@ func TestRecognizerFireIDStableAcrossReconnect(t *testing.T) {
 	if finalIDs[0] != wantID {
 		t.Fatalf("split-arrival final ID = %s, want %s (same as the combined-batch run)", finalIDs[0], wantID)
 	}
-	if provisionalID == wantID {
-		t.Fatal("test setup invalid: the provisional ID should differ from the final one, or this isn't exercising the reconnect scenario")
-	}
-
-	var sawRetractProvisional, sawUpsertFinal bool
-	for _, m := range mutations {
-		if m.Kind == contracts.MutationRetract && m.SourceRefID == provisionalID {
-			sawRetractProvisional = true
-		}
-		if m.Kind == contracts.MutationUpsert && m.SourceRefID == wantID {
-			sawUpsertFinal = true
-		}
-	}
-	if !sawRetractProvisional {
-		t.Errorf("mutations = %+v, want a retract for the provisional ID %s", mutations, provisionalID)
-	}
-	if !sawUpsertFinal {
-		t.Errorf("mutations = %+v, want an upsert for the final ID %s", mutations, wantID)
+	if provisionalID != wantID || len(mutations) != 1 || mutations[0].Kind != contracts.MutationUpsert || mutations[0].SourceRefID != provisionalID {
+		t.Fatalf("late detection should update the existing fire %s, got %+v", provisionalID, mutations)
 	}
 }
 
-// TestRecognizerFireIDStableWhenAnchorIsRetracted is the regression for
-// the second round of PR #6 review (l0stplains): three mutually-connected
-// detections where C is chronologically earliest, then C itself is
-// retracted. Round 1's fix (re-anchor when a later-arriving detection is
-// earlier) only moves a fire's recorded anchor FORWARD in time -- it does
-// nothing when the earliest member is later retracted, so whether C ever
-// got the chance to be durably recorded as the anchor still depended on
-// the batch boundary: processing A+B+C+retract(C) in one call never lets
-// C exist long enough to be considered (C is excluded from clustering the
-// moment it's retracted, before materialize ever runs), while processing
-// A+B+C in one batch and retract(C) in a second batch lets C become the
-// recorded anchor first, and retraction alone never un-does that. Both
-// orderings must converge on the same final ID.
+// Retracting the first-arriving anchor must yield the same final ID regardless
+// of whether it was still present when the transport batch was flushed.
 func TestRecognizerFireIDStableWhenAnchorIsRetracted(t *testing.T) {
-	rawA := synthEvent(0, "N20", "2026-11-12", "400", -2.5000, 113.8000, "n", 1) // 04:00
+	rawA := synthEvent(0, "N20", "2026-11-12", "350", -2.5000, 113.8000, "n", 1) // 03:50 (anchor)
 	rawB := synthEvent(1, "N20", "2026-11-12", "405", -2.5040, 113.8000, "n", 1) // 04:05
-	rawC := synthEvent(2, "N20", "2026-11-12", "350", -2.5020, 113.8000, "n", 1) // 03:50 (earliest)
+	rawC := synthEvent(2, "N20", "2026-11-12", "400", -2.5020, 113.8000, "n", 1) // 04:00
 
-	// Discover C's own detection_key (needed for the retract event)
+	// Discover A's own detection_key (needed for the retract event)
 	// without depending on any clustering outcome.
-	var keyC string
+	var keyA string
 	probe := newMemState()
-	if _, err := NewRecognizer(12*time.Hour).ProcessBatch(context.Background(), probe, "probe", []byte(rawC)); err != nil {
+	if _, err := NewRecognizer(12*time.Hour).ProcessBatch(context.Background(), probe, "probe", []byte(rawA)); err != nil {
 		t.Fatalf("probe: %v", err)
 	}
 	for k := range probe.detections {
-		keyC = k
+		keyA = k
 	}
-	if keyC == "" {
-		t.Fatal("could not determine C's detection_key")
+	if keyA == "" {
+		t.Fatal("could not determine A's detection_key")
 	}
-	rawRetractC := synthRetract(3, keyC, "test")
+	rawRetractA := synthRetract(3, keyA, "test")
 
 	st1 := newMemState()
 	r1 := NewRecognizer(12 * time.Hour)
-	if _, err := r1.ProcessBatch(context.Background(), st1, "offsets-0-3", []byte(rawA+rawB+rawC+rawRetractC)); err != nil {
+	if _, err := r1.ProcessBatch(context.Background(), st1, "offsets-0-3", []byte(rawA+rawB+rawC+rawRetractA)); err != nil {
 		t.Fatalf("combined batch: %v", err)
 	}
 	combinedIDs := st1.activeFireIDs()
@@ -291,8 +256,8 @@ func TestRecognizerFireIDStableWhenAnchorIsRetracted(t *testing.T) {
 	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-0-2", []byte(rawA+rawB+rawC)); err != nil {
 		t.Fatalf("batch1 (A+B+C): %v", err)
 	}
-	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-3-3", []byte(rawRetractC)); err != nil {
-		t.Fatalf("batch2 (retract C): %v", err)
+	if _, err := r2.ProcessBatch(context.Background(), st2, "offsets-3-3", []byte(rawRetractA)); err != nil {
+		t.Fatalf("batch2 (retract A): %v", err)
 	}
 	splitIDs := st2.activeFireIDs()
 	if len(splitIDs) != 1 {

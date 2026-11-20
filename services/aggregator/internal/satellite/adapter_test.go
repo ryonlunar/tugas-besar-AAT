@@ -53,7 +53,7 @@ func assertContiguousBatches(t *testing.T, batches []contracts.Batch, total int6
 	type span struct{ from, cursor int64 }
 	spans := make([]span, 0, len(batches))
 	for _, b := range batches {
-		from, err := strconv.ParseInt(b.From, 10, 64)
+		from, err := parseOffsetCursor(b.From)
 		if err != nil {
 			t.Fatalf("batch From %q is not an integer: %v", b.From, err)
 		}
@@ -137,7 +137,7 @@ func TestAdapterCommitsBatchesInOffsetOrder(t *testing.T) {
 	if len(batches) != 3 {
 		t.Fatalf("got %d batches, want 3", len(batches))
 	}
-	wantRanges := [][2]string{{"0", "200"}, {"200", "400"}, {"400", "450"}}
+	wantRanges := [][2]string{{"", "200"}, {"200", "400"}, {"400", "450"}}
 	for i, want := range wantRanges {
 		if batches[i].From != want[0] || batches[i].Cursor != want[1] {
 			t.Errorf("batch[%d] From/Cursor = %s/%s, want %s/%s", i, batches[i].From, batches[i].Cursor, want[0], want[1])
@@ -372,8 +372,8 @@ func TestAdapterRejectsOffsetGap(t *testing.T) {
 	if len(batches) == 0 {
 		t.Fatal("no batch committed")
 	}
-	if batches[0].From != "0" || batches[0].Cursor != "10" {
-		t.Fatalf("first batch = {From:%s Cursor:%s}, want {From:0 Cursor:10} (never commit past the gap at 10)", batches[0].From, batches[0].Cursor)
+	if batches[0].From != "" || batches[0].Cursor != "10" {
+		t.Fatalf("first batch = {From:%s Cursor:%s}, want {From:\"\" Cursor:10} (never commit past the gap at 10)", batches[0].From, batches[0].Cursor)
 	}
 	// docs/m2-satellite-feed-notes.md section 7: Batch.Cursor is "the next
 	// offset never committed" (last success + 1); after committing [0,10),

@@ -2,10 +2,12 @@ package sharded
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/satellite"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
@@ -96,4 +98,66 @@ func TestSatelliteRecognizerPersistsThroughRealPostgres(t *testing.T) {
 func satelliteFixtureTwoConnectedDetections() string {
 	return "id: 0\nevent: detection\ndata: {\"offset\":0,\"detection\":{\"satellite\":\"N20\",\"acq_date\":\"2026-11-12\",\"acq_time\":200,\"confidence\":\"n\",\"frp\":10.2,\"latitude\":-2.5000,\"longitude\":113.8000}}\n\n" +
 		"id: 1\nevent: detection\ndata: {\"offset\":1,\"detection\":{\"satellite\":\"N20\",\"acq_date\":\"2026-11-12\",\"acq_time\":205,\"confidence\":\"n\",\"frp\":2.3,\"latitude\":-2.5080,\"longitude\":113.8000}}\n\n"
+}
+
+func TestSatelliteRetriesAfterTemporaryStorageTimeout(t *testing.T) {
+	dsns, repository, clean := openDisposablePVMBGHarness(t)
+	defer repository.Close()
+	clean()
+	defer clean()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	session, owned, err := sourcejournal.Acquire(ctx, dsns[2], contracts.SourceSatellite, 30*time.Second)
+	if err != nil || !owned {
+		t.Fatalf("ownership: %v %v", owned, err)
+	}
+	defer session.Close(ctx)
+
+	record := contracts.RawRecord{
+		Key: "offsets-0-1", Kind: "sse_batch", Payload: []byte(satelliteFixtureTwoConnectedDetections()),
+		ReceivedAt: time.Now().UTC(), CorrelationID: "satellite-db-retry", OrderingKey: "satellite-feed",
+	}
+	if err := session.Append(ctx, contracts.Batch{From: session.Cursor(), Cursor: "2", Records: []contracts.RawRecord{record}}); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := session.Next(ctx)
+	if err != nil || msg == nil {
+		t.Fatalf("claim: %v %v", msg, err)
+	}
+
+	lock, err := repository.lookup("shard-2").readDB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Rollback()
+	if _, err := lock.ExecContext(ctx, "LOCK TABLE satellite_detections IN ACCESS EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	process := pipeline.ValidateProcessor(satellite.Processor(satellite.NewRecognizer(12*time.Hour)), 64<<10)
+	_, processErr := session.Prepare(ctx, *msg, process)
+	if err := lock.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var permanent *pipeline.PermanentError
+	if processErr == nil || errors.As(processErr, &permanent) {
+		t.Fatalf("expected a retryable PostgreSQL timeout, got %v", processErr)
+	}
+	// A client deadline may close the ownership connection. Exercise the
+	// same persisted queue after a fresh session, as the coordinator does.
+	if err := session.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	resumed, owned, err := sourcejournal.Acquire(ctx, dsns[2], contracts.SourceSatellite, 30*time.Second)
+	if err != nil || !owned {
+		t.Fatalf("ownership after timeout: %v %v", owned, err)
+	}
+	defer resumed.Close(ctx)
+	retry, err := resumed.Next(ctx)
+	if err != nil || retry == nil || retry.Key != msg.Key {
+		t.Fatalf("retry claim: %v %v", retry, err)
+	}
+	plan, err := resumed.Prepare(ctx, *retry, process)
+	if err != nil || len(plan.Mutations) != 1 {
+		t.Fatalf("prepare after recovery: %v %v", plan, err)
+	}
 }

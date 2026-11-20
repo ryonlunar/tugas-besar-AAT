@@ -11,8 +11,7 @@ import (
 // AAT_FOUNDATION_DSN_FILE.
 type memState struct {
 	detections map[string]StoredDetection
-	fires      map[string]FireMeta
-	records    map[string]FireRecord
+	fires      map[string]FireRecord
 	watermarks map[string]time.Time
 	counters   map[string]int64
 	rejects    []Reject
@@ -21,8 +20,7 @@ type memState struct {
 func newMemState() *memState {
 	return &memState{
 		detections: map[string]StoredDetection{},
-		fires:      map[string]FireMeta{},
-		records:    map[string]FireRecord{},
+		fires:      map[string]FireRecord{},
 		watermarks: map[string]time.Time{},
 		counters:   map[string]int64{},
 	}
@@ -65,20 +63,10 @@ func (m *memState) Members(_ context.Context, fireIDs []string) ([]StoredDetecti
 	return out, nil
 }
 
-func (m *memState) Fires(_ context.Context, ids []string) (map[string]FireMeta, error) {
-	out := make(map[string]FireMeta, len(ids))
-	for _, id := range ids {
-		if meta, ok := m.fires[id]; ok {
-			out[id] = meta
-		}
-	}
-	return out, nil
-}
-
 func (m *memState) FireRecords(_ context.Context, ids []string) (map[string]FireRecord, error) {
 	out := make(map[string]FireRecord, len(ids))
 	for _, id := range ids {
-		if rec, ok := m.records[id]; ok {
+		if rec, ok := m.fires[id]; ok {
 			out[id] = rec
 		}
 	}
@@ -95,8 +83,7 @@ func (m *memState) Apply(_ context.Context, c Changes) error {
 		m.detections[d.Key] = d
 	}
 	for _, f := range c.Fires {
-		m.fires[f.FireID] = FireMeta{Anchor: f.Anchor, Active: f.Active}
-		m.records[f.FireID] = f
+		m.fires[f.FireID] = f
 	}
 	for sat, w := range c.Watermarks {
 		m.watermarks[sat] = w

@@ -128,12 +128,7 @@ type State interface {
 	// given fire IDs (active or not), so a retract/downgrade split can
 	// recompute connectivity over a fire's complete former roster.
 	Members(ctx context.Context, fireIDs []string) ([]StoredDetection, error)
-	Fires(ctx context.Context, ids []string) (map[string]FireMeta, error)
-	// FireRecords returns the full durable record (including
-	// ContentDigest) for every id that currently has one, active or not.
-	// Separate from Fires because lineage.Assign only ever needs
-	// FireMeta; comparing digests to decide whether a revision changed
-	// anything (Task 4.8) is the recognizer's own concern.
+	// FireRecords returns the durable identity and content digest for each ID.
 	FireRecords(ctx context.Context, ids []string) (map[string]FireRecord, error)
 	Watermark(ctx context.Context, satellite string) (time.Time, bool, error)
 	Apply(ctx context.Context, c Changes) error

@@ -17,11 +17,8 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 )
 
-// Recognizer turns one micro-batch of archived SSE bytes into durable
-// recognition-state changes and the resulting Mutations, per D5: events
-// are applied to an in-memory overlay in offset order, then the affected
-// neighborhood is recomputed once at the end -- the result does not depend
-// on where a batch boundary happened to fall (Task 4.9).
+// Recognizer applies lineage changes in feed order and saves the resulting
+// recognition state and canonical mutations together for each batch.
 type Recognizer struct {
 	// Lateness is SATELLITE_ALLOWED_LATENESS (D7): a detection whose
 	// detected_at is more than Lateness behind its satellite's watermark
@@ -40,6 +37,8 @@ func NewRecognizer(lateness time.Duration) *Recognizer {
 // can never contain a line this parser would reject.
 const maxSSELine = 1 << 20
 
+var errInvalidArchivedSSE = errors.New("invalid archived satellite SSE")
+
 // ProcessBatch decodes raw (the exact archived SSE bytes for one
 // micro-batch), applies every event it contains in offset order, and
 // returns the Mutations needed to bring canonical storage in line with the
@@ -51,6 +50,7 @@ func (r *Recognizer) ProcessBatch(ctx context.Context, st State, batchKey string
 		st:         st,
 		lateness:   r.Lateness,
 		overlay:    map[string]StoredDetection{},
+		original:   map[string]StoredDetection{},
 		watermarks: map[string]time.Time{},
 		counters:   map[string]int64{},
 	}
@@ -62,7 +62,7 @@ func (r *Recognizer) ProcessBatch(ctx context.Context, st State, batchKey string
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("satellite batch %s: archived SSE bytes are corrupt: %w", batchKey, err)
+			return nil, fmt.Errorf("%w: batch %s: %v", errInvalidArchivedSSE, batchKey, err)
 		}
 		offset, payload, perr := ParseFeedEvent(ev)
 		offsetText := ev.ID
@@ -99,7 +99,8 @@ type batchOverlay struct {
 	st         State
 	lateness   time.Duration
 	overlay    map[string]StoredDetection
-	touched    []string // keys changed this batch, in the order they changed
+	original   map[string]StoredDetection
+	updates    []StoredDetection // changed detections, in feed order
 	watermarks map[string]time.Time
 	rejects    []Reject
 	counters   map[string]int64
@@ -115,13 +116,14 @@ func (b *batchOverlay) get(ctx context.Context, key string) (StoredDetection, bo
 	}
 	if ok {
 		b.overlay[key] = d
+		b.original[key] = d
 	}
 	return d, ok, nil
 }
 
 func (b *batchOverlay) set(d StoredDetection) {
 	b.overlay[d.Key] = d
-	b.touched = append(b.touched, d.Key)
+	b.updates = append(b.updates, d)
 }
 
 func (b *batchOverlay) watermark(ctx context.Context, satellite string) (time.Time, error) {
@@ -306,182 +308,52 @@ func (b *batchOverlay) applyRetract(ctx context.Context, offset string, ret Retr
 	return nil
 }
 
-// materialize recomputes connectivity over the closure of everything this
-// batch touched (and everything reachable from it through grid-adjacency
-// or shared fire membership), assigns stable IDs via lineage.Assign, and
-// returns the resulting Mutations after persisting the new state through
-// st.Apply.
+// materialize loads the affected neighborhood once and applies every change to
+// it in feed order. Only the final change per fire is sent to canonical storage.
 func (b *batchOverlay) materialize(ctx context.Context) ([]contracts.Mutation, error) {
-	universe := map[string]StoredDetection{}
-	var frontier []string
-	for _, key := range b.touched {
-		if _, already := universe[key]; already {
-			continue
-		}
-		universe[key] = b.overlay[key]
-		frontier = append(frontier, key)
-	}
-	visitedFires := map[string]bool{}
-	for len(frontier) > 0 {
-		key := frontier[len(frontier)-1]
-		frontier = frontier[:len(frontier)-1]
-		d := universe[key]
-		if d.Status == StatusActive {
-			neighbors, err := b.st.Neighbors(ctx, d)
-			if err != nil {
-				return nil, err
-			}
-			for _, n := range neighbors {
-				if _, seen := universe[n.Key]; !seen {
-					universe[n.Key] = n
-					frontier = append(frontier, n.Key)
-				}
-			}
-		}
-		if d.FireID != "" && !visitedFires[d.FireID] {
-			visitedFires[d.FireID] = true
-			members, err := b.st.Members(ctx, []string{d.FireID})
-			if err != nil {
-				return nil, err
-			}
-			for _, m := range members {
-				if _, seen := universe[m.Key]; !seen {
-					universe[m.Key] = m
-					frontier = append(frontier, m.Key)
-				}
-			}
-		}
-	}
-
-	oldFireIDSet := map[string]bool{}
-	prev := map[string]string{}
-	for key, d := range universe {
-		if d.FireID != "" {
-			oldFireIDSet[d.FireID] = true
-			prev[key] = d.FireID
-		}
-	}
-	oldFireIDs := make([]string, 0, len(oldFireIDSet))
-	for id := range oldFireIDSet {
-		oldFireIDs = append(oldFireIDs, id)
-	}
-	sort.Strings(oldFireIDs)
-	firesMeta, err := b.st.Fires(ctx, oldFireIDs)
+	lineage, err := loadLineage(ctx, b.st, b.original, b.updates)
 	if err != nil {
 		return nil, err
 	}
-	firesRecords, err := b.st.FireRecords(ctx, oldFireIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	activeDetections := make([]Detection, 0, len(universe))
-	for _, d := range universe {
-		if d.Status != StatusActive {
-			continue // retracted/late never participate in clustering
-		}
-		activeDetections = append(activeDetections, d.ToDetection())
-	}
-
-	groups, singletons := Components(activeDetections)
-
-	// anchorPools[i] widens groups[i] with any detection that is no
-	// longer active (e.g. retracted within this very same batch, before
-	// it could ever become a surviving component member) but is still
-	// geographically/time connected to it -- so a detection that briefly
-	// existed in the feed still counts toward this fire's identity, and
-	// the result stops depending on whether a batch boundary happened to
-	// let that detection be evaluated while still active (PR #6 review
-	// finding, round 2). Clustering/membership (groups itself, used for
-	// BuildEvent and FireID persistence below) is unaffected -- only
-	// anchor selection inside Assign sees the widened pool.
-	anchorPools := make([][]Detection, len(groups))
-	for i, group := range groups {
-		pool := append([]Detection(nil), group...)
-		for _, d := range universe {
-			if d.Status != StatusRetracted {
-				continue // only a since-retracted detection needs rescuing here
-			}
-			dd := d.ToDetection()
-			connected := false
-			for _, m := range group {
-				if Connected(dd, m) {
-					connected = true
-					break
-				}
-			}
-			if connected {
-				pool = append(pool, dd)
-			}
-		}
-		anchorPools[i] = pool
-	}
-
-	ids, retractedIDs, created := Assign(groups, anchorPools, prev, firesMeta)
-
-	finalFireID := map[string]string{}
-	for i, group := range groups {
-		for _, d := range group {
-			finalFireID[d.Key()] = ids[i]
+	for _, d := range b.updates {
+		if err := lineage.apply(ctx, d); err != nil {
+			return nil, err
 		}
 	}
-	for _, d := range singletons {
-		finalFireID[d.Key()] = "" // explicit: a singleton is never a member
+
+	changes := Changes{Watermarks: b.watermarks, Rejects: b.rejects, CounterDeltas: b.counters}
+	for key := range lineage.changedDetections {
+		changes.Detections = append(changes.Detections, lineage.detections[key])
 	}
+	sort.Slice(changes.Detections, func(i, j int) bool { return changes.Detections[i].Key < changes.Detections[j].Key })
+	fireIDs := make([]string, 0, len(lineage.changedFires))
+	for id := range lineage.changedFires {
+		fireIDs = append(fireIDs, id)
+	}
+	sort.Strings(fireIDs)
 
 	var mutations []contracts.Mutation
-	var fireRecords []FireRecord
-	retractedSet := make(map[string]bool, len(retractedIDs))
-	for _, id := range retractedIDs {
-		retractedSet[id] = true
-		anchor := firesMeta[id].Anchor
-		fireRecords = append(fireRecords, FireRecord{FireID: id, Anchor: anchor, Active: false})
-		mutations = append(mutations, contracts.Mutation{Kind: contracts.MutationRetract, Source: contracts.SourceSatellite, SourceRefID: id})
-	}
-
-	for i, group := range groups {
-		id := ids[i]
-		anchor, known := created[id]
-		if !known {
-			if meta, ok := firesMeta[id]; ok {
-				anchor = meta.Anchor
-			} else {
-				anchor = anchorOf(anchorPools[i])
+	for _, id := range fireIDs {
+		current := lineage.fires[id]
+		previous := lineage.originalFires[id]
+		if current.Active {
+			members := lineage.fireMembers(id)
+			event := BuildEvent(id, members)
+			current.MemberCount = len(members)
+			current.ContentDigest = hazardContentDigest(event)
+			if !previous.Active || previous.ContentDigest != current.ContentDigest {
+				mutations = append(mutations, contracts.Mutation{Kind: contracts.MutationUpsert, Source: contracts.SourceSatellite, SourceRefID: id, Event: &event})
 			}
+		} else if previous.Active {
+			mutations = append(mutations, contracts.Mutation{Kind: contracts.MutationRetract, Source: contracts.SourceSatellite, SourceRefID: id})
 		}
-		event := BuildEvent(id, group)
-		digest := hazardContentDigest(event)
-		var previousRecord FireRecord
-		hadRecord := false
-		if rec, ok := firesRecords[id]; ok {
-			previousRecord = rec
-			hadRecord = true
-		}
-		settled := false // conservative: requires every satellite's watermark, not modeled yet (D7, informational only)
-		fireRecords = append(fireRecords, FireRecord{FireID: id, Anchor: anchor, Active: true, MemberCount: len(group), ContentDigest: digest, Settled: settled})
-		if !hadRecord || previousRecord.ContentDigest != digest || !previousRecord.Active {
-			mutations = append(mutations, contracts.Mutation{Kind: contracts.MutationUpsert, Source: contracts.SourceSatellite, SourceRefID: id, Event: &event})
-		}
-	}
-
-	detectionUpdates := make([]StoredDetection, 0, len(universe))
-	for key, d := range universe {
-		newID := finalFireID[key] // "" when not in any surviving fire
-		d.FireID = newID
-		detectionUpdates = append(detectionUpdates, d)
-	}
-
-	changes := Changes{
-		Detections:    detectionUpdates,
-		Fires:         fireRecords,
-		Watermarks:    b.watermarks,
-		Rejects:       b.rejects,
-		CounterDeltas: b.counters,
+		// Persist tombstones even for fires that formed and disappeared within
+		// this batch, so a future allocation sees the same lineage on replay.
+		changes.Fires = append(changes.Fires, current)
 	}
 	if err := b.st.Apply(ctx, changes); err != nil {
 		return nil, err
 	}
-	_ = retractedSet
 	return mutations, nil
 }
 

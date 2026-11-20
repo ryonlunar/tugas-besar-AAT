@@ -111,6 +111,16 @@ func (a *Adapter) Run(ctx context.Context, cursor string, commit func(context.Co
 	if err != nil {
 		return fmt.Errorf("satellite adapter: invalid resume cursor %q: %w", cursor, err)
 	}
+	// The feed starts at offset zero, but a fresh journal stores an empty
+	// cursor. Preserve the exact journal value for its compare-and-set.
+	commitBatch := func(ctx context.Context, batch contracts.Batch) error {
+		batch.From = cursor
+		if err := commit(ctx, batch); err != nil {
+			return err
+		}
+		cursor = batch.Cursor
+		return nil
+	}
 	attempt := 0
 	for {
 		if err := ctx.Err(); err != nil {
@@ -120,8 +130,11 @@ func (a *Adapter) Run(ctx context.Context, cursor string, commit func(context.Co
 			return err
 		}
 		started := a.now()
-		next, outcome, runErr := a.runOnce(ctx, expected, commit)
+		next, outcome, runErr := a.runOnce(ctx, expected, commitBatch)
 		elapsed := a.now().Sub(started)
+		if runErr == nil && outcome == "eof" && next == expected {
+			runErr = errors.New("satellite stream closed without progress")
+		}
 		expected = next
 		if runErr == nil {
 			attempt = 0

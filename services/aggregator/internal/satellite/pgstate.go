@@ -67,28 +67,6 @@ func (s *pgState) Members(ctx context.Context, fireIDs []string) ([]StoredDetect
 	return scanStoredDetections(rows)
 }
 
-func (s *pgState) Fires(ctx context.Context, ids []string) (map[string]FireMeta, error) {
-	out := map[string]FireMeta{}
-	if len(ids) == 0 {
-		return out, nil
-	}
-	rows, err := s.tx.Query(ctx, `SELECT fire_id,anchor_key,anchor_at,active FROM satellite_fires WHERE fire_id = ANY($1)`, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, anchorKey string
-		var anchorAt time.Time
-		var active bool
-		if err := rows.Scan(&id, &anchorKey, &anchorAt, &active); err != nil {
-			return nil, err
-		}
-		out[id] = FireMeta{Anchor: Anchor{Key: anchorKey, At: anchorAt}, Active: active}
-	}
-	return out, rows.Err()
-}
-
 func (s *pgState) FireRecords(ctx context.Context, ids []string) (map[string]FireRecord, error) {
 	out := map[string]FireRecord{}
 	if len(ids) == 0 {
@@ -122,6 +100,7 @@ func (s *pgState) Watermark(ctx context.Context, satellite string) (time.Time, b
 }
 
 func (s *pgState) Apply(ctx context.Context, c Changes) error {
+	var batch pgx.Batch
 	for _, d := range c.Detections {
 		extra, err := json.Marshal(d.Extra)
 		if err != nil {
@@ -132,7 +111,7 @@ func (s *pgState) Apply(ctx context.Context, c Changes) error {
 		if d.FireID == "" {
 			fireID = nil
 		}
-		_, err = s.tx.Exec(ctx, `INSERT INTO satellite_detections(detection_key,satellite,acq_date,acq_time_text,lat_text,lon_text,
+		batch.Queue(`INSERT INTO satellite_detections(detection_key,satellite,acq_date,acq_time_text,lat_text,lon_text,
 			latitude,longitude,cell_lat,cell_lon,confidence,frp_text,extra,attributes_digest,detected_at,status,fire_id,first_offset,last_offset)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 			ON CONFLICT (detection_key) DO UPDATE SET
@@ -141,43 +120,31 @@ func (s *pgState) Apply(ctx context.Context, c Changes) error {
 			last_offset=excluded.last_offset`,
 			d.Key, d.Satellite, d.AcqDate, d.AcqTimeText, d.LatText, d.LonText, d.Latitude, d.Longitude,
 			cellLat, cellLon, d.Confidence, d.FRPText, extra, d.AttributesDigest, d.DetectedAt, d.Status, fireID, d.FirstOffset, d.LastOffset)
-		if err != nil {
-			return err
-		}
 	}
 	for _, f := range c.Fires {
-		_, err := s.tx.Exec(ctx, `INSERT INTO satellite_fires(fire_id,anchor_key,anchor_at,active,member_count,content_digest,settled)
+		batch.Queue(`INSERT INTO satellite_fires(fire_id,anchor_key,anchor_at,active,member_count,content_digest,settled)
 			VALUES($1,$2,$3,$4,$5,$6,$7)
 			ON CONFLICT (fire_id) DO UPDATE SET active=excluded.active, member_count=excluded.member_count,
 			content_digest=excluded.content_digest, settled=excluded.settled`,
 			f.FireID, f.Anchor.Key, f.Anchor.At, f.Active, f.MemberCount, f.ContentDigest, f.Settled)
-		if err != nil {
-			return err
-		}
 	}
 	for satellite, w := range c.Watermarks {
-		_, err := s.tx.Exec(ctx, `INSERT INTO satellite_watermarks(satellite,max_detected_at) VALUES($1,$2)
+		batch.Queue(`INSERT INTO satellite_watermarks(satellite,max_detected_at) VALUES($1,$2)
 			ON CONFLICT (satellite) DO UPDATE SET max_detected_at=excluded.max_detected_at WHERE excluded.max_detected_at>satellite_watermarks.max_detected_at`,
 			satellite, w)
-		if err != nil {
-			return err
-		}
 	}
 	for _, r := range c.Rejects {
-		_, err := s.tx.Exec(ctx, `INSERT INTO satellite_rejects(event_offset,batch_key,reason,raw) VALUES($1,$2,$3,$4)
+		batch.Queue(`INSERT INTO satellite_rejects(event_offset,batch_key,reason,raw) VALUES($1,$2,$3,$4)
 			ON CONFLICT (event_offset) DO NOTHING`, r.Offset, r.BatchKey, r.Reason, r.Raw)
-		if err != nil {
-			return err
-		}
 	}
 	for name, delta := range c.CounterDeltas {
-		_, err := s.tx.Exec(ctx, `INSERT INTO satellite_counters(name,value) VALUES($1,$2)
+		batch.Queue(`INSERT INTO satellite_counters(name,value) VALUES($1,$2)
 			ON CONFLICT (name) DO UPDATE SET value=satellite_counters.value+excluded.value`, name, delta)
-		if err != nil {
-			return err
-		}
 	}
-	return nil
+	if batch.Len() == 0 {
+		return nil
+	}
+	return s.tx.SendBatch(ctx, &batch).Close()
 }
 
 // rowScanner covers both pgx.Row (QueryRow) and pgx.Rows (Query) so

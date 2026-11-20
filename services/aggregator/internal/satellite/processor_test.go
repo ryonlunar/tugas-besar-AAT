@@ -14,22 +14,22 @@ import (
 // acq_time/latitude/longitude/frp as bare JSON numbers (no leading zero on
 // acq_time), confidence as a one-letter string.
 func synthEvent(offset int, satellite, acqDate, acqTime string, lat, lon float64, confidence string, frp float64) string {
-	return "id: " + itoa(offset) + "\n" +
+	return "id: " + strconv.Itoa(offset) + "\n" +
 		"event: detection\n" +
-		"data: {\"offset\":" + itoa(offset) + ",\"detection\":{\"satellite\":\"" + satellite + "\",\"acq_date\":\"" + acqDate + "\",\"acq_time\":" + acqTime +
+		"data: {\"offset\":" + strconv.Itoa(offset) + ",\"detection\":{\"satellite\":\"" + satellite + "\",\"acq_date\":\"" + acqDate + "\",\"acq_time\":" + acqTime +
 		",\"confidence\":\"" + confidence + "\",\"frp\":" + ftoa(frp) + ",\"latitude\":" + ftoa(lat) + ",\"longitude\":" + ftoa(lon) + "}}\n\n"
 }
 
 func synthUpdate(offset int, key string, changesJSON string) string {
-	return "id: " + itoa(offset) + "\n" +
+	return "id: " + strconv.Itoa(offset) + "\n" +
 		"event: update\n" +
-		"data: {\"offset\":" + itoa(offset) + ",\"key\":\"" + key + "\",\"changes\":" + changesJSON + "}\n\n"
+		"data: {\"offset\":" + strconv.Itoa(offset) + ",\"key\":\"" + key + "\",\"changes\":" + changesJSON + "}\n\n"
 }
 
 func synthRetract(offset int, key, reason string) string {
-	return "id: " + itoa(offset) + "\n" +
+	return "id: " + strconv.Itoa(offset) + "\n" +
 		"event: retract\n" +
-		"data: {\"offset\":" + itoa(offset) + ",\"key\":\"" + key + "\",\"reason\":\"" + reason + "\"}\n\n"
+		"data: {\"offset\":" + strconv.Itoa(offset) + ",\"key\":\"" + key + "\",\"reason\":\"" + reason + "\"}\n\n"
 }
 
 func ftoa(f float64) string {

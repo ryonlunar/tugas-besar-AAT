@@ -2,6 +2,8 @@ package satellite
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
@@ -26,8 +28,11 @@ func Processor(r *Recognizer) sourcejournal.Processor {
 		}
 		st := NewPGState(tx)
 		mutations, err := r.ProcessBatch(ctx, st, msg.Key, msg.Payload)
-		if err != nil {
+		if errors.Is(err, errInvalidArchivedSSE) {
 			return nil, pipeline.Park("invalid_source_response: " + err.Error())
+		}
+		if err != nil {
+			return nil, fmt.Errorf("process satellite state: %w", err)
 		}
 		return mutations, nil
 	}
