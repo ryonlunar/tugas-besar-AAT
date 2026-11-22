@@ -28,20 +28,24 @@ Lingkungan acuan pengujian menggunakan Hetzner Cloud di Helsinki. OpenTofu menyi
 
 \begin{table}[htbp]
 \centering\small
-\begin{tabularx}{\textwidth}{@{}lYlrr@{}}
+\begin{tabularx}{\textwidth}{@{}lYlrrr@{}}
 \toprule
-VM & Peran & Tipe & vCPU & RAM \\
+ & & \multicolumn{3}{c}{Hetzner Cloud} & Multipass \\
+\cmidrule(lr){3-5}\cmidrule(l){6-6}
+VM & Peran & Tipe & vCPU & RAM & vCPU / RAM \\
 \midrule
-\texttt{aat-dev} & Control plane dan worker & CCX33 & 8 & 32 GB \\
-\texttt{aat-worker-1} & Worker & CPX32 & 4 & 8 GB \\
-\texttt{aat-worker-2} & Worker & CCX23 & 4 & 16 GB \\
-\texttt{aat-worker-3} & Worker & CPX32 & 4 & 8 GB \\
-\texttt{aat-loadgen} & Generator beban k6 & CPX52 & 12 & 24 GB \\
+\texttt{aat-dev} & Control plane dan worker & CCX33 & 8 & 32 GB & 4 / 8 GiB \\
+\texttt{aat-worker-1} & Worker & CPX32 & 4 & 8 GB & 2 / 3 GiB \\
+\texttt{aat-worker-2} & Worker & CCX23 & 4 & 16 GB & 2 / 3 GiB \\
+\texttt{aat-worker-3} & Worker & CPX32 & 4 & 8 GB & 2 / 3 GiB \\
+\texttt{aat-loadgen} & Generator beban k6 & CPX52 & 12 & 24 GB & --- \\
 \bottomrule
 \end{tabularx}
-\caption{Alokasi VM untuk pengujian di Hetzner Cloud.}
+\caption{Alokasi VM pada klaster Hetzner Cloud dan klaster lokal Multipass.}
 \label{tab:topology}
 \end{table}
+
+Sebagian bukti pada P1, P3, P4, dan P5 berasal dari klaster lokal. Klaster ini memakai empat VM Multipass dengan nama, peran, dan manifest yang sama dengan klaster Hetzner. Keempat VM berjalan pada satu laptop pengembangan dengan 12 \textit{logical CPU} dan RAM 32 GiB, dan setiap VM memakai disk 30 GiB. Karena berbagi satu host fisik, klaster lokal tidak dipakai untuk pengukuran throughput P2.
 
 \input{figures/deployment}
 
