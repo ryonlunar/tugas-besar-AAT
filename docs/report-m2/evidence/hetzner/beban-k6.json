@@ -1,0 +1,1041 @@
+{
+  "setup": {
+    "cluster_source_commit": "1ab4ae6f06d6bcbdf54c050de0df12339d617896",
+    "run": "p2-261122-055443",
+    "k6": "2.4.0",
+    "location": "hel1",
+    "node_types": {
+      "aat-dev": "ccx33",
+      "aat-loadgen": "cpx52",
+      "aat-worker-1": "cpx32",
+      "aat-worker-2": "ccx23",
+      "aat-worker-3": "cpx32"
+    },
+    "workload_sha256": {
+      "m2-p2.js": "ed54bd405212f5e6ea256b9c59c54c7924381fe37e2d37a5e2fccdc022963ae4",
+      "run-m2-p2.py": "cf4e7d24f103907187f59db6eca07498dcdee974aad985a70a2788215cb60686"
+    },
+    "profile": "BMKG and PVMBG mock profiles on a newly deployed cluster",
+    "start_epoch": 1795326914
+  },
+  "runs": {
+    "scale-10000-r1": {
+      "result": {
+        "configured": {
+          "vus": 10000,
+          "rate": 0,
+          "ramp_seconds": 45,
+          "steady_seconds": 150,
+          "think_seconds": 8
+        },
+        "outcomes": {
+          "ramp": {
+            "complete": 27069,
+            "partial": 0,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 4565,
+            "other": 0
+          },
+          "steady": {
+            "complete": 21188,
+            "partial": 5,
+            "controlled": 2859,
+            "auth": 0,
+            "http503": 0,
+            "network": 122013,
+            "other": 0
+          }
+        },
+        "complete_reads_per_second": 141.25333333333333,
+        "unexpected_error_rate": 0.8520103906260911,
+        "p95_complete_ms": 105.58353394999993,
+        "dropped_iterations": 0,
+        "active_vu_peak": 10000,
+        "duration_seconds": 210.013938932
+      },
+      "observed": {
+        "observed_peak": 10000,
+        "continuous_target_seconds": 149.33244585990906,
+        "peak_rss_mb": 4600.59375
+      },
+      "actions": [
+        {
+          "command": "scale deployment/aggregator --replicas=5",
+          "started_at": "2026-11-22T06:08:41.136415+00:00",
+          "rollout_ready_at": "2026-11-22T06:08:48.517256+00:00"
+        },
+        {
+          "command": "scale deployment/aggregator --replicas=2",
+          "started_at": "2026-11-22T06:09:33.136471+00:00",
+          "rollout_ready_at": "2026-11-22T06:09:38.798581+00:00"
+        }
+      ],
+      "ownership": {
+        "first_sample": "2026-11-22T06:08:22.968527+00:00",
+        "last_sample": "2026-11-22T06:10:52.300973+00:00",
+        "polls": {
+          "/seismic-events": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/tsunami-warnings": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/volcanic-reports": {
+            "calls": 21,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 21
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          }
+        },
+        "sequences_after": {
+          "sim-5f07b04f238298f9-event": {
+            "first": 1,
+            "last": 69,
+            "count": 69,
+            "duplicate_count": 0,
+            "missing": []
+          },
+          "sim-fe97bbc90aa20144-report": {
+            "first": 1,
+            "last": 69,
+            "count": 69,
+            "duplicate_count": 0,
+            "missing": []
+          }
+        }
+      }
+    },
+    "scale-10000-r2": {
+      "result": {
+        "configured": {
+          "vus": 10000,
+          "rate": 0,
+          "ramp_seconds": 45,
+          "steady_seconds": 150,
+          "think_seconds": 8
+        },
+        "outcomes": {
+          "ramp": {
+            "complete": 34355,
+            "partial": 1,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          },
+          "steady": {
+            "complete": 186487,
+            "partial": 372,
+            "controlled": 447,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          }
+        },
+        "complete_reads_per_second": 1243.2466666666667,
+        "unexpected_error_rate": 0,
+        "p95_complete_ms": 17.23680429999998,
+        "dropped_iterations": 0,
+        "active_vu_peak": 10000,
+        "duration_seconds": 209.872983748
+      },
+      "observed": {
+        "observed_peak": 10000,
+        "continuous_target_seconds": 149.23735809326172,
+        "peak_rss_mb": 5062.859375
+      },
+      "actions": [
+        {
+          "command": "scale deployment/aggregator --replicas=5",
+          "started_at": "2026-11-22T06:14:17.078146+00:00",
+          "rollout_ready_at": "2026-11-22T06:14:24.552729+00:00",
+          "desired_replicas": 5,
+          "ready_replicas": 5,
+          "ready_seconds_from_first_vu_sample": 70.191
+        },
+        {
+          "command": "scale deployment/aggregator --replicas=2",
+          "started_at": "2026-11-22T06:15:09.078299+00:00",
+          "rollout_ready_at": "2026-11-22T06:15:14.846010+00:00",
+          "desired_replicas": 2,
+          "ready_replicas": 2,
+          "ready_seconds_from_first_vu_sample": 120.484
+        }
+      ],
+      "ownership": {
+        "first_sample": "2026-11-22T06:13:59.428295+00:00",
+        "last_sample": "2026-11-22T06:16:28.665653+00:00",
+        "polls": {
+          "/seismic-events": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/tsunami-warnings": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/volcanic-reports": {
+            "calls": 22,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 22
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          }
+        },
+        "sequences_after": {
+          "sim-5f07b04f238298f9-event": {
+            "first": 1,
+            "last": 97,
+            "count": 97,
+            "duplicate_count": 0,
+            "missing": []
+          },
+          "sim-fe97bbc90aa20144-report": {
+            "first": 1,
+            "last": 96,
+            "count": 96,
+            "duplicate_count": 0,
+            "missing": []
+          }
+        }
+      }
+    },
+    "scale-10000-r3": {
+      "result": {
+        "configured": {
+          "vus": 10000,
+          "rate": 0,
+          "ramp_seconds": 45,
+          "steady_seconds": 150,
+          "think_seconds": 8
+        },
+        "outcomes": {
+          "ramp": {
+            "complete": 34416,
+            "partial": 1,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          },
+          "steady": {
+            "complete": 187225,
+            "partial": 44,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          }
+        },
+        "complete_reads_per_second": 1248.1666666666667,
+        "unexpected_error_rate": 0,
+        "p95_complete_ms": 13.759388999999976,
+        "dropped_iterations": 0,
+        "active_vu_peak": 10000,
+        "duration_seconds": 209.87585596099998
+      },
+      "observed": {
+        "observed_peak": 10000,
+        "continuous_target_seconds": 149.24546599388123,
+        "peak_rss_mb": 5081.1015625
+      },
+      "actions": [
+        {
+          "command": "scale deployment/aggregator --replicas=5",
+          "started_at": "2026-11-22T06:18:43.073511+00:00",
+          "rollout_ready_at": "2026-11-22T06:18:50.548476+00:00",
+          "desired_replicas": 5,
+          "ready_replicas": 5
+        },
+        {
+          "command": "scale deployment/aggregator --replicas=2",
+          "started_at": "2026-11-22T06:19:35.073568+00:00",
+          "rollout_ready_at": "2026-11-22T06:19:40.688449+00:00",
+          "desired_replicas": 2,
+          "ready_replicas": 2
+        }
+      ],
+      "ownership": {
+        "first_sample": "2026-11-22T06:18:25.643876+00:00",
+        "last_sample": "2026-11-22T06:20:54.889342+00:00",
+        "polls": {
+          "/seismic-events": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/tsunami-warnings": {
+            "calls": 29,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 29
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          },
+          "/volcanic-reports": {
+            "calls": 21,
+            "by_owner": {
+              "aggregator-656d847ff6-g9hm8": 21
+            },
+            "switches": [],
+            "repeated_correlations": 0,
+            "overlaps": 0
+          }
+        },
+        "sequences_after": {
+          "sim-5f07b04f238298f9-event": {
+            "first": 1,
+            "last": 122,
+            "count": 122,
+            "duplicate_count": 0,
+            "missing": []
+          },
+          "sim-fe97bbc90aa20144-report": {
+            "first": 1,
+            "last": 123,
+            "count": 123,
+            "duplicate_count": 0,
+            "missing": []
+          }
+        }
+      }
+    },
+    "rollout-10000": {
+      "result": {
+        "configured": {
+          "vus": 10000,
+          "rate": 0,
+          "ramp_seconds": 45,
+          "steady_seconds": 150,
+          "think_seconds": 8
+        },
+        "outcomes": {
+          "ramp": {
+            "complete": 34394,
+            "partial": 2,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          },
+          "steady": {
+            "complete": 187199,
+            "partial": 82,
+            "controlled": 0,
+            "auth": 0,
+            "http503": 0,
+            "network": 0,
+            "other": 0
+          }
+        },
+        "complete_reads_per_second": 1247.9933333333333,
+        "unexpected_error_rate": 0,
+        "p95_complete_ms": 14.1332377,
+        "dropped_iterations": 0,
+        "active_vu_peak": 10000,
+        "duration_seconds": 209.877958999
+      },
+      "observed": {
+        "observed_peak": 10000,
+        "continuous_target_seconds": 149.26231503486633,
+        "peak_rss_mb": 5043.9453125
+      },
+      "actions": [
+        {
+          "command": "set image deploy/aggregator aggregator=aat.local/aggregator:m2-794519ef9ce1",
+          "started_at": "2026-11-22T06:23:40.424791+00:00",
+          "rollout_ready_at": "2026-11-22T06:23:56.554244+00:00",
+          "desired_replicas": 3,
+          "ready_replicas": 3
+        }
+      ],
+      "images": {
+        "before": [
+          "aat.local/aggregator@sha256:e6a119ae261b2023e11b2873826290a12ba437c8a3c395a1052c810bc272f046"
+        ],
+        "after": [
+          "aat.local/aggregator@sha256:4c9096861bdc18c01ecc9f03d20a2111589c49d2f465700482de6754db98ea7b"
+        ]
+      }
+    }
+  },
+  "throughput_pairs": [
+    {
+      "rate": 2400,
+      "repeat": 1,
+      "one": {
+        "complete": 487.77142857142854,
+        "ok": 727.7428571428571
+      },
+      "three": {
+        "complete": 1037.7714285714285,
+        "ok": 1947.8857142857144
+      },
+      "complete_ratio": 2.127577319587629,
+      "http_200_ratio": 2.67661261827176
+    },
+    {
+      "rate": 2400,
+      "repeat": 2,
+      "one": {
+        "complete": 576.9714285714285,
+        "ok": 763.2285714285714
+      },
+      "three": {
+        "complete": 939.0,
+        "ok": 1865.0857142857142
+      },
+      "complete_ratio": 1.627463603050411,
+      "http_200_ratio": 2.4436791075506306
+    },
+    {
+      "rate": 1800,
+      "repeat": 1,
+      "one": {
+        "complete": 251.14285714285714,
+        "ok": 646.9428571428572
+      },
+      "three": {
+        "complete": 1223.1142857142856,
+        "ok": 1764.2285714285715
+      },
+      "complete_ratio": 4.870193401592719,
+      "http_200_ratio": 2.727023804266219
+    },
+    {
+      "rate": 1800,
+      "repeat": 2,
+      "one": {
+        "complete": 518.9142857142857,
+        "ok": 730.6571428571428
+      },
+      "three": {
+        "complete": 1195.3142857142857,
+        "ok": 1743.8857142857144
+      },
+      "complete_ratio": 2.303490804977425,
+      "http_200_ratio": 2.386736010636218
+    }
+  ],
+  "throughput_last_sample_source": "console JSON summary; export interrupted during cleanup",
+  "owner_replacement": {
+    "removed": "aggregator-656d847ff6-xk4d5",
+    "node": "aat-worker-2",
+    "next_poll": {
+      "time": "2026-11-22T06:32:04.964536809Z",
+      "level": "INFO",
+      "msg": "request completed",
+      "trace_id": "984eaa1fcc19cd59dd22daad51cb9f11",
+      "aggregator_instance": "aggregator-656d847ff6-n9jkm",
+      "service": "bmkg-mock",
+      "method": "GET",
+      "path": "/seismic-events",
+      "status": 200,
+      "duration_ms": 100,
+      "correlation_id": "6eb1f6c6-f9a1-48bf-98d5-27fc698b0bba"
+    },
+    "seconds_to_first_new_poll": 3.636871,
+    "start": "2026-11-22T06:32:01.327665+00:00",
+    "before": {
+      "generations": {
+        "BMKG": 5,
+        "PVMBG": 3
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 185,
+          "count": 185,
+          "duplicate_count": 0,
+          "missing": []
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 185,
+          "count": 185,
+          "duplicate_count": 0,
+          "missing": []
+        }
+      },
+      "captured_at": "2026-11-22T06:31:53.220474+00:00"
+    },
+    "after": {
+      "generations": {
+        "BMKG": 6,
+        "PVMBG": 4
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 191,
+          "count": 191,
+          "duplicate_count": 0,
+          "missing": []
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 190,
+          "count": 190,
+          "duplicate_count": 0,
+          "missing": []
+        }
+      },
+      "captured_at": "2026-11-22T06:32:52.404582+00:00"
+    },
+    "polls": {
+      "/seismic-events": {
+        "calls": 11,
+        "by_owner": {
+          "aggregator-656d847ff6-xk4d5": 1,
+          "aggregator-656d847ff6-n9jkm": 10
+        },
+        "switches": [
+          "2026-11-22T06:32:04.964536809Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/tsunami-warnings": {
+        "calls": 11,
+        "by_owner": {
+          "aggregator-656d847ff6-xk4d5": 1,
+          "aggregator-656d847ff6-n9jkm": 10
+        },
+        "switches": [
+          "2026-11-22T06:32:04.964131058Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/volcanic-reports": {
+        "calls": 9,
+        "by_owner": {
+          "aggregator-656d847ff6-xk4d5": 1,
+          "aggregator-656d847ff6-7kjsz": 8
+        },
+        "switches": [
+          "2026-11-22T06:32:07.767681735Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      }
+    },
+    "recovery_seconds": {
+      "BMKG": 3.636871,
+      "PVMBG": 6.440016
+    },
+    "first_replacement_polls": {
+      "BMKG": {
+        "time": "2026-11-22T06:32:04.964536809Z",
+        "level": "INFO",
+        "msg": "request completed",
+        "trace_id": "984eaa1fcc19cd59dd22daad51cb9f11",
+        "aggregator_instance": "aggregator-656d847ff6-n9jkm",
+        "service": "bmkg-mock",
+        "method": "GET",
+        "path": "/seismic-events",
+        "status": 200,
+        "duration_ms": 100,
+        "correlation_id": "6eb1f6c6-f9a1-48bf-98d5-27fc698b0bba"
+      },
+      "PVMBG": {
+        "time": "2026-11-22T06:32:07.767681735Z",
+        "level": "INFO",
+        "msg": "request completed",
+        "trace_id": "50d6024752ce7f0c8851ba82035e9905",
+        "aggregator_instance": "aggregator-656d847ff6-7kjsz",
+        "service": "pvmbg-mock",
+        "method": "GET",
+        "path": "/volcanic-reports",
+        "status": 200,
+        "duration_ms": 2612,
+        "correlation_id": "e6326aae-8e5b-42a6-9431-b1d9cfce9d0e"
+      }
+    }
+  },
+  "read_availability": {
+    "configured": {
+      "vus": null,
+      "rate": 20,
+      "ramp_seconds": 0,
+      "steady_seconds": 85,
+      "think_seconds": 0
+    },
+    "outcomes": {
+      "ramp": {
+        "complete": 0,
+        "partial": 0,
+        "controlled": 0,
+        "auth": 0,
+        "http503": 0,
+        "network": 0,
+        "other": 0
+      },
+      "steady": {
+        "complete": 1701,
+        "partial": 0,
+        "controlled": 0,
+        "auth": 0,
+        "http503": 0,
+        "network": 0,
+        "other": 0
+      }
+    },
+    "complete_reads_per_second": 20.011764705882353,
+    "unexpected_error_rate": 0,
+    "p95_complete_ms": 6.128014,
+    "dropped_iterations": 0,
+    "active_vu_peak": 0,
+    "duration_seconds": 85.005118808
+  },
+  "clock_skew": {
+    "owner": "aggregator-656d847ff6-w7l2n",
+    "node": "aat-worker-3",
+    "container": "containerd://c7702bcb5652b97d192cd4ce0ff6888d169ba0e59d2280f9fb0245bf46a3a5ac",
+    "clock": "Sun Nov 22 06:38:54 AM UTC 2026\nNTP=no Offset=45 UTC=2026-11-22T06:38:54+00:00\nSun Nov 22 06:38:04 AM UTC 2026\nNTP=no Offset=-30 UTC=2026-11-22T06:38:04+00:00\nSun Nov 22 06:38:59 AM UTC 2026\nNTP=no Offset=0 UTC=2026-11-22T06:38:59+00:00\nNTP=yes\nNTPSynchronized=no\n",
+    "start": "2026-11-22T06:38:05.915644+00:00",
+    "before": {
+      "generations": {
+        "BMKG": 59,
+        "PVMBG": 55
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 221,
+          "count": 221,
+          "duplicate_count": 0,
+          "missing": []
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 220,
+          "count": 220,
+          "duplicate_count": 0,
+          "missing": []
+        }
+      },
+      "captured_at": "2026-11-22T06:37:57.591778+00:00"
+    },
+    "after": {
+      "generations": {
+        "BMKG": 61,
+        "PVMBG": 59
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 228,
+          "count": 228,
+          "duplicate_count": 0,
+          "missing": []
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 228,
+          "count": 228,
+          "duplicate_count": 0,
+          "missing": []
+        }
+      },
+      "captured_at": "2026-11-22T06:39:28.219020+00:00"
+    },
+    "polls": {
+      "/seismic-events": {
+        "calls": 11,
+        "by_owner": {
+          "aggregator-656d847ff6-w7l2n": 11
+        },
+        "switches": [],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/tsunami-warnings": {
+        "calls": 11,
+        "by_owner": {
+          "aggregator-656d847ff6-w7l2n": 11
+        },
+        "switches": [],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/volcanic-reports": {
+        "calls": 8,
+        "by_owner": {
+          "aggregator-656d847ff6-7kjsz": 8
+        },
+        "switches": [],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      }
+    }
+  },
+  "freeze_resume": {
+    "owner": "aggregator-656d847ff6-n9jkm",
+    "node": "aat-worker-1",
+    "before_container": "containerd://6e92a95997aa7edb9bc3f09bcd7647690af86873c694c9491ca6975dfdb2f319",
+    "resumed_container": "containerd://6e92a95997aa7edb9bc3f09bcd7647690af86873c694c9491ca6975dfdb2f319",
+    "thawed": "2026-11-22T06:36:14.039710+00:00",
+    "freeze_log": "2026-11-22T06:35:37+00:00\nId=k3s-agent.service\nFreezerState=frozen\n\nId=kubepods.slice\nFreezerState=frozen\n2026-11-22T06:36:13+00:00\n",
+    "start": "2026-11-22T06:35:35.037664+00:00",
+    "before": {
+      "generations": {
+        "BMKG": 31,
+        "PVMBG": 31
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 206,
+          "count": 204,
+          "duplicate_count": 0,
+          "missing": [
+            203,
+            205
+          ]
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 206,
+          "count": 203,
+          "duplicate_count": 0,
+          "missing": [
+            202,
+            203,
+            205
+          ]
+        }
+      },
+      "captured_at": "2026-11-22T06:35:27.040621+00:00"
+    },
+    "after": {
+      "generations": {
+        "BMKG": 59,
+        "PVMBG": 55
+      },
+      "sequences": {
+        "sim-5f07b04f238298f9-event": {
+          "first": 1,
+          "last": 216,
+          "count": 216,
+          "duplicate_count": 0,
+          "missing": []
+        },
+        "sim-fe97bbc90aa20144-report": {
+          "first": 1,
+          "last": 216,
+          "count": 216,
+          "duplicate_count": 0,
+          "missing": []
+        }
+      },
+      "captured_at": "2026-11-22T06:37:05.342068+00:00"
+    },
+    "polls": {
+      "/seismic-events": {
+        "calls": 12,
+        "by_owner": {
+          "aggregator-656d847ff6-n9jkm": 1,
+          "aggregator-656d847ff6-w7l2n": 11
+        },
+        "switches": [
+          "2026-11-22T06:36:14.820263087Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/tsunami-warnings": {
+        "calls": 12,
+        "by_owner": {
+          "aggregator-656d847ff6-n9jkm": 1,
+          "aggregator-656d847ff6-w7l2n": 11
+        },
+        "switches": [
+          "2026-11-22T06:36:14.819633687Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      },
+      "/volcanic-reports": {
+        "calls": 9,
+        "by_owner": {
+          "aggregator-656d847ff6-n9jkm": 1,
+          "aggregator-656d847ff6-7kjsz": 8
+        },
+        "switches": [
+          "2026-11-22T06:36:16.92416195Z"
+        ],
+        "repeated_correlations": 0,
+        "overlaps": 0
+      }
+    }
+  },
+  "freeze_owner_release_log": [
+    {
+      "time": "2026-11-22T06:36:13.563376749Z",
+      "level": "WARN",
+      "msg": "source ownership released",
+      "instance": "aggregator-656d847ff6-n9jkm",
+      "source": "PVMBG",
+      "reason": "OWNERSHIP_REACQUIRE"
+    },
+    {
+      "time": "2026-11-22T06:36:13.612270671Z",
+      "level": "WARN",
+      "msg": "source ownership released",
+      "instance": "aggregator-656d847ff6-n9jkm",
+      "source": "BMKG",
+      "reason": "OWNERSHIP_REACQUIRE"
+    }
+  ],
+  "cluster": {
+    "aggregator_nodes": [
+      "aat-worker-1",
+      "aat-worker-2",
+      "aat-worker-3"
+    ],
+    "http_database_trace": {
+      "trace_id": "5c94fbe92a67462596f837d88219371b",
+      "services": [
+        "aggregator",
+        "client-api"
+      ],
+      "spans": 14
+    },
+    "jetstream_replicas": 3,
+    "storage_network_isolation": true,
+    "storage_units": {
+      "shard-0": {
+        "records": 13,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-0-0",
+        "nodes": [
+          "aat-worker-1",
+          "aat-worker-2",
+          "aat-worker-3"
+        ]
+      },
+      "shard-1": {
+        "records": 7,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-1-0",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-2",
+          "aat-worker-3"
+        ]
+      },
+      "shard-2": {
+        "records": 11,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-2-0",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-3"
+        ]
+      },
+      "shard-3": {
+        "records": 17,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-3-0",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-2"
+        ]
+      }
+    }
+  },
+  "placement_snapshot": [
+    {
+      "pod": "shard-0-0",
+      "node": "aat-worker-2",
+      "role": "master",
+      "unit": "shard-0"
+    },
+    {
+      "pod": "shard-0-1",
+      "node": "aat-worker-1",
+      "role": "replica",
+      "unit": "shard-0"
+    },
+    {
+      "pod": "shard-0-2",
+      "node": "aat-worker-3",
+      "role": "replica",
+      "unit": "shard-0"
+    },
+    {
+      "pod": "shard-1-0",
+      "node": "aat-dev",
+      "role": "master",
+      "unit": "shard-1"
+    },
+    {
+      "pod": "shard-1-1",
+      "node": "aat-worker-2",
+      "role": "replica",
+      "unit": "shard-1"
+    },
+    {
+      "pod": "shard-1-2",
+      "node": "aat-worker-3",
+      "role": "replica",
+      "unit": "shard-1"
+    },
+    {
+      "pod": "shard-2-0",
+      "node": "aat-worker-1",
+      "role": "replica",
+      "unit": "shard-2"
+    },
+    {
+      "pod": "shard-2-1",
+      "node": "aat-worker-3",
+      "role": "master",
+      "unit": "shard-2"
+    },
+    {
+      "pod": "shard-2-2",
+      "node": "aat-dev",
+      "role": "replica",
+      "unit": "shard-2"
+    },
+    {
+      "pod": "shard-3-0",
+      "node": "aat-dev",
+      "role": "master",
+      "unit": "shard-3"
+    },
+    {
+      "pod": "shard-3-1",
+      "node": "aat-worker-2",
+      "role": "replica",
+      "unit": "shard-3"
+    },
+    {
+      "pod": "shard-3-2",
+      "node": "aat-worker-1",
+      "role": "replica",
+      "unit": "shard-3"
+    }
+  ],
+  "audit": {
+    "credential_separation": true,
+    "physical_copies": [
+      {
+        "node": "aat-dev",
+        "unit": "shard-1",
+        "role": "primary"
+      },
+      {
+        "node": "aat-worker-2",
+        "unit": "shard-1-1",
+        "role": "replica"
+      },
+      {
+        "node": "aat-worker-3",
+        "unit": "shard-1-2",
+        "role": "replica"
+      }
+    ],
+    "audit_records_sampled": 3,
+    "checksum_count_observed": 446
+  },
+  "postgresql_fixtures": [
+    "--- PASS: TestExpiredOwnerCannotAppendAfterTakeover (0.24s)",
+    "--- PASS: TestFourDatabaseRoutingPaginationAndPartialReads (0.17s)",
+    "--- PASS: TestBMKGCatalogImportResumesWithoutDuplicates (0.86s)",
+    "--- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce (0.25s)",
+    "--- PASS: TestDurableProcessingReplayAndAudit (1.58s)",
+    "--- PASS: TestPVMBGIncompatibleModesReplayAfterAdaptation (0.70s)",
+    "--- PASS: TestPVMBGMalformedInputsDoNotBlockOthers (0.59s)",
+    "--- PASS: TestSatelliteRecognizerPersistsThroughRealPostgres (0.56s)",
+    "--- PASS: TestSatelliteRetriesAfterTemporaryStorageTimeout (2.54s)"
+  ],
+  "client_api_memory": {
+    "initial_oom_excerpt": [
+      "\"restartCount\": 5,",
+      "\"exitCode\": 137,",
+      "\"reason\": \"OOMKilled\","
+    ],
+    "repeat_sample": [
+      "NAME                          CPU(cores)   MEMORY(bytes)",
+      "client-api-7dfc5846d5-5fpkc   405m         118Mi",
+      "client-api-7dfc5846d5-d2slb   423m         121Mi",
+      "client-api-7dfc5846d5-qxhsc   406m         119Mi"
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+\chapter{KESIMPULAN}
+
+Milestone 2 memperluas sistem M1 agar sumber baru dapat diterima dan pekerjaan yang terhenti dapat dilanjutkan. PostgreSQL yang direplikasi mempertahankan salinan data ketika satu worker tidak dapat diakses. Jurnal memungkinkan Aggregator pengganti mengambil alih pekerjaan dari posisi terakhir. Penyimpanan hasil sebelum penerbitan pesan memberi jalur pemulihan tersendiri bagi consumer dan penerima peringatan.
+
+Pada klaster Hetzner, Aggregator pengganti melanjutkan polling BMKG dalam 3{,}64 detik dan PVMBG dalam 6{,}44 detik, dengan urutan ID mock lengkap. Uji pada klaster lokal mencatat pemulihan seluruh 6.040 ID awal setelah satu VM worker ditangguhkan. Pada jalur tulis, 129 entri PVMBG selesai diproses ulang setelah adapter yang sesuai diaktifkan, dan tanda terima laporan Tim Lapangan tetap tersedia setelah pod penerima dihapus.
+
+Dua pengulangan pada 10.000 VU mencatat nol galat tak terduga saat jumlah Aggregator diubah dari tiga menjadi lima lalu dua. Penggantian versi pada beban yang sama selesai dalam 16{,}1 detik tanpa permintaan gagal. Tiga dari empat pasangan pengukuran juga melampaui dua kali throughput pembacaan lengkap.
+
+Pada tahap demonstrasi, hasil latihan akan dilengkapi dengan pengujian yang memakai katalog dan checksum acuan, workload dari asisten, hasil referensi Feed Satelit, serta game day. Pengujian tersebut akan mengukur hasil saat skenario resmi dijalankan, termasuk kelengkapan dan latensi peringatan pesisir selama gangguan gabungan.

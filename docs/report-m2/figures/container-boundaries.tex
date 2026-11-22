@@ -1,0 +1,69 @@
+\begin{figure}[H]
+\centering
+\newcommand{\ownedvolume}[1]{%
+  {\setlength{\fboxsep}{2pt}\fcolorbox{archink!60}{white}{\fontsize{8}{10}\selectfont #1}}%
+}
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  component/.style={draw=archink,rounded corners=2pt,fill=archlight,align=center,
+    minimum height=10mm,inner sep=4pt,font=\fontsize{10}{12}\selectfont},
+  external/.style={component,dashed,fill=white},
+  wire/.style={-{Straight Barb[length=2mm,width=1.6mm]},draw=archink,semithick},
+  event/.style={wire,draw=archevent},
+  label/.style={fill=white,inner sep=1pt,font=\fontsize{8}{10}\selectfont,align=center}
+]
+  \node[external,text width=4cm] (clients) at (7.15,0) {Media, Tim Lapangan,\\BNPB internal};
+
+  \node[component,text width=3.65cm,minimum height=16mm,anchor=north] (auth) at (12.9,0.58)
+    {\textbf{Auth}\\[1mm]\ownedvolume{SQLite \texttt{auth-data}}};
+
+  \node[component,text width=4.0cm] (api) at (7.15,-1.9)
+    {\textbf{Client API}\\Dasbor Analitik};
+  \node[external,text width=3.65cm] (audit) at (12.9,-1.9)
+    {Auditor\\HTTP + token Audit};
+
+  \node[component,text width=3.35cm] (bmkg) at (2.0,0)
+    {\textbf{BMKG mock}\\HTTP :8081};
+  \node[component,text width=3.35cm] (pvmbg) at (2.0,-1.8)
+    {\textbf{PVMBG mock}\\HTTP :8082};
+  \node[component,text width=3.65cm,minimum height=16mm,anchor=north] (pantai) at (2.0,-2.9)
+    {\textbf{Sensor Pantai}\\HTTP :8080\\[1mm]\ownedvolume{PVC \texttt{sensor-pantai-data}}};
+  \node[external,text width=3.35cm] (feed) at (2.0,-5.7)
+    {\textbf{Feed Satelit}\\SSE melalui HTTPS};
+
+  \node[component,text width=4.0cm,minimum height=19mm] (agg) at (7.15,-4.2)
+    {\textbf{Aggregator} ($\times$3)\\Ingest, Audit API, dan relay};
+  \node[component,text width=3.65cm,minimum height=20mm,anchor=north] (database) at (12.9,-3.25)
+    {\textbf{PostgreSQL}\\4 shard $\times$ 3 salinan\\[1mm]\ownedvolume{Data milik Aggregator}};
+
+  \node[component,text width=4.0cm,minimum height=16mm,anchor=north] (nats) at (7.15,-6.02)
+    {\textbf{NATS JetStream} ($\times$3)\\[1mm]\ownedvolume{PVC \textit{file store} JetStream}};
+
+  \node[component,text width=3.35cm,minimum height=16mm,anchor=north] (dash) at (2.0,-8.52)
+    {\textbf{Dashboard Consumer}\\[1mm]\ownedvolume{SQLite \texttt{dashboard-data}}};
+  \node[component,text width=4.0cm,minimum height=16mm,anchor=north] (notify) at (7.15,-8.52)
+    {\textbf{Notifier Consumer}\\[1mm]\ownedvolume{SQLite \texttt{notifier-data}}};
+  \node[component,text width=3.65cm,minimum height=16mm,anchor=north] (receiver) at (12.9,-8.52)
+    {\textbf{Penerima Tim Lapangan}\\[1mm]\ownedvolume{SQLite \texttt{field-alert-data}}};
+
+  \draw[wire] (clients.east) -- node[label]{HTTP} (auth.west |- clients.east);
+  \draw[wire] (clients) -- node[label,right]{HTTP + JWT} (api);
+  \draw[wire] (api) -- node[label,left]{HTTP internal} (agg);
+  \draw[wire] (audit.west) -- (10.12,-1.9) |- ([yshift=5.5mm]agg.east);
+  \draw[wire] (agg.east) -- node[label,above]{SQL/TLS} (database.west |- agg.east);
+
+  \draw[wire] ([yshift=6.6mm]agg.west) -- (4.20,-3.54) |- (bmkg.east);
+  \draw[wire] ([yshift=3.6mm]agg.west) -- (4.48,-3.84) |- (pvmbg.east);
+  \draw[wire] ([yshift=0.6mm]agg.west) -- (4.76,-4.14) |- (pantai.east);
+  \draw[wire] ([yshift=-3.1mm]agg.west) -- (4.48,-4.51) |- (feed.east);
+
+  \draw[event] (agg) -- node[label,right]{NATS / publish} (nats);
+  \draw[event] (nats.south) -- (7.15,-7.9) --
+    node[label,above]{NATS / pull, ACK} (2.0,-7.9) -- (dash.north);
+  \draw[event] (nats) -- node[label,right]{NATS / pull, ACK} (notify);
+  \draw[event] (notify.east) -- node[label]{HTTP} (receiver.west);
+\end{tikzpicture}%
+}
+\caption{Batas container aplikasi dan protokol komunikasi. Kotak putus-putus adalah pihak eksternal. Kotak kecil di dalam container menunjukkan penyimpanan yang dipakai oleh komponen tersebut. Container PostgreSQL memakai disk lokal dan menampung data kanonik, jurnal, dan outbox milik Aggregator. Panah berwarna mengikuti distribusi event.}
+\label{fig:m2-containers}
+\end{figure}

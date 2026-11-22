@@ -1,0 +1,99 @@
+\chapter{PROBLEM 5}
+\label{chap:problem-5}
+
+\begin{center}\large\bfseries Pelampung yang Berbohong\end{center}
+
+\section{Identifikasi Masalah}
+
+Sensor Pantai melengkapi peringatan tsunami BMKG dengan pengamatan langsung terhadap muka laut dan tinggi gelombang. Klaster menjalankan image Sensor Pantai dari asisten dengan digest yang ditetapkan dalam spesifikasi. Aplikasi membaca kontrak HTTP sensor dan mengikuti penanda \texttt{critical} dari sumber untuk menentukan apakah sebuah pengamatan perlu dikirim kepada Tim Lapangan~\cite{sensor}.
+
+Pada jalur masuk, respons HTTP yang berhasil masih bisa berisi data rusak atau kedaluwarsa. Kedua kondisi ini menuntut pemeriksaan yang berbeda. Validasi kontrak melindungi data kanonis dari rekaman yang salah (kriteria 2), sedangkan pemeriksaan kesegaran data mendeteksi kegagalan parsial ketika sensor masih menjawab tetapi pengamatan berhenti bertambah (kriteria 4). Jika polling atau pembacaan client ikut tertahan, gangguan sensor dapat menjalar ke sumber lain. Isolasi kegagalan membatasi dampak tersebut (kriteria 3), sementara \textit{backoff} mengurangi pengulangan permintaan saat sumber belum pulih (kriteria 4). Saat beban datang dari sisi client, \textit{load shedding} mengurangi permintaan Media agar sebagian kapasitas tetap tersedia bagi permintaan berprioritas (kriteria 5)~\cite{kleppmann2017,sre}.
+
+\section{Rancangan Solusi dan Mekanisme}
+
+\subsection{Validasi dan isolasi sumber}
+
+Aggregator melakukan polling terpisah dari sumber lain. Satu pemilik Sensor Pantai membaca hingga 100 pengamatan per halaman dan meneruskan \texttt{next\_cursor} sesuai nilai yang diberikan sensor. Rekaman mentah dan kursor disimpan dalam transaksi yang sama, sehingga kegagalan pengambilan tidak membuat cursor melompati data. Setelah itu, pemroses memeriksa field wajib, tinggi gelombang, dan koordinat stasiun sebelum membentuk \texttt{HazardEvent}. Anomali muka laut dapat bernilai negatif, sedangkan tinggi gelombang harus nol atau lebih. Pemroses menyisihkan rekaman rusak dengan alasan yang tercatat. Jika metadata stasiun belum tersedia atau belum valid, rekaman tetap berada di jurnal dan dicoba ulang dengan jeda 2--32 detik. Pemroses menyisihkan rekaman jika masalah masih ada pada percobaan kedelapan. Jendela ini memberi waktu bagi pembaruan katalog tanpa membiarkan satu rekaman bermasalah tertunda tanpa batas.
+
+Jeda polling sebesar 500~ms menyisakan sebagian besar target 5 detik untuk pemrosesan dan pengiriman. Panggilan HTTP dibatasi hingga 1 detik dan ukuran respons hingga 1~MiB agar sensor yang lambat atau mengirim data berlebihan tidak menahan adapter terlalu lama. Katalog stasiun diperbarui setiap menit dan dicoba lagi setelah 8 detik jika gagal. Adapter menandai sumber \texttt{stale} ketika pengamatan terbaru tertinggal lebih dari 2 menit dari waktu yang dilaporkan sensor atau tidak ada kemajuan timestamp pengamatan selama 30 detik, termasuk ketika endpoint mengembalikan HTTP~200. Saat sumber bermasalah, jeda dasar antarpercobaan naik dari 1 hingga 8 detik dan ditambah \textit{jitter} hingga 20\%. Halaman data historis tetap dibaca pada interval normal selama kursor maju dan halaman berisi rekaman agar antrean lama dapat dikuras setelah sumber pulih.
+
+Permintaan client dilayani dari penyimpanan, sehingga pemadaman sensor tidak menambah waktu tunggu koneksi ke sensor pada jalur baca. Jika data terakhir tersedia, API mengembalikannya dengan status \texttt{stale}. Jika sensor bermasalah dan belum ada data tersimpan, permintaan khusus Sensor Pantai memperoleh HTTP~503 dengan kode \path{SOURCE_UNAVAILABLE}.
+
+\subsection{Kapasitas client dan pengiriman peringatan}
+
+Client API dan Aggregator masing-masing membatasi 128 permintaan serentak. Dari jumlah itu, 32 slot tiap layanan dicadangkan untuk Tim Lapangan dan BNPB internal. Media menggunakan 96 slot umum dan menerima HTTP~429 dengan \texttt{Retry-After: 1} ketika kapasitas yang dapat dipakainya habis. Penerimaan laporan lapangan juga dibatasi hingga 64 permintaan serentak, sehingga beban prioritas tetap memiliki batas.
+
+Untuk pengamatan valid yang berlabel \texttt{critical}, transaksi penyimpanan menyertakan entri \textit{outbox}. JetStream menggunakan tiga replika dan notifier membaca pesan melalui \textit{durable consumer}. Notifier baru mengirim ACK setelah layanan penerima Tim Lapangan memberi HTTP~204 dan hasil pemrosesan lokal tersimpan. Penerima memberi HTTP~204 sesudah mencatat notifikasi di SQLite atau menemukan bahwa pengamatan yang sama sudah tercatat. Keberhasilan publikasi ke broker saja belum cukup untuk membuktikan penerima sudah menerima notifikasi. Dengan pengiriman \textit{at-least-once} dan pencatatan idempoten berdasarkan identitas \texttt{HazardEvent}, pengiriman ulang dapat memperbaiki kegagalan sementara tanpa menambah notifikasi ganda~\cite{nats}.
+
+Pada profil klaster, batas waktu ke penerima adalah 750~ms dan kegagalan yang terdeteksi memicu percobaan ulang setelah 1 detik. Jeda yang singkat ditujukan untuk gangguan sementara pada jalur dengan target 5 detik, sedangkan batas waktu mencegah panggilan ke penerima menahan notifier tanpa batas. Pesan tanpa ACK dapat dikirim ulang setelah 30 detik. Jumlah percobaan consumer tidak dibatasi selama pesan masih dalam retensi stream, yang dibatasi oleh umur 24 jam, 100.000 pesan, dan 256 MiB. Pemulihan melalui pengiriman ulang masih dapat menghasilkan notifikasi yang melewati target latensi.
+
+\subsection{Target keandalan Tim Lapangan}
+
+Pada jendela pengujian, setiap pengamatan kritis yang valid harus menghasilkan satu tanda terima persisten di layanan penerima, dan p95 latensinya harus paling tinggi 5 detik. Titik awal latensi adalah saat pengamatan tersedia di sensor menurut daftar pembanding independen. Titik akhirnya adalah timestamp pada tanda terima yang berhasil disimpan. Histogram di Grafana mengukur sejak Aggregator menerima pengamatan, sehingga membantu menemukan perlambatan internal tetapi belum mencakup waktu tunggu polling. Saat melakukan penilaian, daftar independen dicocokkan dengan tanda terima lewat \path{scripts/m2/check-field-alerts.py}. Penilaian membutuhkan timestamp yang mengacu pada jam dinding yang sama. Waktu pengamatan dalam profil latihan dapat dipercepat oleh sensor.
+
+Untuk $N$ pengamatan kritis yang valid, anggaran keterlambatan adalah $N-\lceil 0{,}95N\rceil$. Pemakaian anggaran dihitung dari jumlah tanda terima yang melewati 5 detik. Jika anggarannya lebih dari nol, pemakaian dapat dinyatakan sebagai jumlah keterlambatan dibagi anggaran. Jika anggarannya nol, satu keterlambatan saja sudah melampaui target. Kehilangan dan duplikasi dilaporkan secara terpisah dengan target nol untuk keduanya. Hasil hanya dapat dinilai jika daftar independen beserta waktu tersedia mencakup semua pengamatan kritis pada jendela uji~\cite{sre}.
+
+\section{Alasan Keputusan dan Trade-off}
+
+Membaca langsung ke sensor memang dapat menyajikan data yang lebih baru, tetapi juga membawa latensi dan kegagalan sensor ke permintaan client. Dengan polling terpisah, konsekuensi bagi client terutama berupa penurunan kesegaran data.
+
+Tanpa cadangan, permintaan Media dapat memenuhi seluruh slot sebelum ada permintaan Tim Lapangan. Cadangan seperempat kapasitas memberikan ruang bagi permintaan prioritas dengan konsekuensi sebagian slot bisa menganggur saat seluruh beban berasal dari Media.
+
+\section{Batasan yang Disadari}
+
+Hasil di atas berasal dari profil latihan dan input terkendali. Sensor, Notifier, dan Penerima Tim Lapangan memakai volume persisten lokal milik masing-masing. Bukti pemulihan pod pada konfigurasi tersebut belum menunjukkan kemampuan bertahan terhadap kehilangan permanen volume atau node yang menampungnya. Notifier membaca satu stream bersama sumber lain. Antrean pada stream, pemulihan metadata yang berlarut, dan pengiriman ulang setelah batas waktu ACK dapat mendorong latensi melampaui 5 detik. Jumlah permintaan ke sensor selama pemadaman belum direkam, sehingga batas laju polling pada skenario tersebut didukung oleh konfigurasi dan belum oleh pengukuran.
+
+\section{Bukti Penyelesaian}
+
+Pada 21 November 2026, sensor pada profil latihan dihentikan lalu dijalankan kembali pada klaster k3s lokal. Tabel~\ref{tab:p5-practice} menunjukkan satu probe pada setiap fase. Selama sensor mati, API tetap mengembalikan pengamatan terakhir. Saat sensor aktif lagi, polling dan status \texttt{fresh} kembali tanpa restart Aggregator. Dalam periode gangguan tersebut, masing-masing 14 permintaan BMKG dan PVMBG mengembalikan HTTP~200 beserta data, dengan p95 masing-masing 12,9~ms dan 44,2~ms. Sampel ini menunjukkan pemisahan jalur baca pada beban ringan. Untuk menilai kriteria latensi M1, p95 pembacaan BMKG perlu diukur saat pembacaan sumber lain berlangsung serentak dan dibandingkan dengan ambang 300~ms. M1 juga meminta pengujian beban sedikitnya 50 koneksi selama 60 detik.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Probe baca Sensor Pantai sebelum, selama, dan sesudah pemadaman pada profil latihan.}
+  \label{tab:p5-practice}
+  \begin{tabularx}{\linewidth}{@{}Y c l r@{}}
+    \toprule
+    Fase & HTTP & Status sumber & Latensi \\
+    \midrule
+    Sensor berjalan & 200 & \texttt{fresh} & 122,4~ms \\
+    Sensor dihentikan & 200 & \texttt{stale} & 32,2~ms \\
+    Sensor dijalankan kembali & 200 & \texttt{fresh} & 6,0~ms \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Dari sesi latihan tersebut, penerima mencatat tiga tanda terima kritis unik. Catatan ini membuktikan bahwa jalur pengiriman mencapai layanan penerima. Untuk menilai cakupan dan p95 ujung ke ujung, hasil tersebut masih perlu dicocokkan dengan daftar pengamatan kritis dari sensor beserta waktu ketersediaannya.
+
+\subsection{Perilaku yang diperiksa dengan input terkendali}
+
+Tabel~\ref{tab:p5-fixtures} merangkum pengujian dengan respons HTTP yang sengaja diatur untuk memicu setiap kasus. Hasilnya menunjukkan bagaimana adapter menangani data bermasalah sesuai kontrak.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Cara mendeteksi gangguan dan hasil pengujian mekanisme penanganannya.}
+  \label{tab:p5-fixtures}
+  \small
+  \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.23\linewidth} Y Y@{}}
+    \toprule
+    Perilaku & Cara menemukan & Hasil dan penanganan \\
+    \midrule
+    Data tertinggal walaupun HTTP~200 & Uji adapter menyisipkan respons sukses dengan pengamatan lama lalu memeriksa status sumber. & Adapter menandai sumber \texttt{stale}. \\
+    Pengamatan kritis merujuk pada stasiun yang belum terdaftar & Uji integrasi menunda katalog stasiun, mengamati cursor, lalu membuka kembali akses ke metadata dan penerima. & Cursor tetap maju, rekaman valid lain diproses, dan pengamatan kritis menghasilkan satu tanda terima setelah dependensi pulih. \\
+    Tinggi gelombang negatif & Uji integrasi memeriksa jurnal dan data kanonis setelah mengirim gelombang bernilai negatif. & Satu rekaman disisihkan dengan alasan \path{coastal_observation_invalid_fields}. Dua rekaman valid dari skenario yang sama menjadi \texttt{HazardEvent}. \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Uji prioritas pada Client API mengisi tiga dari empat slot dengan permintaan Media. Permintaan Media berikutnya menerima HTTP~429 dan header \texttt{Retry-After}, sementara pengajuan laporan oleh Tim Lapangan menerima HTTP~202 pada pengujian yang sama. Uji ini memeriksa pembagian kapasitas di API dengan upstream terkendali. Pengaruhnya terhadap latensi dan tingkat penolakan pada klaster masih perlu diuji saat beban tinggi.
+
+Untuk diagnosis, grafik polling per sumber memperlihatkan apakah kegagalan terpusat di Sensor Pantai. Grafik p95 pembacaan per sumber serta jumlah HTTP~429 membantu melihat imbasnya terhadap client. Grafik waktu pengiriman ke penerima dan hasil percobaan notifier membantu membedakan hambatan pada sensor dari hambatan pengiriman. Log perubahan kondisi sumber menyertakan \texttt{correlation\_id} yang dapat ditelusuri di Loki. Tempo melengkapi penelusuran jika permintaan tercakup oleh sampling. Pada pemeriksaan klaster, satu jejak dengan 14 span menautkan Client API dan Aggregator hingga akses basis data. Saat game day, tiap anggota perlu menunjukkan cara mengaitkan gejala di dasbor dengan log atau jejak yang relevan.
+
+\subsection{Catatan Insiden Latihan}
+
+Saat Sensor Pantai dihentikan pada latihan, probe mendeteksi gangguan melalui perubahan status dari \texttt{fresh} menjadi \texttt{stale}. Pembacaan pesisir tetap HTTP~200 dengan data terakhir. Permintaan BMKG dan PVMBG yang disampel tetap berhasil. Setelah sensor dijalankan kembali, Aggregator melanjutkan polling dan status kembali \texttt{fresh} tanpa restart. Untuk pengujian berikutnya, pengukuran perlu mencatat laju polling sepanjang gangguan dan mencocokkan tanda terima dengan daftar pengamatan kritis dari sensor.
+
+Skenario latihan ini melibatkan satu gangguan yang disengaja. Postmortem game day dan penghitungan penggunaan anggaran keterlambatan bergantung pada hasil uji gabungan dengan profil ujian pada tahap demonstrasi.
+
+\section{Jawaban atas Butir ``Di laporan''}
+
+Konfigurasi isolasi sumber menetapkan batas polling, waktu tunggu, dan jeda percobaan ulang. Tabel~\ref{tab:p5-fixtures} mencatat perilaku menyimpang yang diuji, cara mengenalinya, dan hasil penanganan. Catatan insiden latihan menjelaskan satu pemadaman. Hasil game day untuk postmortem dan anggaran keterlambatan diukur pada tahap demonstrasi.

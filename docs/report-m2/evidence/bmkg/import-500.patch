@@ -1,0 +1,61 @@
+--- a/services/aggregator/internal/sharded/bmkg_import_integration_test.go
++++ b/services/aggregator/internal/sharded/bmkg_import_integration_test.go
+@@ -2,11 +2,14 @@
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"path/filepath"
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+@@ -35,8 +38,8 @@
+ 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+ 	defer cancel()
+ 
+-	const totalRows = 30
+-	const crashAfterRows = 10
++	const totalRows = 500
++	const crashAfterRows = 100
+ 	path := writeSyntheticCatalogFixture(t, totalRows)
+ 	process := pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations()))
+ 
+@@ -146,6 +149,32 @@
+ 			t.Fatalf("event %s must exist exactly once after resume: found=%v err=%v", eventID, found, err)
+ 		}
+ 	}
++	expectedIDs := make([]string, 0, totalRows)
++	for row := 1; row <= totalRows; row++ {
++		expectedIDs = append(expectedIDs, fmt.Sprintf("synthetic-eq-%05d", row))
++	}
++	expected := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(expectedIDs, "\n"))))
++	persisted, err := repository.AuditChecksum(ctx, contracts.SourceBMKG)
++	if err != nil || persisted.Partial || persisted.Count != totalRows || persisted.Checksum != expected {
++		t.Fatalf("catalog checksum: %+v expected=%s err=%v", persisted, expected, err)
++	}
++	counts := map[string]int{}
++	for i := 0; i < 4; i++ {
++		name := fmt.Sprintf("shard-%d", i)
++		var count int
++		if err := repository.lookup(name).readDB.QueryRowContext(ctx, "SELECT count(*) FROM hazard_events WHERE source='BMKG'").Scan(&count); err != nil || count == 0 {
++			t.Fatalf("bucket %s has %d rows: %v", name, count, err)
++		}
++		counts[name] = count
++	}
++	evidence, err := json.Marshal(map[string]any{"dataset": "synthetic CSV, one coordinate/region", "rows": totalRows,
++		"rows_journaled_before_interrupt": crashAfterRows, "row_counts_by_logical_unit": counts, "expected_checksum": expected,
++		"audit_checksum": persisted.Checksum, "partial": persisted.Partial})
++	if err != nil {
++		t.Fatal(err)
++	}
++	fmt.Println(string(evidence))
++
+ }
+ 
+ func writeSyntheticCatalogFixture(t *testing.T, rows int) string {

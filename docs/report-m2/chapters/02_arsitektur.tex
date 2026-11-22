@@ -1,0 +1,52 @@
+\chapter{ARSITEKTUR SISTEM}
+
+\section{Diagram Arsitektur}
+Gambar~\ref{fig:m2-architecture} menunjukkan tiga jalur utama. Jalur masuk membawa data dari sumber ke jurnal milik Aggregator. Jalur baca membawa permintaan client melalui Client API menuju Aggregator. Jalur distribusi meneruskan perubahan yang telah tersimpan ke dashboard dan penerima peringatan. Dengan susunan ini, tiap layanan mengakses data melalui layanan pemiliknya.
+
+\input{figures/architecture}
+
+\section{Komponen dan Tanggung Jawab}
+
+Auth menerbitkan token, sedangkan Client API memverifikasinya secara lokal dan menerapkan hak akses pada setiap permintaan. Replika Aggregator ditemukan melalui satu alamat layanan. Untuk tiap sumber, hanya pemilik sesi yang mengambil data dan melanjutkan jurnal. Kunci kepemilikan dan nomor generasi berada di PostgreSQL agar replika yang mengambil alih dapat melanjutkan dari posisi yang tersimpan.
+
+Aggregator menyimpan data tiap sumber dan perubahan kanonik pada unit penyimpanan yang telah ditentukan. Setiap perubahan kanonik yang perlu dipublikasikan dicatat di \textit{outbox} dalam transaksi yang sama. Relay membaca catatan tersebut dan menerbitkannya ke JetStream. Dashboard Consumer dan Notifier Consumer memakai posisi baca serta penyimpanan SQLite masing-masing. Notifier meneruskan peringatan pesisir kritis ke Penerima Tim Lapangan, yang menyimpan tanda terimanya sendiri. Dasbor Analitik pada Client API menghitung data melalui Aggregator dan berbeda fungsi dari Dashboard Consumer yang mengikuti arus event.
+
+Audit API berada di Aggregator dengan token tersendiri. Auditor dapat membaca data, checksum, lokasi salinan, dan status masukan yang belum selesai. Jalur operasi BNPB untuk memeriksa dan mengulang pesan gagal tetap melalui Client API. Pemisahan hak akses ini menjaga agar kredensial auditor hanya berlaku untuk pemeriksaan.
+
+\section{Batas Container, Penyimpanan, dan Protokol}
+Gambar~\ref{fig:m2-containers} memperinci jalur aplikasi pada Gambar~\ref{fig:m2-architecture}. Aggregator mengakses data kanonik melalui PostgreSQL, sedangkan Client API dan auditor mengaksesnya lewat HTTP. Basis data internal Auth dan consumer terpasang sebagai volume masing-masing. Broker juga memakai volume sendiri untuk menyimpan stream dan posisi baca.
+
+\input{figures/container-boundaries}
+
+\subsection{Observabilitas}
+Alur metrik, log, dan trace pada Gambar~\ref{fig:m2-telemetry} memakai container dan volume tersendiri. Telemetri dapat ditelusuri di Grafana ketika pengujian berlangsung.
+
+\input{figures/telemetry}
+
+\section{Diagram Deployment dan Topologi}
+Lingkungan acuan pengujian menggunakan Hetzner Cloud di Helsinki. OpenTofu menyiapkan empat VM Ubuntu untuk k3s dan satu VM terpisah untuk k6. \texttt{aat-dev} berperan sebagai control plane sekaligus worker. Setiap VM memiliki kernel sendiri. Penempatan VM pada host fisik dikelola penyedia. Tabel~\ref{tab:topology} mencantumkan alokasi tiap VM \cite{hetzner-cpx,hetzner-ccx}.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}lYlrr@{}}
+\toprule
+VM & Peran & Tipe & vCPU & RAM \\
+\midrule
+\texttt{aat-dev} & Control plane dan worker & CCX33 & 8 & 32 GB \\
+\texttt{aat-worker-1} & Worker & CPX32 & 4 & 8 GB \\
+\texttt{aat-worker-2} & Worker & CCX23 & 4 & 16 GB \\
+\texttt{aat-worker-3} & Worker & CPX32 & 4 & 8 GB \\
+\texttt{aat-loadgen} & Generator beban k6 & CPX52 & 12 & 24 GB \\
+\bottomrule
+\end{tabularx}
+\caption{Alokasi VM untuk pengujian di Hetzner Cloud.}
+\label{tab:topology}
+\end{table}
+
+\input{figures/deployment}
+
+Pada fase utama uji beban, tiga replika Client API berjalan di \texttt{aat-dev} bersama Auth, mock BMKG dan PVMBG, consumer, penerima peringatan, serta layanan observabilitas. Tiga Aggregator awal dan tiga broker JetStream tersebar di tiga worker. \texttt{aat-loadgen} mengirim permintaan kepada Client API melalui jaringan privat dan memperoleh token dari Auth.
+
+Setiap kelompok PostgreSQL menyimpan salinannya di disk lokal pada tiga node berbeda. Label penempatan memilih node yang berhak menyimpan shard dan aturan \textit{pod anti-affinity} menjaga agar dua salinan shard yang sama tidak berada pada satu node. Ketika primary berpindah, aplikasi tetap mengakses alamat layanan untuk shard tersebut.
+
+Seluruh pod aplikasi berada di namespace \texttt{sistem-informasi-kebencanaan-bnpb} dan diberi label \texttt{role} sesuai kelasnya. Manifest mendefinisikan \textit{resource request} dan \textit{limit}. NetworkPolicy membatasi akses langsung ke penyimpanan. Kredensial dimuat dari Kubernetes Secret dan pengaturan aplikasi dari ConfigMap.

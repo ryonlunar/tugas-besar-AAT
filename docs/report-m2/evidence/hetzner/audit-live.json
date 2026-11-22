@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "recovery_exercised": false,
+  "checks": {
+    "credential_separation": true,
+    "physical_copies": [
+      {
+        "node": "aat-dev",
+        "unit": "shard-1",
+        "role": "primary"
+      },
+      {
+        "node": "aat-worker-2",
+        "unit": "shard-1-1",
+        "role": "replica"
+      },
+      {
+        "node": "aat-worker-3",
+        "unit": "shard-1-2",
+        "role": "replica"
+      }
+    ],
+    "audit_records_sampled": 3,
+    "checksum_count_observed": 446
+  }
+}

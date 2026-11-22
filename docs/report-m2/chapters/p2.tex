@@ -1,0 +1,127 @@
+\chapter{PROBLEM 2}
+\label{ch:p2}
+
+\begin{center}\large\bfseries Dua Nakhoda, Satu Kapal\end{center}
+
+\section{Identifikasi Masalah}
+
+Beberapa instance Aggregator dapat melayani pembacaan secara paralel. Namun, bila setiap instance juga menarik data dari sumber yang sama, penambahan replika melipatgandakan permintaan upstream dan membuka peluang data diproses lebih dari sekali. Sistem perlu memilih satu pemilik tugas pengambilan per sumber dan memisahkan peran itu dari layanan pembacaan. Persoalan ini berkaitan dengan \emph{leader election}, \emph{mutual exclusion}, dan pemrosesan idempoten \cite{kleppmann2017}.
+
+Pemilihan pemilik saja belum mencegah penulisan oleh pemilik lama. Jam antarnode bisa berbeda (\emph{clock skew}) dan proses yang berhenti sementara dapat berjalan lagi setelah tugasnya beralih. Penyimpanan perlu memeriksa generasi pemilik pada saat penulisan. Generasi yang selalu bertambah berfungsi sebagai \emph{fencing token}, sehingga permintaan lama bisa dikenali walaupun masih ada di antrean atau sedang berjalan.
+
+\section{Rancangan Solusi dan Mekanisme}
+
+\subsection{Pembagian lalu lintas pembacaan}
+
+Permintaan client masuk melalui Client API. Ia menemukan instance Aggregator siap melalui Service \texttt{aggregator-peers}, merotasi pilihan instance, dan dapat mencoba hingga tiga alamat jika koneksi gagal. Semua percobaan berbagi tenggat dua detik. Respons HTTP~429 diteruskan sebagai penolakan terkontrol agar percobaan ulang tidak memperberat beban. Deployment mengutamakan node berbeda dalam penjadwalan. Saat penggantian versi, Kubernetes menambah hingga satu pod baru, menunggu pod siap, lalu menghentikan pod lama. Jeda delapan detik sebelum penghentian memberi waktu bagi cache DNS lima detik di Client API untuk diperbarui.
+
+\subsection{Kepemilikan sumber dan wewenang waktu}
+
+Setiap sumber mempunyai shard jurnal yang tetap. Untuk memulai pengambilan, instance mengambil \emph{advisory lock} eksklusif melalui sesi khusus ke primary jurnal. Setelah memperoleh lock, instance menaikkan generasi yang tersimpan di jurnal dan membaca kursor terakhir. Ia memasang generasi itu sebagai pagar penulisan pada seluruh shard kanonis sebelum menghubungi upstream. Dengan demikian, sumber berbeda dapat diambil secara paralel, sementara masing-masing tetap memiliki satu pemilik.
+
+Payload mentah dan kemajuan kursor ditulis dalam satu transaksi yang memeriksa generasi dan kursor sebelumnya. Ketika hasil olahan ditulis, transaksi memeriksa sesi pemilik dan mengunci baris pagar pada shard tujuan. Generasi lama ditolak setelah pagar diperbarui. Jurnal menyimpan identitas masukan, sementara shard kanonis menjaga keunikan kejadian dan mencatat penyelesaian penulisan. Setelah perpindahan pemilik, Aggregator dapat melanjutkan dari kursor terakhir dan mengulang pekerjaan yang belum selesai tanpa membuat \texttt{HazardEvent} ganda. Jika proses putus di antara pembacaan upstream dan commit jurnal, pembacaan tersebut dapat diulang oleh pemilik baru. Oleh karena itu, kepemilikan tunggal saat mengambil data tetap perlu dilengkapi dengan penulisan yang idempoten.
+
+PostgreSQL menjadi otoritas masa berlaku sesi dan urutan generasi \cite{postgres}. Selama sesi masih sah, primary menahan lock meskipun jam salah satu Aggregator melompat. Bila proses membeku hingga sesi kedaluwarsa, primary melepas lock. Pemilik berikutnya memasang generasi baru, sehingga proses lama yang bangun dengan generasi sebelumnya harus memperoleh ulang kepemilikan sebelum menulis. Jam sistem masih digunakan untuk cap waktu log dan indikator kesegaran. Dengan demikian, perubahan jam dapat memengaruhi keduanya tanpa memperbarui hak menulis.
+
+\subsection{Batas waktu koordinasi}
+
+\begin{table}[htbp]
+\centering\small
+\caption{Batas waktu pengambilalihan dan dampaknya pada pemulihan.}
+\label{tab:p2-timeouts}
+\begin{tabularx}{\linewidth}{@{}l l Y@{}}
+\toprule
+Pengaturan & Nilai & Dampak \\
+\midrule
+Sesi tanpa aktivitas & 10~detik & Primary dapat melepas lock sesi yang ditinggalkan. Sesi bisa ikut berakhir bila node sehat berhenti cukup lama. \\
+Heartbeat & Sekitar 3{,}3~detik & Memberi beberapa kesempatan memperbarui sesi sebelum kedaluwarsa dengan biaya transaksi berkala. \\
+Operasi basis data & 2~detik & Kerja yang tertahan cepat dibatalkan. Tenggat server untuk transaksi menganggur juga membatasi lamanya transaksi terbengkalai menahan pagar. \\
+Percobaan mengambil lock & Sekitar 2~detik & Jeda acak mengurangi benturan antarcalon pemilik, dengan tambahan waktu tunggu saat sesi lama berakhir. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Nilai pada Tabel~\ref{tab:p2-timeouts} memberi ruang untuk pengambilalihan dalam target 60~detik pada gangguan yang diuji. Selain ambang sesi tanpa aktivitas, durasi pemulihan dipengaruhi promosi primary jika node basis data ikut hilang, pemasangan pagar pada semua shard, dan waktu tanggap upstream.
+
+\section{Alasan Keputusan dan Trade-off}
+
+Lease berdasarkan cap waktu buatan instance akan bergantung pada selisih jam antarnode. Kubernetes Lease dapat membantu memilih pemilik, tetapi penulisan tetap membutuhkan pagar yang diperiksa oleh basis data. Advisory lock menempatkan pengambilan keputusan dan penyimpanan generasi jurnal pada primary yang sama. Konsekuensinya, pengambilan tertahan selama primary jurnal belum siap menerima transaksi.
+
+\section{Batasan yang Disadari}
+
+Uji 22 November 2026 memakai BMKG dan PVMBG mock serta workload k6 yang disusun kelompok. Setiap pengguna virtual membaca hingga 50 kejadian dengan jeda delapan detik antarpembacaan. Hasil menggambarkan kapasitas pada pola baca dan topologi tersebut. Workload dari asisten digunakan pada tahap demonstrasi.
+
+Penambahan replika Client API diperlukan karena satu pod mencapai limit memori pada uji awal. Dalam pembandingan throughput, satu Aggregator dijadwalkan pada worker CCX23, sedangkan tiga Aggregator tersebar pada tiga worker. Rasio terukur mencakup pengaruh distribusi beban antarmesin. Respons lengkap dan HTTP~200 dilaporkan terpisah karena respons parsial tetap melayani client dengan data yang tersedia saat itu.
+
+\section{Bukti Penyelesaian}
+
+\subsection{Lingkungan dan konfigurasi beban}
+
+Pengujian berlangsung pada klaster Hetzner dengan satu control plane dan tiga worker. Ketiga Aggregator awal siap pada worker yang berbeda. k6~2.4.0 berjalan pada VM CPX52 tersendiri. Skenario \texttt{ramping-vus} menaikkan beban selama 45 detik, menahan target 10.000 VU selama 150 detik, lalu menurunkannya selama 10 detik. Tiap VU bergantian membaca kejadian BMKG dan PVMBG melalui Client API. Runner menyegarkan token Tim Lapangan melalui Auth dan membagikannya ke VU melalui relay lokal. Dengan demikian, laju login tidak ikut bertambah seiring jumlah VU. Pengukuran throughput memakai \texttt{constant-arrival-rate} \cite{k6}. Skrip workload tersedia di \path{scripts/load/m2-p2.js}, dengan petunjuk penggunaan di \path{scripts/README.md}.
+
+\subsection{Perpindahan pemilik, perubahan jam, dan proses yang membeku}
+
+Setelah permintaan penghapusan pod pemilik, mock BMKG menerima polling dari Aggregator pengganti dalam 3{,}64 detik dan PVMBG dalam 6{,}44 detik. Pemindaian data kanonis menemukan urutan ID referensi mock dari kedua sumber tanpa celah atau duplikat. Selama uji tersebut, seluruh 1.701 permintaan baca menghasilkan respons lengkap. Berikut timestamp UTC dan correlation ID dari polling sukses pertama oleh masing-masing pengganti.
+
+\terminalfigure{p2-owner-polls}{Polling sukses pertama dari pemilik baru menurut log mock BMKG dan PVMBG.}{fig:p2-poll-pengganti}
+
+Pada uji \textit{clock skew}, NTP di worker pemilik BMKG dinonaktifkan dan jam digeser $+45$ lalu $-30$ detik, masing-masing selama 25 detik. Setiap endpoint tetap menerima polling dari satu pemanggil sepanjang pengamatan. Pemindaian data kanonis juga memperoleh urutan lengkap untuk kedua sumber. NTP dikembalikan ke pengaturan semula setelah uji.
+
+Pada uji \textit{freeze}, cgroup pod dan agen k3s pada worker pemilik dibekukan selama 36 detik. Container yang sama melanjutkan eksekusi dan mencatat pelepasan sesi BMKG dan PVMBG dengan alasan \texttt{OWNERSHIP\_REACQUIRE}. Polling sukses dari pemilik lama hanya tercatat sebelum freeze. Replika lain mulai memanggil BMKG sekitar 0{,}8 detik setelah thaw. Pemindaian sesudahnya memperoleh urutan lengkap untuk kedua sumber. Penolakan tulis diperiksa secara terpisah di PostgreSQL melalui \path{TestExpiredOwnerCannotAppendAfterTakeover}, yang memastikan append dari sesi lama gagal setelah pengambilalihan.
+
+Cuplikan berikut membaca hasil fixture dari direktori sumber laporan.
+
+\terminalfigure{p2-owner-fixture}{Pemeriksaan hasil fixture yang menguji penolakan penulisan dari pemilik lama.}{fig:p2-owner-fixture}
+
+\subsection{Perubahan skala pada 10.000 VU}
+
+Pada percobaan awal, satu pod Client API mencapai limit 256~MiB. Kubernetes mencatat \texttt{OOMKilled} dan lima restart. Dua pengulangan memakai tiga replika Client API dengan limit yang sama per pod. Sampel pada pengulangan pertama menunjukkan pemakaian 118--121~MiB per pod. Pada kedua pengulangan, Aggregator berubah dari tiga menjadi lima lalu dua replika siap saat 10.000 VU aktif (Gambar~\ref{fig:p2-active-vus}).
+
+\input{figures/p2-active-vus}
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}Yrrrrr@{}}
+\toprule
+Percobaan & Durasi & Lengkap & Parsial & HTTP~429 & Galat lain \\
+\midrule
+Awal (1 API) & 149{,}3 s & 21.188 & 5 & 2.859 & 85{,}20\% \\
+Pengulangan 1 (3 API) & 149{,}2 s & 186.487 & 372 & 447 & 0\% \\
+Pengulangan 2 (3 API) & 149{,}2 s & 187.225 & 44 & 0 & 0\% \\
+\bottomrule
+\end{tabularx}
+\caption{Hasil baca saat 10.000 VU aktif. Respons parsial memperoleh HTTP~200.}
+\label{tab:p2-load}
+\end{table}
+
+Pada dua pengulangan, p95 pembacaan lengkap sebesar 17{,}2 dan 13{,}8~ms. Log kedua mock mencatat 80 dan 79 polling sukses pada fase beban tetap. Pada setiap endpoint, log menunjukkan nol polling tumpang tindih dari replika berbeda dan nol pengulangan correlation ID. Pemindaian setelah beban berakhir juga menemukan nol celah atau duplikat pada urutan ID referensi mock.
+
+\subsection{Throughput satu dan tiga Aggregator}
+
+Setiap pasangan memakai laju masukan yang sama selama 35 detik dan tiga replika Client API. Seluruh pasangan mencatat nol galat tak terduga dan nol iterasi terlewat. Tabel~\ref{tab:p2-throughput} menampilkan throughput pembacaan lengkap dan rasio HTTP~200 yang mencakup respons lengkap serta parsial.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Laju / uji & 1 replika (lengkap/s) & 3 replika (lengkap/s) & Rasio lengkap & Rasio HTTP~200 \\
+\midrule
+2.400 / 1 & 487{,}8 & 1.037{,}8 & 2{,}13$\times$ & 2{,}68$\times$ \\
+2.400 / 2 & 577{,}0 & 939{,}0 & 1{,}63$\times$ & 2{,}44$\times$ \\
+1.800 / 1 & 251{,}1 & 1.223{,}1 & 4{,}87$\times$ & 2{,}73$\times$ \\
+1.800 / 2 & 518{,}9 & 1.195{,}3 & 2{,}30$\times$ & 2{,}39$\times$ \\
+\bottomrule
+\end{tabular}
+\caption{Laju yang ditawarkan dalam permintaan per detik dan hasil pada dua konfigurasi. Ringkasan uji 1.800 / 2 untuk tiga replika diambil dari keluaran konsol setelah ekspor berkas terputus.}
+\label{tab:p2-throughput}
+\end{table}
+
+Pada empat pasangan, throughput HTTP~200 dengan tiga Aggregator mencapai 2{,}39--2{,}73 kali throughput satu Aggregator. Untuk pembacaan lengkap, tiga pasangan melampaui dua kali, sementara pengulangan kedua pada 2.400 permintaan per detik mencapai 1{,}63 kali. Pada laju 2.400, banyak respons berupa hasil parsial atau penolakan terkontrol, sehingga kedua ukuran memberi gambaran yang berbeda tentang kapasitas layanan.
+
+\subsection{Pergantian versi saat ada beban}
+
+Saat 10.000 VU aktif, image Aggregator versi awal diganti secara bertahap dengan versi yang dipakai pada uji skala. Ketiga replika versi baru siap dalam 16{,}1 detik, dihitung sejak perubahan diminta. Selama fase beban tetap, Client API mengembalikan 187.199 respons lengkap dan 82 respons parsial dengan HTTP~200. Sepanjang pengujian, tidak ada permintaan gagal maupun penolakan HTTP~429.
+
+\section{Jawaban atas Butir ``Di laporan''}
+
+Primary PostgreSQL menentukan masa berlaku sesi. Generasi pemilik membatasi hak tulis setelah pengambilalihan, termasuk saat jam bergeser atau proses lama kembali aktif. Tabel~\ref{tab:p2-timeouts} mencatat batas waktu dan dampaknya. Bagian bukti menyajikan konfigurasi k6, hasil dua uji 10.000 VU, pembandingan throughput, dan pergantian versi.

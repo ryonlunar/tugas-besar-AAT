@@ -1,0 +1,410 @@
+{
+  "date_wib": "2026-11-21",
+  "revision": "1ab4ae6f06d6bcbdf54c050de0df12339d617896",
+  "profiles": [
+    "four-VM k3s practice cluster on Refki’s laptop",
+    "disposable four-shard PostgreSQL tests"
+  ],
+  "specification": {
+    "file": "IF4031 - Tugas Besar - M2.pdf",
+    "sha256": "6e4ba4700b90dbbc86bd18f23a9a704fbb6ee9724ad4cae33396bd8bdf46d16a",
+    "submission_section_code_report_wib": "2026-11-22 23:59",
+    "video_submission_wib": "2026-11-29 23:59"
+  },
+  "go_tests": {
+    "command": "go test -p 2 -count=1 ./...",
+    "packages_with_tests_passed": 30,
+    "disposable_postgresql_tests_passed": [
+      "TestBMKGCatalogImportResumesWithoutDuplicates",
+      "TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce",
+      "TestDurableProcessingReplayAndAudit",
+      "TestPVMBGIncompatibleModesReplayAfterAdaptation",
+      "TestPVMBGMalformedInputsDoNotBlockOthers",
+      "TestSatelliteRecognizerPersistsThroughRealPostgres",
+      "TestSatelliteRetriesAfterTemporaryStorageTimeout",
+      "TestRoutingFencingAndPartialReads"
+    ]
+  },
+  "cluster": {
+    "started_at": "2026-11-21T09:20:48.439665+00:00",
+    "profile": "multi-node-development",
+    "passed": true,
+    "checks": {
+      "aggregator_nodes": [
+        "aat-worker-1",
+        "aat-worker-2",
+        "aat-worker-3"
+      ],
+      "http_database_trace": {
+        "trace_id": "2747f5768d6543e29c7b57ec360514c2",
+        "services": [
+          "aggregator",
+          "client-api"
+        ],
+        "spans": 14
+      },
+      "correlated_logs": true,
+      "storage_units": {
+        "shard-0": {
+          "records": 81350,
+          "pending": 0,
+          "streaming": 2,
+          "synchronous": 1,
+          "synchronous_commit": "on",
+          "recovery": {
+            "use_pg_rewind": true,
+            "remove_data_directory_on_rewind_failure": true,
+            "remove_data_directory_on_diverged_timelines": true
+          },
+          "primary": "shard-0-2",
+          "nodes": [
+            "aat-worker-1",
+            "aat-worker-2",
+            "aat-worker-3"
+          ]
+        },
+        "shard-1": {
+          "records": 81078,
+          "pending": 0,
+          "streaming": 2,
+          "synchronous": 1,
+          "synchronous_commit": "on",
+          "recovery": {
+            "use_pg_rewind": true,
+            "remove_data_directory_on_rewind_failure": true,
+            "remove_data_directory_on_diverged_timelines": true
+          },
+          "primary": "shard-1-2",
+          "nodes": [
+            "aat-dev",
+            "aat-worker-2",
+            "aat-worker-3"
+          ]
+        },
+        "shard-2": {
+          "records": 80990,
+          "pending": 0,
+          "streaming": 2,
+          "synchronous": 1,
+          "synchronous_commit": "on",
+          "recovery": {
+            "use_pg_rewind": true,
+            "remove_data_directory_on_rewind_failure": true,
+            "remove_data_directory_on_diverged_timelines": true
+          },
+          "primary": "shard-2-2",
+          "nodes": [
+            "aat-dev",
+            "aat-worker-1",
+            "aat-worker-3"
+          ]
+        },
+        "shard-3": {
+          "records": 81271,
+          "pending": 0,
+          "streaming": 2,
+          "synchronous": 1,
+          "synchronous_commit": "on",
+          "recovery": {
+            "use_pg_rewind": true,
+            "remove_data_directory_on_rewind_failure": true,
+            "remove_data_directory_on_diverged_timelines": true
+          },
+          "primary": "shard-3-2",
+          "nodes": [
+            "aat-dev",
+            "aat-worker-1",
+            "aat-worker-2"
+          ]
+        }
+      },
+      "jetstream_replicas": 3
+    }
+  },
+  "durable_pipeline": {
+    "passed": true,
+    "recovery_exercised": true
+  },
+  "p1": {
+    "synthetic_csv": {
+      "audit_checksum": "aec6c971e17e86b0094cf1bb79c95e14f2d00c0b16b63265cd6b50c4c1c262ff",
+      "dataset": "synthetic CSV, one coordinate/region",
+      "expected_checksum": "aec6c971e17e86b0094cf1bb79c95e14f2d00c0b16b63265cd6b50c4c1c262ff",
+      "partial": false,
+      "row_counts_by_logical_unit": {
+        "shard-0": 120,
+        "shard-1": 120,
+        "shard-2": 155,
+        "shard-3": 105
+      },
+      "rows": 500,
+      "rows_journaled_before_interrupt": 100
+    },
+    "analytics_dashboard_audit": {
+      "passed": true,
+      "coastal_source_status": "fresh",
+      "audit_window": [
+        "2026-11-12T00:00:00+00:00",
+        "2026-11-12T00:30:00+00:00"
+      ],
+      "analytics_matches_audit": true,
+      "analytics_events": 120,
+      "categories": {
+        "COASTAL": 120
+      },
+      "critical_receipts_sampled": 3
+    }
+  },
+  "p3": {
+    "pvmbg_initial_replay_attempt": {
+      "passed": false,
+      "cases": {
+        "rename_field": {
+          "message_id": "UFZNQkcAMmExNTk4MjhkMjg4YTY3YWFjZWRjMzlmODc1Mzk4N2Q4MGQ1NzcxNDYyNGYxN2UyNmEyYWRhNTQxYmVlMmYzMw",
+          "received_at": "2026-11-21T09:21:45.839405Z",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "sha256": "47a20eb7277d639e6d962687f9bef4c94a81e64aa4323d8597e8649c88509dfc"
+        },
+        "type_change": {
+          "message_id": "UFZNQkcAYzZlMzIxYjVkNzU2NGFlNTFkNDU3MjlmODFjZmJkM2ExYjZmMjJiMWQwNTFlOWI4NzJkMmNiYjVkNzBiMTg4NA",
+          "received_at": "2026-11-21T09:22:01.660345Z",
+          "reason": "schema_incompatible: field 'eruption_count_24h' berubah dari number menjadi string",
+          "sha256": "a56c2cc7973af39d435d7cedc9a04cd3307c7b3207b5610b356c96eee8a744f8"
+        },
+        "missing_required_field": {
+          "message_id": "UFZNQkcAMzRjZTI5ZGFiNmZmMmE5ZTVmMmFhNTY2YTYyZWQ2ZjRiZmIyOTUzZDVjMWJhMTZhNDQ1Yjk4MDkwNzNiNDRiZQ",
+          "received_at": "2026-11-21T09:22:08.017268Z",
+          "reason": "schema_incompatible: field wajib 'ash_column_height_m' hilang",
+          "sha256": "3a3c8f0ce663c85f13b5d30da5b4f6b2d05d7a92e49b083bcf49affdf9a2d4e0"
+        }
+      },
+      "incompatible_rows_observed": 129,
+      "unfinished_before": 129,
+      "ops_access": {
+        "media": 403,
+        "field-team": 403,
+        "bnpb-internal": 200
+      },
+      "accepted_replay_requests": 129,
+      "unfinished_after": 129,
+      "unfinished_examples": [
+        {
+          "mode": "rename_field",
+          "status": "parked",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "attempts": 3,
+          "replay_requested": false
+        },
+        {
+          "mode": "rename_field",
+          "status": "parked",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "attempts": 3,
+          "replay_requested": false
+        },
+        {
+          "mode": "rename_field",
+          "status": "parked",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "attempts": 3,
+          "replay_requested": false
+        },
+        {
+          "mode": "rename_field",
+          "status": "parked",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "attempts": 3,
+          "replay_requested": false
+        }
+      ],
+      "failure": "Timed out: all incompatible versions processed in journal order"
+    },
+    "pvmbg_replay_after_adapted_owner_acquired": {
+      "passed": true,
+      "cases": {
+        "rename_field": {
+          "message_id": "UFZNQkcAMmExNTk4MjhkMjg4YTY3YWFjZWRjMzlmODc1Mzk4N2Q4MGQ1NzcxNDYyNGYxN2UyNmEyYWRhNTQxYmVlMmYzMw",
+          "received_at": "2026-11-21T09:21:45.839405Z",
+          "reason": "schema_incompatible: field wajib 'alert_level' hilang",
+          "sha256": "47a20eb7277d639e6d962687f9bef4c94a81e64aa4323d8597e8649c88509dfc",
+          "ops_status_after_processing": 404
+        },
+        "type_change": {
+          "message_id": "UFZNQkcAYzZlMzIxYjVkNzU2NGFlNTFkNDU3MjlmODFjZmJkM2ExYjZmMjJiMWQwNTFlOWI4NzJkMmNiYjVkNzBiMTg4NA",
+          "received_at": "2026-11-21T09:22:01.660345Z",
+          "reason": "schema_incompatible: field 'eruption_count_24h' berubah dari number menjadi string",
+          "sha256": "a56c2cc7973af39d435d7cedc9a04cd3307c7b3207b5610b356c96eee8a744f8",
+          "ops_status_after_processing": 404
+        },
+        "missing_required_field": {
+          "message_id": "UFZNQkcAMzRjZTI5ZGFiNmZmMmE5ZTVmMmFhNTY2YTYyZWQ2ZjRiZmIyOTUzZDVjMWJhMTZhNDQ1Yjk4MDkwNzNiNDRiZQ",
+          "received_at": "2026-11-21T09:22:08.017268Z",
+          "reason": "schema_incompatible: field wajib 'ash_column_height_m' hilang",
+          "sha256": "3a3c8f0ce663c85f13b5d30da5b4f6b2d05d7a92e49b083bcf49affdf9a2d4e0",
+          "ops_status_after_processing": 404
+        }
+      },
+      "incompatible_rows_observed": 129,
+      "unfinished_before": 129,
+      "ops_access": {
+        "media": 403,
+        "field-team": 403,
+        "bnpb-internal": 200
+      },
+      "adapted_owner": {
+        "pod": "aggregator-7576496554-5vtvb",
+        "generation": 191,
+        "configured_adapters": "level_alias,eruption_count_string,ash_height_optional"
+      },
+      "initial_state_by_reason": {
+        "parked: schema_incompatible: field wajib 'alert_level' hilang": 42,
+        "retrying: awaiting_processing": 85,
+        "parked: schema_incompatible: field 'eruption_count_24h' berubah dari number menjadi string": 1,
+        "parked: schema_incompatible: field wajib 'ash_column_height_m' hilang": 1
+      },
+      "accepted_replay_requests": 129,
+      "unfinished_after": 0
+    },
+    "field_report_attempts": [
+      {
+        "passed": false,
+        "first_post_status": 202,
+        "first_post_ms": 40.4,
+        "correlation_id": "demo-report-20261121093032065681",
+        "report_id": "62bd25f8-a44c-41be-8e31-95a80bd13236",
+        "failure": "Timed out: which pod accepted the 202"
+      },
+      {
+        "passed": false,
+        "first_post_status": 202,
+        "first_post_ms": 46.0,
+        "correlation_id": "demo-report-20261121093420143195",
+        "report_id": "739f1899-971d-43bb-867f-786220d32f7b",
+        "deleted_receiver_pod": "aggregator-6ffc6b5477-2wght",
+        "failure": ""
+      },
+      {
+        "passed": false,
+        "first_post_status": 202,
+        "first_post_ms": 24.6,
+        "correlation_id": "demo-report-20261121093635088426",
+        "report_id": "0e37216b-1344-4b00-8932-908237e84fa4",
+        "deleted_receiver_pod": "aggregator-6ffc6b5477-kgzgh",
+        "last_receipt_lookup": {
+          "http": 200,
+          "status": "processed"
+        },
+        "failure": "('processing was paused', 'processed')"
+      },
+      {
+        "passed": true,
+        "paused_pods_before": [
+          "aggregator-6ffc6b5477-bqphh",
+          "aggregator-6ffc6b5477-lplfk",
+          "aggregator-6ffc6b5477-xhpzs"
+        ],
+        "first_post_status": 202,
+        "first_post_ms": 41.6,
+        "correlation_id": "demo-report-20261121093809692167",
+        "report_id": "17cb6e91-dd4f-4477-ab36-096d7f43a610",
+        "receipt_status_before_delete": "accepted",
+        "deleted_receiver_pod": "aggregator-6ffc6b5477-lplfk",
+        "paused_pods_after": [
+          "aggregator-6ffc6b5477-bqphh",
+          "aggregator-6ffc6b5477-bvhml",
+          "aggregator-6ffc6b5477-xhpzs"
+        ],
+        "last_receipt_lookup": {
+          "http": 200,
+          "status": "accepted"
+        },
+        "receipt_visible_after_pod_delete": true,
+        "same_202_receipt_on_retry": true,
+        "processing_attempts": 1
+      }
+    ]
+  },
+  "p4": {
+    "satellite_feed_restart": {
+      "scope": "bounded 60x practice reconnect, existing historical backlog",
+      "passed": true,
+      "original_journal": {
+        "next_offset": 26328,
+        "generation": 3
+      },
+      "before_restart": {
+        "next_offset": 34328,
+        "generation": 4
+      },
+      "metrics_before_restart": {
+        "feed_lag_offsets": 2026114.0,
+        "unfinished_batches": 86.0,
+        "canonical_batches_observed": 17.0,
+        "intake_to_store_p95_seconds": 300.0
+      },
+      "deleted_owner": "aggregator-846c9b4886-ghd8g",
+      "requested_delete_at": "2026-11-21T09:31:30.111076+00:00",
+      "after_restart": {
+        "next_offset": 38872,
+        "generation": 5
+      },
+      "seconds_to_observe_resumed_progress": 10.41,
+      "new_owner": "aggregator-846c9b4886-2pb2s",
+      "metrics_after_restart": {
+        "feed_lag_offsets": 2012117.0,
+        "unfinished_batches": 119.0,
+        "canonical_batches_observed": 28.0,
+        "intake_to_store_p95_seconds": 300.0
+      },
+      "final_journal": {
+        "next_offset": 47419,
+        "generation": 5
+      }
+    }
+  },
+  "p5": {
+    "sensor_practice_outage": {
+      "passed": true,
+      "baseline": {
+        "status": 200,
+        "ms": 122.4,
+        "items": 1,
+        "source_status": "fresh",
+        "partial": false
+      },
+      "with_sensor_stopped": {
+        "status": 200,
+        "ms": 32.2,
+        "items": 1,
+        "source_status": "stale",
+        "partial": false
+      },
+      "after_sensor_restored": {
+        "status": 200,
+        "ms": 6.0,
+        "items": 1,
+        "source_status": "fresh",
+        "partial": false
+      },
+      "seconds_for_outage_probe_and_automatic_recovery": 10.58,
+      "other_source_p95_ms": {
+        "BMKG": 12.9,
+        "PVMBG": 44.2
+      },
+      "durable_unique_critical_receipts_total": 3,
+      "independent_expected_critical_set_provided": false,
+      "other_source_read_summary": {
+        "BMKG": {
+          "count": 14,
+          "http_200": 14,
+          "with_records": 14
+        },
+        "PVMBG": {
+          "count": 14,
+          "http_200": 14,
+          "with_records": 14
+        }
+      }
+    }
+  }
+}

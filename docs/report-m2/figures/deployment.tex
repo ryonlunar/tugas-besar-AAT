@@ -1,0 +1,43 @@
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  vm/.style={draw=archink,rounded corners=3pt,text width=6.45cm,align=left,
+     font=\fontsize{10}{12}\selectfont,inner sep=7pt,fill=archlight,minimum height=2.3cm},
+  bus/.style={draw=archevent,rounded corners=3pt,fill=white,align=center,
+     text width=8.4cm,font=\fontsize{10}{12}\selectfont,inner sep=5pt},
+  link/.style={{Latex[length=1.8mm]}-{Latex[length=1.8mm]},semithick,draw=archevent}
+]
+  \node[vm] (c) at (-3.7,3.65) {\textbf{aat-dev}\\Control plane dan worker\\
+    Client API ($\times 3$) dan Auth\\
+    BMKG dan PVMBG mock\\
+    Dashboard dan Notifier\\
+    Penerima Tim Lapangan\\
+    Grafana, operator PostgreSQL, registry\\
+    Salinan shard 1, 2, 3};
+  \node[vm] (w1) at (3.7,3.65) {\textbf{aat-worker-1}\\
+    Aggregator dan JetStream\\
+    Salinan shard 0, 2, 3};
+  \node[vm,minimum height=0pt] (k6) at (3.7,6.05) {\textbf{aat-loadgen}\\Generator beban k6};
+  \node[bus] (links) at (0,0) {\textbf{Jaringan privat k3s}\\
+    HTTP antara API, Aggregator, dan sumber\\
+    SQL/TLS ke primary dan replikasi WAL PostgreSQL\\
+    Publikasi, konsumsi, dan replikasi JetStream};
+  \node[vm] (w2) at (-3.7,-3.0) {\textbf{aat-worker-2}\\
+    Aggregator dan JetStream\\
+    Salinan shard 0, 1, 3};
+  \node[vm] (w3) at (3.7,-3.0) {\textbf{aat-worker-3}\\
+    Aggregator dan JetStream\\
+    Salinan shard 0, 1, 2};
+
+  \draw[-{Latex[length=1.8mm]},semithick,draw=archink] (k6.west) -|
+    node[pos=0.3,above,font=\footnotesize]{HTTP / jaringan privat} (c.north);
+  \draw[link] (c.south) -- (c.south |- links.north);
+  \draw[link] (w1.south) -- (w1.south |- links.north);
+  \draw[link] (w2.north) -- (w2.north |- links.south);
+  \draw[link] (w3.north) -- (w3.north |- links.south);
+\end{tikzpicture}%
+}
+\caption{Deployment uji beban di Hetzner. VM k6 mengakses API dan Auth dari luar klaster. Empat VM k3s menampung layanan aplikasi dan salinan shard.}
+\label{fig:m2-deployment}
+\end{figure}

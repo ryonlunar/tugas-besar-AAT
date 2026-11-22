@@ -1,0 +1,42 @@
+{
+  "mixed_sources": {
+    "passed": true,
+    "satellite_metrics_confirmed": true,
+    "coastal_receipt_scan_confirmed": true,
+    "analytics_events": 6,
+    "analytics_matches_audit": true,
+    "analytics_categories": {
+      "COASTAL": 2,
+      "VOLCANIC": 1,
+      "SEISMIC": 1,
+      "WILDFIRE": 2,
+      "TSUNAMI": 1
+    },
+    "wildfire_detection_keys": 1800,
+    "wildfires_delivered_to_dashboard": 2,
+    "large_fire_delivered_to_notifier": true,
+    "coastal_critical_receipts": 1,
+    "field_report_attempts": 1,
+    "analytics_response_sections": [
+      "total_events",
+      "by_category",
+      "series",
+      "by_severity",
+      "by_area",
+      "partial",
+      "coverage",
+      "unavailable_units",
+      "step"
+    ],
+    "elapsed_synthetic_seconds": 15.47
+  },
+  "coastal_critical": {
+    "passed": true,
+    "cursor_committed_with_missing_metadata": true,
+    "unrelated_input_committed_before_catalog_recovery": true,
+    "critical_receipts": 1,
+    "receiver_retry_observed": true,
+    "invalid_input_parked": true,
+    "canonical_records": 2
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "worker": {
+    "started_at": 1794916692.4195566,
+    "scenario": "api-readiness-fixed",
+    "before_records": 6040,
+    "passed": true,
+    "after_records": 6068,
+    "missing_baseline_records": 0,
+    "http_errors": 0,
+    "partial_responses": 21,
+    "max_response_ms": 873.5,
+    "sample_count": 140
+  },
+  "additional_worker": {
+    "revision": "1ab4ae6",
+    "image": "m2-794519ef9ce1",
+    "settings": "Direct local k6 path in all runs; unpaced 50-record requests; 26 seconds each; two equal source groups; one pre-issued token per stage. The primary experiment added a temporary fourth copy to preserve the three existing disks.",
+    "omen_worker": {
+      "guest": "AAT-Omen-Worker",
+      "name": "aat-omen-worker",
+      "kernel": "6.18.58.1-microsoft-standard-WSL2",
+      "k3s": "v1.37.2+k3s1",
+      "allocatable_logical_cpus": 12,
+      "allocatable_memory_kib": 8033044,
+      "control_tunnel_ping_average_ms": 4.824
+    },
+    "database_primary_verification": "Shard-1 primary before aat-omen-worker and after aat-omen-worker",
+    "placements": {
+      "aggregator": {
+        "100": "deployment \"aggregator\" successfully rolled out\nNAME                                    NODE              READY\naggregator-656d847ff6-6zfzk             aat-worker-2      true\naggregator-656d847ff6-dw966             aat-worker-3      true\naggregator-656d847ff6-x8k5b             aat-worker-2      true\naggregator-omen-bench-5cd76bb86-8bmw5   aat-omen-worker   true",
+        "500": "Waiting for deployment \"aggregator\" rollout to finish: 2 of 4 updated replicas are available...\nWaiting for deployment \"aggregator\" rollout to finish: 2 of 4 updated replicas are available...\nWaiting for deployment \"aggregator\" rollout to finish: 2 of 4 updated replicas are available...\ndeployment \"aggregator\" successfully rolled out\nNAME                                    NODE              READY\naggregator-656d847ff6-6zfzk             aat-worker-2      true\naggregator-656d847ff6-8srmb             aat-worker-1      true\naggregator-656d847ff6-dw966             aat-worker-3      true\naggregator-656d847ff6-fthn5             aat-worker-1      true\naggregator-omen-bench-5cd76bb86-8bmw5   aat-omen-worker   true"
+      },
+      "aggregator_and_primary": {
+        "500": "deployment \"aggregator\" successfully rolled out\nNAME                                    NODE              READY\naggregator-656d847ff6-6zfzk             aat-worker-2      true\naggregator-656d847ff6-8srmb             aat-worker-1      true\naggregator-656d847ff6-dw966             aat-worker-3      true\naggregator-656d847ff6-fthn5             aat-worker-1      true\naggregator-omen-bench-5cd76bb86-8bmw5   aat-omen-worker   true"
+      }
+    }
+  }
+}
