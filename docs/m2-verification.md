@@ -15,7 +15,7 @@ Token client berlaku 60 detik. Ambil token baru sebelum rangkaian permintaan yan
 
 ## Tester Agent
 
-Jalankan dari control plane setelah aplikasi terpasang. Target Make menggunakan manifest resmi pada revisi yang ditentukan spesifikasi. Jika VM sudah disiapkan dengan versi sebelumnya dan Make belum tersedia, jalankan `sudo apt-get install -y make`.
+Jalankan dari control plane setelah aplikasi terpasang. Target Make menggunakan manifest resmi pada revisi yang ditentukan spesifikasi. Untuk klaster Multipass dari versi sebelumnya, jalankan `make up` dari host agar semua node memakai konfigurasi terbaru. Bila Make belum tersedia di control plane, jalankan `sudo apt-get install -y make`.
 
 ```bash
 make tester-install
