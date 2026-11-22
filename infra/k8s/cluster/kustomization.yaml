@@ -14,6 +14,8 @@ resources:
 replicas:
   - name: aggregator
     count: 3
+  - name: client-api
+    count: 3
   - name: postgres
     count: 0
   - name: nats-exporter

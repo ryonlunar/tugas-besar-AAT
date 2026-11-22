@@ -38,11 +38,10 @@ Hasil latency negatif tidak valid. Di Windows, jalankan collector ini pada termi
 
 ## Load test M2 P2
 
-Untuk profil 10.000 VU, jalankan tiga replika Client API dengan limit memori 256 MiB per pod. Dari control plane, siapkan namespace dan tunggu ketiga replika siap.
+Profil 10.000 VU memakai tiga replika Client API dengan limit memori 256 MiB per pod. Manifest klaster sudah menetapkan tiga replika. Dari control plane, tunggu ketiganya siap.
 
 ```sh
 ns=sistem-informasi-kebencanaan-bnpb
-kubectl -n "$ns" scale deployment/client-api --replicas=3
 kubectl -n "$ns" rollout status deployment/client-api
 ```
 
