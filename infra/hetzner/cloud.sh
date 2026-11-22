@@ -3,7 +3,7 @@ set -euo pipefail
 umask 077
 
 usage() {
-  echo 'Usage: cloud.sh plan RUN SSH_CIDR [GIT_REF] | up RUN | ssh RUN NODE [COMMAND] | down RUN' >&2
+  echo 'Usage: cloud.sh plan RUN SSH_CIDR [GIT_REF] | up RUN | ssh RUN NODE [COMMAND] | join-worker RUN NODE | down RUN' >&2
   exit 2
 }
 
@@ -20,6 +20,10 @@ state="$repo/.state/hetzner/$name"
 if [[ $action == ssh ]]; then
   [[ $# -ge 1 ]] || usage
   exec python3 "$here/bootstrap.py" "$state" "$@"
+fi
+if [[ $action == join-worker ]]; then
+  [[ $# -eq 1 ]] || usage
+  exec python3 "$here/bootstrap.py" "$state" --join-worker "$1"
 fi
 
 if [[ -z ${HCLOUD_TOKEN:-} ]]; then

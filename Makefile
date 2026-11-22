@@ -4,11 +4,11 @@ export KUBECONFIG
 TESTER := kubectl --context aat-dev -n tester-agent
 TESTER_MANIFEST := https://raw.githubusercontent.com/susTuna/if4031-tester-agent/ebb55261711123a9a211739ffbf140a275caa6da/manifest.yaml
 
-.PHONY: help up start deploy stop cluster-check foundation-check pipeline-check pipeline-recovery coastal-check field-alerts-check tester-install tester-list tester-run tester-logs
+.PHONY: help up start deploy stop join-worker cluster-check foundation-check pipeline-check pipeline-recovery coastal-check field-alerts-check tester-install tester-list tester-run tester-logs
 
 help:
 	@printf '%s\n' \
-	  'Host: make up | start | deploy | stop' \
+	  'Host: make up | start | deploy | stop | join-worker NODE=aat-worker-2' \
 	  'Control plane: make cluster-check | foundation-check | pipeline-check | pipeline-recovery | coastal-check' \
 	  'Control plane: make field-alerts-check EXPECTED=path/to/expected-critical.json' \
 	  'Tester Agent: make tester-install | tester-list | tester-logs' \
@@ -16,6 +16,9 @@ help:
 
 up start deploy stop:
 	$(PYTHON) scripts/m2/multipass-cluster.py $@
+
+join-worker:
+	$(PYTHON) scripts/m2/multipass-cluster.py $@ "$(NODE)"
 
 cluster-check:
 	$(PYTHON) scripts/m2/check-cluster.py

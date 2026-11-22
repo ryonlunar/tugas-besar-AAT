@@ -42,7 +42,9 @@ def reconcile(expected, receipts):
     duplicates = sorted(identity for identity, count in counts.items() if count > 1)
     invalid_delays = sum(delay < 0 for delay in delivery_delays)
     delivery_p95 = p95([delay for delay in delivery_delays if delay >= 0])
-    full_timing = len(delivery_delays) == len(expected) and not invalid_delays
+    full_timing = len(delivery_delays) == len(expected) and not invalid_delays and not missing and not duplicates
+    late_receipts = sum(delay > 5 for delay in delivery_delays)
+    late_budget = len(expected) - math.ceil(0.95 * len(expected))
     return {
         'expected_critical': len(expected),
         'matched_critical': len(counts),
@@ -52,7 +54,10 @@ def reconcile(expected, receipts):
         'availability_to_receipt_samples': len(delivery_delays),
         'negative_availability_delays': invalid_delays,
         'availability_to_receipt_p95_seconds': delivery_p95,
-        'target_met': not missing and not duplicates and full_timing and delivery_p95 is not None and delivery_p95 <= 5,
+        'late_receipts': late_receipts,
+        'late_receipt_budget': late_budget,
+        'late_receipt_budget_fraction': round(late_receipts / late_budget, 6) if full_timing and late_budget else None,
+        'target_met': full_timing and delivery_p95 is not None and delivery_p95 <= 5,
     }
 
 

@@ -69,6 +69,6 @@ PY
     curl -fsSL https://get.k3s.io -o /tmp/aat-install-agent.sh
     sudo env INSTALL_K3S_VERSION=v1.37.2+k3s1 INSTALL_K3S_EXEC=agent sh /tmp/aat-install-agent.sh
   else
-    sudo systemctl restart k3s-agent
+    sudo systemctl restart --no-block k3s-agent
   fi
 fi

@@ -105,6 +105,24 @@ def join_agent(node, token):
         f'bash /root/configure-node.sh agent {ip} {node} /root/join-token', log=f'{node}.log')
 
 
+def label_node(node, slot):
+    labels = [f'aat.dev/slot={slot}', f'aat.dev/control={str(slot == 0).lower()}']
+    labels += [f'aat.dev/shard-{shard}={str(shard != slot).lower()}' for shard in range(4)]
+    return 'k3s kubectl label node ' + node + ' ' + ' '.join(labels) + ' --overwrite'
+
+
+def join_replacement(node):
+    existing = ssh(control, f'k3s kubectl get node {node} --ignore-not-found -o name', capture=True)
+    if existing.strip():
+        raise SystemExit('Delete the old worker Node object before joining its replacement.')
+    prepare_agent(node)
+    token = ssh(control, 'cat /var/lib/rancher/k3s/server/agent-token', capture=True)
+    join_agent(node, token)
+    ssh(control, f'k3s kubectl wait node/{node} --for=condition=Ready --timeout=180s && '
+        + label_node(node, int(node[-1])), log='aat-dev.log')
+    print(f'{node} joined the existing cluster.')
+
+
 def prepare_loadgen():
     node = 'aat-loadgen'
     ready(node)
@@ -125,6 +143,11 @@ rm "$archive"
 
 if __name__ == '__main__':
     workers = [f'aat-worker-{index}' for index in range(1, 4)]
+    if sys.argv[2:3] == ['--join-worker']:
+        if len(sys.argv) != 4 or sys.argv[3] not in workers:
+            raise SystemExit('Use --join-worker with aat-worker-1, aat-worker-2, or aat-worker-3.')
+        join_replacement(sys.argv[3])
+        raise SystemExit(0)
     if len(sys.argv) > 2:
         node = sys.argv[2]
         if node not in nodes:
@@ -141,11 +164,7 @@ if __name__ == '__main__':
             future.result()
         list(pool.map(lambda node: join_agent(node, token), workers))
         loadgen.result()
-    commands = []
-    for index, node in enumerate([control, *workers]):
-        labels = [f'aat.dev/slot={index}', f'aat.dev/control={str(index == 0).lower()}']
-        labels += [f'aat.dev/shard-{shard}={str(index != shard).lower()}' for shard in range(4)]
-        commands.append('k3s kubectl label node ' + node + ' ' + ' '.join(labels) + ' --overwrite')
+    commands = [label_node(node, index) for index, node in enumerate([control, *workers])]
     ssh(control, ' && '.join([
         'k3s kubectl wait node --all --for=condition=Ready --timeout=150s',
         *commands, 'k3s kubectl get nodes -o wide',

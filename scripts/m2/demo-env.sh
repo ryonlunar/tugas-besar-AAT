@@ -25,3 +25,16 @@ amati() {
   curl -sS --max-time 5 -w '\nHTTP %{http_code} time_total=%{time_total}s\n' \
     -H "Authorization: Bearer $token" "$API_URL$1"
 }
+
+audit() {
+  local token
+  token=$(jq -er '.AUDIT_TOKEN' "$CREDS") || return
+  curl -fsS --max-time 10 -H "Authorization: Bearer $token" \
+    "http://127.0.0.1:18083/internal/audit/$1"
+}
+
+runtime_set() {
+  local key=$1 value=$2 envfile=.state/m2/runtime.env
+  [[ $key =~ ^[A-Z][A-Z0-9_]*$ ]] || return 2
+  sed -i "/^$key=/d" "$envfile" && printf '%s=%s\n' "$key" "$value" >>"$envfile"
+}

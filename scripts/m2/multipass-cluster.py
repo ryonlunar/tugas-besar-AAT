@@ -17,8 +17,11 @@ NODES = ['aat-dev', 'aat-worker-1', 'aat-worker-2', 'aat-worker-3']
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--multipass', default=os.environ.get('AAT_MULTIPASS_BIN') or shutil.which('multipass') or shutil.which('multipass.exe') or 'multipass')
-    parser.add_argument('action', choices=['up', 'start', 'stop', 'status', 'sync', 'deploy'])
+    parser.add_argument('action', choices=['up', 'start', 'stop', 'status', 'sync', 'deploy', 'join-worker'])
+    parser.add_argument('worker', nargs='?', choices=NODES[1:])
     args = parser.parse_args()
+    if (args.action == 'join-worker') != (args.worker is not None):
+        parser.error('join-worker takes one worker name.')
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True)
 
@@ -43,7 +46,7 @@ def main():
         with tarfile.open(destination, 'w:gz') as archive:
             for raw in files:
                 name = os.fsdecode(raw)
-                if name in ('Makefile', 'go.mod', 'go.sum', '.env.example', '.dockerignore') or name.startswith(('contracts/', 'pkg/', 'services/', 'infra/', 'scripts/', 'docs/m2-')):
+                if name in ('Makefile', 'go.mod', 'go.sum', '.env.example', '.dockerignore') or name.startswith(('contracts/', 'pkg/', 'services/', 'infra/', 'scripts/')):
                     path = ROOT / name
                     if path.is_file():
                         archive.add(path, arcname=name)
@@ -53,13 +56,43 @@ def main():
         transfer(source_archive(), NODES[0], 'aat-source.tar.gz')
         mp('exec', NODES[0], '--', 'bash', '-lc', 'mkdir -p ~/aat && tar -xzf ~/aat-source.tar.gz -C ~/aat')
 
-    def refresh_hosts():
+    def refresh_hosts(nodes):
         control_ip = next(ip for ip in info()[NODES[0]]['ipv4'] if not ip.startswith(('10.42.', '10.43.')))
         ipaddress.ip_address(control_ip)
         code = "from pathlib import Path; p=Path('/etc/hosts'); lines=[s for s in p.read_text().splitlines() if not s.endswith('# aat-control')]; p.write_text('\\n'.join(lines)+'\\n'+__import__('sys').argv[1]+' aat-control # aat-control\\n')"
-        for node in NODES:
+        for node in nodes:
             mp('exec', node, '--', 'sudo', 'python3', '-c', code, control_ip)
         return control_ip
+
+    def launch(node, zone):
+        control = node == NODES[0]
+        command = ['launch', '24.04', '--name', node, '--cpus', '4' if control else '2',
+                   '--memory', '8G' if control else '3G', '--disk', '30G']
+        if zone:
+            command += ['--zone', zone]
+        mp(*command)
+
+    def configure_workers(nodes, control_ip):
+        token = STATE / 'join-token'
+        token.write_text(mp('exec', NODES[0], '--', 'sudo', 'cat', '/var/lib/rancher/k3s/server/node-token', capture=True))
+        try:
+            for node in nodes:
+                transfer(ROOT / 'scripts/m2/configure-node.sh', node, 'configure-node.sh')
+                transfer(token, node, 'aat-join-token')
+                mp('exec', node, '--', 'bash', '-lc',
+                   'set -e; trap \'rm -f aat-join-token\' EXIT; chmod 600 aat-join-token; '
+                   'bash configure-node.sh agent "$1" "$2" aat-join-token', 'configure-worker', control_ip, node)
+        finally:
+            token.unlink(missing_ok=True)
+
+    kube = ['exec', NODES[0], '--', 'env', 'KUBECONFIG=/home/ubuntu/.kube/aat-dev.yaml', 'kubectl', '--context', 'aat-dev']
+
+    def label_node(node):
+        slot = NODES.index(node)
+        mp(*kube, 'wait', 'node/' + node, '--for=condition=Ready', '--timeout=180s')
+        labels = [f'aat.dev/slot={slot}'] + [f'aat.dev/shard-{unit}={str(unit != slot).lower()}' for unit in range(4)]
+        labels.append('aat.dev/control=' + str(slot == 0).lower())
+        mp(*kube, 'label', 'node', node, *labels, '--overwrite')
 
     if args.action == 'status':
         mp('list')
@@ -67,15 +100,24 @@ def main():
     if args.action == 'stop':
         mp('stop', *NODES)
         return
+    if args.action == 'join-worker':
+        current = info()
+        control = current.get(NODES[0], {})
+        if control.get('state') != 'Running' or args.worker in current:
+            parser.error('The control plane must be running and the old worker VM must be removed.')
+        if mp(*kube, 'get', 'node', args.worker, '--ignore-not-found', '-o', 'name', capture=True):
+            parser.error('Delete the old worker Node object before joining its replacement.')
+        launch(args.worker, control.get('zone', {}).get('name'))
+        control_ip = refresh_hosts([args.worker])
+        configure_workers([args.worker], control_ip)
+        label_node(args.worker)
+        return
     if args.action == 'up':
         current = info()
         zone = current.get(NODES[0], {}).get('zone', {}).get('name')
         for node in NODES:
             if node not in current:
-                command = ['launch', '24.04', '--name', node, '--cpus', '4' if node == NODES[0] else '2', '--memory', '8G' if node == NODES[0] else '3G', '--disk', '30G']
-                if zone:
-                    command += ['--zone', zone]
-                mp(*command)
+                launch(node, zone)
                 if node == NODES[0]:
                     zone = info()[node].get('zone', {}).get('name')
             elif current[node]['state'] != 'Running':
@@ -88,33 +130,19 @@ def main():
             mp('exec', NODES[0], '--', 'bash', '-lc', 'cd ~/aat && bash scripts/m2/deploy-cluster.sh')
         return
 
-    control_ip = refresh_hosts()
+    control_ip = refresh_hosts(NODES)
     if args.action == 'up':
         sync()
         mp('exec', NODES[0], '--', 'bash', '-lc', 'command -v k3s >/dev/null || bash ~/aat/scripts/m2/setup-vm.sh')
         mp('exec', NODES[0], '--', 'bash', '/home/ubuntu/aat/scripts/m2/configure-node.sh', 'server', control_ip, NODES[0])
-        token = STATE / 'join-token'
-        token.write_text(mp('exec', NODES[0], '--', 'sudo', 'cat', '/var/lib/rancher/k3s/server/node-token', capture=True))
-        try:
-            for node in NODES[1:]:
-                transfer(ROOT / 'scripts/m2/configure-node.sh', node, 'configure-node.sh')
-                transfer(token, node, 'aat-join-token')
-                mp('exec', node, '--', 'chmod', '600', 'aat-join-token')
-                mp('exec', node, '--', 'bash', 'configure-node.sh', 'agent', control_ip, node, 'aat-join-token')
-                mp('exec', node, '--', 'rm', '-f', 'aat-join-token')
-        finally:
-            token.unlink(missing_ok=True)
+        configure_workers(NODES[1:], control_ip)
     else:
         for node in NODES[1:]:
             # Agents reconnect using the refreshed hostname. Do not interrupt
             # systemd's automatic boot-time start while it is still activating.
             mp('exec', node, '--', 'sudo', 'systemctl', 'start', '--no-block', 'k3s-agent')
-    kube = ['exec', NODES[0], '--', 'env', 'KUBECONFIG=/home/ubuntu/.kube/aat-dev.yaml', 'kubectl', '--context', 'aat-dev']
-    for slot, node in enumerate(NODES):
-        mp(*kube, 'wait', 'node/' + node, '--for=condition=Ready', '--timeout=180s')
-        labels = [f'aat.dev/slot={slot}'] + [f'aat.dev/shard-{unit}={str(unit != slot).lower()}' for unit in range(4)]
-        labels.append('aat.dev/control=' + str(slot == 0).lower())
-        mp(*kube, 'label', 'node', node, *labels, '--overwrite')
+    for node in NODES:
+        label_node(node)
     if args.action == 'start':
         namespaced = kube + ['-n', 'sistem-informasi-kebencanaan-bnpb']
         deployed = mp(*namespaced, 'get', 'configmap', 'aat-storage-cutover', '--ignore-not-found', '-o', 'name', capture=True)
