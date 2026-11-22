@@ -47,6 +47,8 @@ python3 scripts/m2/check.py
 
 Setup installs k3s, Helm, and Buildah. Deployment builds the service images inside the VM, imports them into k3s, generates private credentials, and deploys the applications and monitoring. Subsequent deployments reuse credentials and persistent data.
 
+New NATS tokens start with a letter because the NATS configuration parser can reject digit-leading values. Preparation preserves saved credentials. If an older token causes a startup parse error, replace only the NATS token in the private `.state/m2/credentials.json` with a new random value that starts with a letter. Run `scripts/m2/prepare.py` and apply the regenerated Secret. Recreate the NATS pods and the Aggregator, Dashboard Consumer, and Notifier Consumer pods during the same maintenance window so all of them read the new value.
+
 The check verifies source ingestion, access restrictions, consumer delivery, metrics, correlated logs, and denied direct PostgreSQL access from the API role. Results are saved to `.state/m2/check.json`.
 
 Metrics are scraped every 5 seconds; the dashboard refreshes every 10 seconds and shows up to 200 log lines per query. Successful idle broker fetches and empty outbox checks use DEBUG. Event-delivery logs and failures remain visible at the default INFO level, with IDs kept in log fields. Prometheus and Loki retain 24 hours; Prometheus also has a 512 MB block-retention target. These settings do not impose a hard disk quota. Storage capacity must be measured under the M2 workload. This single-node profile does not deploy tracing.
