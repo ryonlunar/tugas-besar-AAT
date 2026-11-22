@@ -1,0 +1,65 @@
+\chapter{PENELUSURAN BUKTI}
+\label{app:evidence}
+
+\section{Acuan Pengujian}
+Uji Hetzner pada 22 November 2026 menjadi acuan penempatan layanan, Audit API, perpindahan pemilik, dan beban. Uji lokal mencakup pemulihan shard, dasbor analitik, dan sumber tambahan. Impor CSV dijalankan pada fixture PostgreSQL. Indeks bukti dan petunjuk menjalankan pengujian tersedia di \path{docs/report-m2/evidence/README.md}.
+
+{\small
+\noindent\begin{tabularx}{\linewidth}{@{}lY@{}}
+\toprule
+Berkas & Isi \\
+\midrule
+\path{hetzner/} & Konfigurasi k6, sampel VU, penempatan node, Audit API, log upstream, dan hasil fixture PostgreSQL. \\
+\path{bmkg/} & Log dan varian fixture untuk impor CSV sintetis 500 baris. \\
+\path{latihan-k3s.json} & Data uji impor, dasbor analitik, replay PVMBG, laporan Tim Lapangan, sambung ulang SSE, dan pemulihan Sensor Pantai. \\
+\path{pemulihan-shard.json} & Uji lokal saat worker ditangguhkan dan saat node tambahan mengambil peran primary. \\
+\path{masukan-terkendali.json} & Hasil fixture analitik, pengenalan kebakaran, serta pemulihan pengiriman notifikasi pesisir. \\
+\bottomrule
+\end{tabularx}
+}
+
+Jalankan perintah berikut dari akar repositori pada control VM setelah deployment. Pemeriksaan pipeline menjeda pemrosesan dan mengganti satu pod Aggregator. Pemeriksaan analitik memerlukan Sensor Pantai aktif dan rentang data yang sudah stabil.
+
+\terminalfigure{check-cluster}{Perintah pemeriksaan klaster, pemulihan pipeline, serta pembandingan analitik dengan Audit.}{fig:perintah-verifikasi}
+
+\texttt{check-cluster.py} mengembalikan trace ID yang dapat dibuka di Grafana Explore melalui Tempo. Sebagai contoh, \path{5c94fbe92a67462596f837d88219371b} tercatat di klaster Hetzner dan memiliki 14 span dari Client API dan Aggregator hingga kueri basis data. Uji kode dicatat juga di repositori. Contohnya \path{TestFourDatabaseRoutingPaginationAndPartialReads}, \path{TestExpiredOwnerCannotAppendAfterTakeover}, \path{TestPVMBGMalformedInputsDoNotBlockOthers}, \path{TestSatelliteRecognizerPersistsThroughRealPostgres}, dan \path{TestPriorityRequestsUseReservedCapacity}.
+
+\section{Cakupan per Kriteria}
+
+Nomor di bawah mengikuti spesifikasi M2. Kolom terakhir menunjukkan batas bukti pada saat pengumpulan. Pengujian dengan bahan resmi dari asisten dijadwalkan pada tahap demonstrasi.
+
+{\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.115\linewidth}>{\raggedright\arraybackslash}p{0.42\linewidth}>{\raggedright\arraybackslash}p{0.40\linewidth}@{}}
+\toprule
+Kriteria & Bukti yang tersedia & Batas bukti \\
+\midrule
+\endfirsthead
+\toprule
+Kriteria & Bukti yang tersedia & Batas bukti \\
+\midrule
+\endhead
+\bottomrule
+\endlastfoot
+P1.1--2 & Hetzner mencatat empat shard dengan primary pada tiga node. Fixture CSV menghasilkan sebaran 120/120/155/105 dari 500 baris di satu lokasi. & Angka berasal dari CSV latihan. Beban saat impor katalog resmi dan lonjakan satu wilayah belum diukur. \\
+P1.3 & Fixture PostgreSQL memeriksa urutan dan kursor pada empat basis data. & \\
+P1.4--6 & Audit Hetzner menemukan tiga salinan. Uji lokal mempertahankan ID awal saat worker ditangguhkan dan mencatat perpindahan satu primary ke worker tambahan. & Belum ada satu rangkaian yang mencakup kehilangan disk, pencocokan checksum resmi, penggantian worker, dan pemulihan redundansi. \\
+P1.7 & Dasbor menampilkan 120 kejadian dari empat shard, sama dengan hitungan Audit. Agregat untuk data campuran juga diperiksa. & Tangkapan dasbor menampilkan hasil lengkap. Tampilan parsial saat satu shard tak terjangkau belum direkam. \\
+\addlinespace
+P2.1--3 & Tiga replika pada tiga worker. BMKG dan PVMBG kembali dipanggil dalam 3{,}64 dan 6{,}44 detik. Seluruh 1.701 pembacaan lengkap. & Kelengkapan dan duplikasi diperiksa pada urutan ID mock. \\
+P2.4--5 & Satu pemanggil tiap endpoint saat jam digeser. Pemilik lama melepas sesi setelah thaw. Fixture PostgreSQL menolak append dari sesi lama. & Penolakan tulis dibuktikan pada fixture. Latihan klaster memeriksa log pemilik dan urutan data. \\
+P2.6 & Dua uji menahan 10.000 VU selama 149{,}2 detik saat skala berubah dari 3 ke 5 lalu 2. Nol galat tak terduga. & Memakai workload kelompok dengan tiga Client API. Workload asisten digunakan pada demonstrasi. \\
+P2.7 & Rasio throughput HTTP~200 sebesar 2{,}39--2{,}73. Tiga dari empat rasio pembacaan lengkap mencapai dua kali. & Satu pasangan hanya mencapai 1{,}63 kali untuk pembacaan lengkap. \\
+P2.8 & Pergantian image Aggregator selesai dalam 16{,}1 detik pada 10.000 VU. & Nol permintaan gagal, dengan 82 HTTP~200 parsial selama fase beban tetap. \\
+\addlinespace
+P3.1--3 & Tiga perubahan tak kompatibel ditahan. Uji integrasi mencakup masukan rusak dan percobaan ulang untuk kegagalan sementara. & Latihan klaster berfokus pada perubahan tak kompatibel. Respons yang melampaui batas input ditolak sebelum jurnal. \\
+P3.4--6 & Replay menyelesaikan 129 entri. Status 200/403 mengikuti hak akses. Tanda terima laporan tetap tersedia setelah penghapusan pod. & Uji penghentian penerima mencakup satu laporan. \\
+\addlinespace
+P4.1--3, 5 & Integrasi menguji lintas satelit, koreksi, penarikan, keterlambatan, dan pemulihan rencana setelah state tersimpan. & Kesamaan hasil aliran lengkap dengan dan tanpa gangguan belum diuji. \\
+P4.4, 8 & Feed latihan 60$\times$ terhubung kembali, offset bergerak, dan backlog terukur. & Waktu untuk mengejar backlog setelah lonjakan dan kelengkapan seluruh offset belum terukur. \\
+P4.6--7 & Feed live digunakan untuk uji sambung ulang. & Perbandingan menunggu referensi asisten. Sesi live penuh direkam pada tahap demonstrasi. \\
+\addlinespace
+P5.1--2 & Tiga tanda terima latihan tercatat. Masukan terkendali menguji penolakan data rusak dan pemulihan peringatan yang tertahan. & Tanpa daftar independen, kehilangan dan latensi dari sensor belum dapat dihitung. \\
+P5.3--5 & Selama sensor berhenti, BMKG dan PVMBG tetap menjawab. Uji API mengonfirmasi slot prioritas. & Latensi diukur pada beban ringan. Laju polling saat gangguan dan prioritas di klaster jenuh belum terukur. \\
+P5.6--8 & Metrik, log, dan trace dapat diakses. Target peringatan dan cara menghitung anggarannya telah ditetapkan. & Hasil pemulihan gabungan dan penggunaan anggaran menunggu game day pada tahap demonstrasi. \\
+\end{longtable}
+}

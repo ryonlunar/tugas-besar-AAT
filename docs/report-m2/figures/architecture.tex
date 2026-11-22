@@ -1,0 +1,44 @@
+\begin{figure}[htbp]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw=archink,rounded corners=3pt,fill=archlight,align=center,
+             inner sep=5pt,font=\fontsize{10}{12}\selectfont},
+  side/.style={box,draw=archink!45,fill=white,align=left,text width=3.1cm},
+  eventbox/.style={box,draw=archevent,text width=3.05cm},
+  flow/.style={-{Latex[length=2mm]},draw=archink,semithick},
+  event/.style={flow,draw=archevent},
+  note/.style={font=\footnotesize,fill=white,inner sep=1.1pt,align=center}
+]
+  \node[box,text width=4.25cm] (users) at (6.9,1.2)
+    {Media, Tim Lapangan,\\BNPB internal};
+  \node[box,minimum width=2.8cm] (auth) at (1.9,1.2) {Auth\\Login dan refresh};
+  \node[box,text width=4.25cm] (api) at (6.9,-0.55) {Client API dan Analitik};
+  \node[side,align=center] (audit) at (12.0,-0.55) {Auditor\\Token Audit};
+  \node[side] (sources) at (1.9,-2.7)
+    {\textbf{Sumber data}\\BMKG dan PVMBG\\Sensor Pantai\\Feed Satelit (SSE)};
+  \node[box,text width=4.25cm] (agg) at (6.9,-2.7)
+    {\textbf{Aggregator} ($\times 3$)\\Jurnal, pemetaan,\\Audit API dan relay outbox};
+  \node[eventbox] (broker) at (12.0,-2.7) {\textbf{JetStream} ($\times 3$)};
+  \node[side] (ops) at (1.9,-5.35)
+    {\textbf{Observabilitas}\\Prometheus, Grafana\\Alloy, Loki, Tempo};
+  \node[box,text width=4.25cm] (db) at (6.9,-5.0)
+    {PostgreSQL\\4 shard\\3 salinan per shard};
+  \node[eventbox] (consumer) at (12.0,-4.55) {Dashboard Consumer\\Notifier Consumer};
+  \node[eventbox] (receiver) at (12.0,-6.3) {Penerima Tim Lapangan};
+
+  \draw[flow] (users.west) -- (auth.east);
+  \draw[flow] (users) -- node[note,right]{HTTP + JWT} (api);
+  \draw[flow] (api) -- node[note,right]{HTTP internal} (agg);
+  \draw[flow] (audit.south west) -- ++(0,-0.36) -| ([xshift=1.75cm]agg.north);
+  \draw[flow] (sources.east) -- (agg.west);
+  \draw[flow] (agg) -- node[note,right]{SQL / TLS} (db);
+  \draw[event] (agg.east) -- (broker.west);
+  \draw[event] (broker) -- (consumer);
+  \draw[event] (consumer) -- (receiver);
+  \draw[flow,dashed,draw=archink] (agg.south west) -- (ops.east);
+\end{tikzpicture}%
+}
+\caption{Jalur data pada M2. Panah berwarna mengikuti distribusi event. Dari kedua consumer, hanya Notifier yang meneruskan peringatan pesisir kritis ke Penerima Tim Lapangan. Garis putus-putus menunjukkan pengiriman telemetri.}
+\label{fig:m2-architecture}
+\end{figure}

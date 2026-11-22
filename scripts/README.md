@@ -24,7 +24,7 @@ Script membersihkan proses mock saat selesai.
 
 ## Alternatif tooling load test
 
-Untuk menggunakan k6, ganti command `hazards-monotonic.py` pada langkah P2 di README utama dengan command berikut. Environment dan collector TCP tetap digunakan:
+Untuk menggunakan k6, ganti perintah `hazards-monotonic.py` pada [pengujian P2 M1](../README-m1.md#problem-2) dengan perintah berikut. Environment dan collector TCP tetap digunakan.
 
 ```bash
 k6 run --summary-export "$EVIDENCE_DIR/k6-summary.json" scripts/load/hazards.js
@@ -35,3 +35,29 @@ Hasil latency negatif tidak valid. Di Windows, jalankan collector ini pada termi
 ```powershell
 .\scripts\load\capture-tcp-connections.ps1 -ApiPort 8080 -Seconds 110 -IntervalSeconds 1 -OutputPath tcp.json
 ```
+
+## Load test M2 P2
+
+Profil 10.000 VU memakai tiga replika Client API dengan limit memori 256 MiB per pod. Manifest klaster sudah menetapkan tiga replika. Dari control plane, tunggu ketiganya siap.
+
+```sh
+ns=sistem-informasi-kebencanaan-bnpb
+kubectl -n "$ns" rollout status deployment/client-api
+```
+
+Di host k6, siapkan Linux, Python 3, dan k6. Salin `load/m2-p2.js` dan `load/run-m2-p2.py` ke direktori yang sama. Sesuaikan alamat API dan Auth dengan klaster.
+
+```sh
+export P2_API_URL=http://10.77.0.11:30080
+export P2_AUTH_URL=http://10.77.0.11:30084
+read -rsp 'Field Team secret ' FIELD_TEAM_CLIENT_SECRET
+printf '\n'
+printf '%s\n' "$FIELD_TEAM_CLIENT_SECRET" | python3 run-m2-p2.py p2-scale
+unset FIELD_TEAM_CLIENT_SECRET
+```
+
+Profil bawaan mencapai 10.000 VU dalam 45 detik dan mempertahankannya selama 150 detik. Tiap VU bergantian membaca halaman BMKG dan PVMBG dengan jeda delapan detik. Runner mengambil dan menyegarkan token melalui Auth. VU membaca token dari relay di localhost untuk memisahkan pengujian kapasitas baca dari lonjakan login.
+
+Dari control plane, ubah replika Aggregator menjadi lima lalu dua ketika `active-vus.jsonl` menunjukkan 10.000 VU aktif. Tunggu setiap perubahan selesai dengan `kubectl rollout status deployment/aggregator` di namespace aplikasi. Simpan output perintah, log upstream, dan hasil pemeriksaan duplikat bersama `result.json` dan `active-vus.jsonl`.
+
+Untuk membandingkan throughput, set `P2_RATE` dan `P2_SECONDS` ke nilai yang sama pada pengujian satu replika dan tiga replika. Untuk menguji rollout, jalankan profil beban yang sama selama perubahan image dan simpan waktu perubahan beserta jumlah permintaan yang gagal.

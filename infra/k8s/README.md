@@ -1,6 +1,6 @@
 # k3s development
 
-Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. Start with the [team handoff](../../docs/m2-handoff.md) for code entry points and remaining work; storage and ingestion decisions are in the [M2 design](../../docs/m2-foundation.md).
+Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. See the [root README](../../README.md) for the M2 deployment and test sequence, and the [storage and ingestion design](../../docs/design/storage-and-ingestion.md) for implementation details.
 
 ## Prepare Ubuntu
 
@@ -22,7 +22,7 @@ multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
 From the host repository root, copy its committed runtime files into the VM:
 
 ```sh
-git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts
 multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
 multipass shell aat-dev
 ```
@@ -47,13 +47,15 @@ python3 scripts/m2/check.py
 
 Setup installs k3s, Helm, and Buildah. Deployment builds the service images inside the VM, imports them into k3s, generates private credentials, and deploys the applications and monitoring. Subsequent deployments reuse credentials and persistent data.
 
+New NATS tokens start with a letter because the NATS configuration parser can reject digit-leading values. Preparation preserves saved credentials. If an older token causes a startup parse error, replace only the NATS token in the private `.state/m2/credentials.json` with a new random value that starts with a letter. Run `scripts/m2/prepare.py` and apply the regenerated Secret. Recreate the NATS pods and the Aggregator, Dashboard Consumer, and Notifier Consumer pods during the same maintenance window so all of them read the new value.
+
 The check verifies source ingestion, access restrictions, consumer delivery, metrics, correlated logs, and denied direct PostgreSQL access from the API role. Results are saved to `.state/m2/check.json`.
 
 Metrics are scraped every 5 seconds; the dashboard refreshes every 10 seconds and shows up to 200 log lines per query. Successful idle broker fetches and empty outbox checks use DEBUG. Event-delivery logs and failures remain visible at the default INFO level, with IDs kept in log fields. Prometheus and Loki retain 24 hours; Prometheus also has a 512 MB block-retention target. These settings do not impose a hard disk quota. Storage capacity must be measured under the M2 workload. This single-node profile does not deploy tracing.
 
 ## Multi-node profile
 
-Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. These are the reference allocations tested on Refki's Windows laptop (32 GiB RAM, 12 logical CPUs). Teammates may use different machines/providers while preserving kernel, placement, and resource requirements. This single-host setup does not provide physical-host fault tolerance.
+Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. The reference host is a development laptop with 32 GiB of RAM and 12 logical CPUs. Other hosts can use the same VM allocations and placement rules. This single-host setup does not provide physical-host fault tolerance.
 
 With Python 3, Git, and Multipass installed on the host, run from this repository root:
 
@@ -63,9 +65,15 @@ python3 scripts/m2/multipass-cluster.py deploy
 multipass exec aat-dev -- bash -lc "cd ~/aat && python3 scripts/m2/check-cluster.py"
 ```
 
-`up` creates or starts the VMs, installs k3s, copies runtime files, and configures node placement. `deploy` synchronizes local changes, builds immutable image tags, and deploys the stack. From WSL, pass `--multipass /path/to/multipass.exe` before the action if the Windows executable is not on PATH.
+`up` creates or starts the VMs, installs k3s, copies runtime files, and configures node placement. `deploy` synchronizes local changes, builds immutable image tags, and deploys the stack. Set `AAT_MULTIPASS_BIN` if the Multipass executable is outside PATH.
 
 The deployment uses four PostgreSQL units with three replicas each, three Aggregators, and three NATS brokers. Broker connections use two-second heartbeats to detect silent peers. Each node is excluded from one storage unit. Only Aggregator receives application database credentials, with TLS certificate verification enabled. A local registry on port 30500 distributes development images over the trusted VM network; do not expose it publicly.
+
+Set `SATELLITE_BASE_URL=https://satellite.naufarrel.dev` in the control VM's `.state/m2/runtime.env` to enable Feed Satelit. Place the group credential in the ignored `.secrets/satellite-secret.yaml` as a Secret named `satellite-secret` with key `token`. The deployment applies that file or uses the existing Secret. Clear the URL to deploy with the source disabled. Grafana shows feed offsets behind, unfinished batches, and p95 from the first input in a batch to the canonical commit. Catch-up requires the feed lag and unfinished batches to return to zero.
+
+To import the historical BMKG catalog, place the official CSV at `.state/m2/bmkg-catalog.csv` in the control VM before deploying. The deploy command packages it in the Aggregator image in the local registry. The image tag includes the CSV digest so every replica, including replacements, imports the same bytes. Use Audit to compare the imported count and checksum with the reference.
+
+The replicated profile allows up to 256 KiB per JetStream event so wildfire events can keep their detection keys. If upgrading an existing VM whose `.state/m2/runtime.env` still sets `NATS_MAX_MSG_SIZE=65536`, clear that value or set it to `262144` before deploying. Aggregator widens the existing stream in place.
 
 The first multi-node deployment initializes empty storage or imports existing M1 records, history, source status, and outbox entries while preserving IDs and revisions. During an import, the old writer is paused; original database and broker volumes are retained. Subsequent deployments skip this step using `aat-storage-cutover`; rolling application updates reuse the replicated stores. Returning to `deploy.sh` after cutover would start the old single-node dataset, so use `deploy-cluster.sh` for this environment afterward.
 
@@ -91,6 +99,27 @@ Tracing samples 1% of new traces and follows a parent's sampling decision. Tempo
 In Grafana, open **Explore**, select **Tempo**, choose **Trace ID**, and paste `checks.http_database_trace.trace_id` printed by `check-cluster.py`. That request is explicitly sampled; other log IDs are only stored when sampled. This profile allows Viewer access to Explore and temporary panel edits; changes cannot be saved.
 
 `check-cluster.py` includes the basic checks and verifies placement, PostgreSQL synchronous replication, stream/consumer replicas, a steady-state upstream caller per source, keyset pagination, and a live HTTP-to-database trace. Node replacement, official catalog checksums, and full load/scaling acceptance require separate experiments.
+
+### Sensor Pantai and analytics
+
+For practice, create the sensor token once and keep it in Kubernetes:
+
+```sh
+export KUBECONFIG=~/.kube/aat-dev.yaml
+kubectl apply -f infra/k8s/dev/namespace.yaml
+openssl rand -hex 32 | tr -d '\n' | kubectl -n sistem-informasi-kebencanaan-bnpb create secret generic pantai-token --from-file=token=/dev/stdin
+python3 scripts/m2/prepare.py
+```
+
+Set `PANTAI_BASE_URL=http://sensor-pantai:8080` in `.state/m2/runtime.env` and run `bash scripts/m2/deploy-cluster.sh`. For an existing deployment, restart Aggregator after changing only its environment or resetting the token. For the exam, set the prescribed profile and mount the assistant's key at `/var/run/pantai/key`.
+
+Open `http://<control-node-ip>:30080/analytics/` with an Auth access token and select an occurrence-time range in UTC. Use a category card to focus the trend chart. The dashboard shows which storage units contributed to partial counts.
+
+`GET /v1/analytics?from=<RFC3339>&to=<RFC3339>` uses the same Bearer token and an inclusive start with an exclusive end. `total_events` counts each event once. The tsunami series and category count represent earthquakes with BMKG warnings. `coverage` reports the number of storage units that contributed, and `unavailable_units` lists the missing units.
+
+Run `python3 scripts/m2/check-coastal.py` on the control VM after the practice feed has populated a stable event window. It compares analytics with Audit and samples the Field Team receiver's stored notifications.
+
+After a critical-alert scenario, run `python3 scripts/m2/check-field-alerts.py path/to/expected-critical.json`. The expected file is an independent JSON array of objects with `observation_id` and, for end-to-end latency, `available_at` as a wall-clock RFC3339 timestamp. The check scans all durable receipts, reports missing or duplicate IDs, and compares p95 with five seconds. Raw intake-to-receipt timing is also reported for diagnosis. Use the sensor's emission time on the experiment clock for `available_at`, since `observed_at` can be virtual time.
 
 ## Durable ingestion and Audit checks
 

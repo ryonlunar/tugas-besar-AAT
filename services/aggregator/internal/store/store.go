@@ -34,9 +34,10 @@ var sourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
 const DefaultOutboxLimit int64 = 10000
 
 const (
-	SubjectBMKG   = "hazard.events.v1.BMKG"
-	SubjectPVMBG  = "hazard.events.v1.PVMBG"
-	SubjectFilter = "hazard.events.v1.*"
+	SubjectBMKG      = "hazard.events.v1.BMKG"
+	SubjectPVMBG     = "hazard.events.v1.PVMBG"
+	SubjectSatellite = "hazard.events.v1.SATELIT"
+	SubjectFilter    = "hazard.events.v1.*"
 )
 
 func SubjectForSource(source mapper.Source) (string, error) {
@@ -52,12 +53,12 @@ var ErrEventTooLarge = errEventTooLarge
 
 type Store struct {
 	readDB, bmkgWriteDB, pvmbgWriteDB, relayDB, migrationDB, reportDB *sql.DB
-	staleAfter                                              time.Duration
-	readTimeout, writeTimeout                               time.Duration
-	outboxLimit                                             int64
-	maxEnvelopeBytes                                        int
-	requireFence                                            bool
-	unit                                                    string
+	staleAfter                                                        time.Duration
+	readTimeout, writeTimeout                                         time.Duration
+	outboxLimit                                                       int64
+	maxEnvelopeBytes                                                  int
+	requireFence                                                      bool
+	unit                                                              string
 }
 
 type SourceState struct {
@@ -85,12 +86,12 @@ func NewWithPools(readDB, bmkgWriteDB, pvmbgWriteDB, relayDB *sql.DB, staleAfter
 	if staleAfter <= 0 {
 		staleAfter = 15 * time.Second
 	}
-	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, reportDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: 64 << 10}
+	return &Store{readDB: readDB, bmkgWriteDB: bmkgWriteDB, pvmbgWriteDB: pvmbgWriteDB, relayDB: relayDB, migrationDB: bmkgWriteDB, reportDB: bmkgWriteDB, staleAfter: staleAfter, readTimeout: 200 * time.Millisecond, writeTimeout: 2 * time.Second, outboxLimit: DefaultOutboxLimit, maxEnvelopeBytes: broker.DefaultEnvelopeBytes}
 }
 
 func (s *Store) SetMaxEnvelopeBytes(limit int) {
-	if limit <= 0 || limit > 64<<10 {
-		limit = 64 << 10
+	if limit <= 0 || limit > broker.MaxEnvelopeBytes {
+		limit = broker.DefaultEnvelopeBytes
 	}
 	s.maxEnvelopeBytes = limit
 }

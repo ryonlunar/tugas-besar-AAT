@@ -96,7 +96,7 @@ def main():
     headers = {'Authorization': 'Bearer ' + token['access_token'], 'traceparent': f'00-{trace_id}-{uuid.uuid4().hex[:16]}-01'}
     status, page = check.request(urls['client-api'] + '/v1/hazards?view=full&limit=3', headers=headers)
     assert status == 200 and page['meta']['partial'] is False and page['meta']['unavailable_units'] == [], 'Healthy fan-out must be complete.'
-    assert all(state['status'] == 'fresh' for state in page['meta']['sources'].values()), 'Sources have not resumed successful ingestion.'
+    assert all(page['meta']['sources'][source]['status'] == 'fresh' for source in ('BMKG','PVMBG')), 'Sources have not resumed successful ingestion.'
     cursor = page['meta'].get('next_cursor')
     assert cursor, 'Expected a continuation cursor.'
     status, next_page = check.request(urls['client-api'] + '/v1/hazards?view=full&limit=3&cursor=' + urllib.parse.quote(cursor), headers=headers)

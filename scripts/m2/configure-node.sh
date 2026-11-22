@@ -8,6 +8,19 @@ if [[ $role != server && $role != agent ]]; then
   echo 'Role must be server or agent.' >&2
   exit 1
 fi
+
+iptables=/usr/sbin/iptables
+if [[ ! -x $iptables ]]; then
+  sudo apt-get update
+  sudo apt-get install -y iptables
+fi
+if [[ $(readlink "$iptables") == /etc/alternatives/iptables ]]; then
+  # The Agent resolves this path through /host. Keep the Ubuntu backend
+  # selected by update-alternatives, using a link that stays inside /host.
+  target=$(realpath --relative-to=/usr/sbin "$iptables")
+  sudo ln -sfn "$target" "$iptables"
+fi
+
 sudo install -d /etc/rancher/k3s/config.yaml.d
 sudo python3 - "$control_ip" <<'PY'
 from pathlib import Path
@@ -56,6 +69,6 @@ PY
     curl -fsSL https://get.k3s.io -o /tmp/aat-install-agent.sh
     sudo env INSTALL_K3S_VERSION=v1.37.2+k3s1 INSTALL_K3S_EXEC=agent sh /tmp/aat-install-agent.sh
   else
-    sudo systemctl restart k3s-agent
+    sudo systemctl restart --no-block k3s-agent
   fi
 fi

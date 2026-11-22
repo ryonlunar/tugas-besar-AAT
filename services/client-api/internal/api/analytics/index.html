@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analitik Kebencanaan</title>
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="./chart.js"></script>
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap">IF4031 <span>· Milestone 2</span></div>
+</header>
+<main class="wrap">
+  <h1>Analitik Kebencanaan</h1>
+  <form id="filters" class="panel">
+    <div class="filter-heading">
+      <h2>Rentang waktu kejadian <span class="unit">UTC</span></h2>
+      <div class="presets" id="presets" aria-label="Pilihan rentang waktu">
+        <button type="button" data-days="7" aria-pressed="true">7 hari</button>
+        <button type="button" data-days="30" aria-pressed="false">30 hari</button>
+        <button type="button" data-days="90" aria-pressed="false">90 hari</button>
+      </div>
+    </div>
+    <div class="filter-fields">
+      <label>Mulai <input id="from" type="datetime-local" required></label>
+      <label>Sampai <input id="to" type="datetime-local" required></label>
+      <label>Access token <input id="token" type="password" autocomplete="off" placeholder="Token dari Auth" required></label>
+      <button class="primary" id="apply">Tampilkan data</button>
+    </div>
+  </form>
+
+  <p id="status" class="notice" role="status" hidden></p>
+
+  <div id="results" hidden>
+    <section class="summary panel" aria-labelledby="total-heading">
+      <div class="summary-main">
+        <div>
+          <h2 id="total-heading">Total kejadian</h2>
+          <p id="total" class="total-value"></p>
+        </div>
+        <div class="summary-context">
+          <p id="coverage"></p>
+          <p id="window"></p>
+        </div>
+      </div>
+      <div id="types" class="types" aria-label="Pilih jenis bahaya untuk grafik"></div>
+    </section>
+
+    <div id="details">
+      <div class="analysis-grid">
+        <section id="trend" class="panel trend" aria-labelledby="trend-heading">
+          <div class="section-heading">
+            <div>
+              <h2 id="trend-heading">Tren kejadian</h2>
+              <p id="granularity" class="muted"></p>
+            </div>
+            <button type="button" id="all-types" class="quiet" hidden>Tampilkan semua</button>
+          </div>
+          <p id="chart-empty" class="empty" hidden></p>
+          <div id="plot">
+            <div id="chart" class="chart" tabindex="0" role="group" aria-label="Grafik waktu kejadian. Gunakan tombol panah untuk membaca setiap interval.">
+              <svg id="chart-svg" aria-hidden="true"></svg>
+            </div>
+            <div id="readout" class="readout" aria-live="polite" aria-atomic="true"></div>
+          </div>
+          <p class="chart-note">Seri tsunami menghitung gempa dengan peringatan BMKG. Setiap gempa dihitung sekali dalam total kejadian.</p>
+        </section>
+
+        <div class="breakdowns">
+          <section class="panel severity" aria-labelledby="severity-heading">
+            <h2 id="severity-heading">Tingkat keparahan</h2>
+            <ul id="severity" class="severity-list"></ul>
+          </section>
+
+          <section class="panel areas" aria-labelledby="areas-heading">
+            <div class="section-heading">
+              <h2 id="areas-heading">Kejadian per wilayah</h2>
+              <p class="muted" id="area-count"></p>
+            </div>
+            <input id="area-search" type="search" aria-label="Cari nama wilayah" placeholder="Cari nama wilayah" autocomplete="off">
+            <table id="areas">
+              <thead><tr><th scope="col">Wilayah</th><th scope="col" aria-sort="descending">Kejadian</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p id="area-empty" class="empty" hidden></p>
+            <div id="area-nav" class="area-nav" hidden>
+              <p id="area-page" class="muted" role="status"></p>
+              <div>
+                <button id="area-prev" type="button">Sebelumnya</button>
+                <button id="area-next" type="button">Berikutnya</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

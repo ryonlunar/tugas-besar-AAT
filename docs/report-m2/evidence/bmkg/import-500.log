@@ -1,0 +1,9 @@
+waiting for server to start.... done
+server started
+=== RUN   TestBMKGCatalogImportResumesWithoutDuplicates
+{"audit_checksum":"aec6c971e17e86b0094cf1bb79c95e14f2d00c0b16b63265cd6b50c4c1c262ff","dataset":"synthetic CSV, one coordinate/region","expected_checksum":"aec6c971e17e86b0094cf1bb79c95e14f2d00c0b16b63265cd6b50c4c1c262ff","partial":false,"row_counts_by_logical_unit":{"shard-0":120,"shard-1":120,"shard-2":155,"shard-3":105},"rows":500,"rows_journaled_before_interrupt":100}
+--- PASS: TestBMKGCatalogImportResumesWithoutDuplicates (5.54s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded	5.574s
+waiting for server to shut down.... done
+server stopped

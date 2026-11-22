@@ -4,7 +4,7 @@ Melakukan polling BMKG dan PVMBG secara independen, memetakan data menjadi `Haza
 
 ## Konfigurasi dan menjalankan
 
-Untuk menjalankan seluruh dependensi, gunakan [Docker Compose di root repo](../../README.md#menjalankan-aplikasi).
+Untuk menjalankan seluruh dependensi melalui Docker Compose, ikuti [panduan M1](../../README-m1.md#menjalankan-aplikasi).
 
 Jika menjalankan binary langsung, sediakan PostgreSQL, NATS, dan kedua mock. Ekspor konfigurasi koneksi beserta `BMKG_API_KEY`, `PVMBG_TOKEN`, `AGGREGATOR_API_KEY`, `POSTGRES_PASSWORD`, dan `NATS_TOKEN` sesuai [.env.example](../../.env.example); sesuaikan alamat host dengan lokasi dependensi. Jalankan dari root repo:
 

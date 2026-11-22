@@ -38,9 +38,10 @@ type RawRecord struct {
 // Batch commits records and their resume position together. From is the position
 // used to obtain this batch; Cursor is the next position to read.
 type Batch struct {
-	From    string
-	Cursor  string
-	Records []RawRecord
+	From           string
+	Cursor         string
+	Records        []RawRecord
+	DegradedReason string // Optional adapter-reported health failure; raw records still commit.
 }
 
 // SourceAdapter resumes from the supplied opaque cursor. It must stop on a

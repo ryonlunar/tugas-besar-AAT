@@ -1,0 +1,43 @@
+\chapter{TEKNOLOGI DAN ASUMSI}
+
+\section{Teknologi Terpilih dan Perubahan dari M1}
+Tabel~\ref{tab:technology} merangkum keputusan utama. Pembagian layanan dan kontrak kanonik M1 dipertahankan agar perubahan penyimpanan dan deployment dapat dilakukan tanpa mengganti cara client mengakses data. Keputusan yang berubah terutama menyangkut apa yang harus bertahan saat satu replika atau node berhenti.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{2.7cm}>{\raggedright\arraybackslash}p{3.6cm}Y@{}}
+\toprule
+Komponen & Pilihan M2 & Alasan dan perubahan dari M1 \\
+\midrule
+Layanan & Go, HTTP/JSON, JWT & Batas layanan serta verifikasi token lokal pada M1 tetap berlaku. API menambah jalur laporan, operasi pesan gagal, dan Analitik. \\
+Penyimpanan & PostgreSQL 16 dan JSONB, Patroni, Zalando Postgres Operator & JSONB tetap menampung atribut sumber yang berubah. Basis data tunggal diganti empat shard dengan replikasi pada disk lokal agar kehilangan satu worker dapat diuji. Patroni mengelola pemilihan primary. \\
+Broker & NATS JetStream & Stream serta consumer dengan posisi baca tersendiri dipertahankan. Tiga replika broker memberi redundansi tanpa mengganti kontrak event. \\
+Pengambilan data & Polling HTTP, Server-Sent Events (SSE) & Polling tetap sesuai untuk snapshot BMKG dan PVMBG. Feed Satelit memerlukan koneksi yang mengalirkan data dan posisi lanjut berbasis offset. Sensor Pantai menyediakan halaman observasi dengan cursor. \\
+Deployment & k3s, Kustomize, Helm, OpenTofu & Image per layanan tetap dipakai. Docker Compose berguna untuk M1 dan pengujian lokal. Skenario M2 memakai k3s pada VM ber-kernel terpisah, dengan penjadwalan dan penyimpanan lokal per node. OpenTofu menyiapkan VM dan jaringan privat untuk pengujian Hetzner. \\
+Observabilitas & Prometheus, Grafana, Loki, Alloy, OpenTelemetry, Tempo & Log terstruktur dan correlation ID dari M1 dipertahankan. Prometheus menghimpun metrik dan Loki menyimpan log untuk dilihat di Grafana. Trace mengikuti permintaan dari API sampai akses basis data. \\
+Pengujian & Go, k6, Tester Agent & Pengujian Go memeriksa perilaku komponen dan protokol. k6 mengukur beban API. Tester Agent disiapkan untuk pengujian gangguan sesuai kontrak pada sesi penilaian. \\
+\bottomrule
+\end{tabularx}
+\caption{Pilihan teknologi dan pengaruhnya terhadap rancangan Milestone 2.}
+\label{tab:technology}
+\end{table}
+
+\section{Asumsi Perancangan dan Pengujian}
+\begin{itemize}
+\item Identitas sumber stabil untuk pembaruan satu kejadian. Rute penyimpanan mengandalkan pasangan \texttt{source} dan \texttt{source\_ref\_id}, sedangkan posisi lanjut setiap sumber mengikuti kontraknya.
+\item Sensor Pantai berjalan sebagai image yang disediakan asisten. Kelompok memakai kontrak HTTP, token, dan profil yang disediakan. Feed Satelit berjalan di luar cluster.
+\item Replikasi sinkron PostgreSQL bergantung pada satu primary yang berwenang pada tiap shard. Uji gangguan menargetkan worker, dengan control plane tetap tersedia.
+\item Perbandingan checksum Audit memakai himpunan data dan rentang yang sama. Lingkungan latihan dan bahan simulasi dicatat bersama hasilnya, karena hasil tersebut tidak mewakili katalog atau gangguan resmi yang belum dijalankan.
+\end{itemize}
+
+\section{Menjalankan dan Memverifikasi Sistem}
+Siapkan OpenTofu, Python~3, Git, OpenSSH, dan token Hetzner sesuai panduan \path{infra/hetzner/README.md}. Dari akar repositori, isi \texttt{SSH\_CIDR} dengan alamat publik yang diizinkan masuk melalui SSH. Perintah \texttt{plan} menyiapkan rancangan jaringan dan VM. Perintah \texttt{up} menerapkannya serta memasang k3s dan aplikasi dari versi repositori yang sedang dibuka.
+
+\terminalfigure{hetzner-setup}{Perintah untuk menyiapkan klaster Hetzner dan menghapusnya setelah pengujian.}{fig:hetzner-perintah}
+
+Jalankan \path{scripts/m2/check-cluster.py} pada control plane untuk memeriksa penempatan, replikasi, dan akses layanan. Workload P2 dijalankan dari \texttt{aat-loadgen} mengikuti \path{scripts/README.md}.
+
+Panduan \path{infra/k8s/README.md} menjelaskan konfigurasi dan cara mengaktifkan Sensor Pantai serta Feed Satelit. Katalog gempa resmi ditempatkan sebagai \path{.state/m2/bmkg-catalog.csv} pada control plane sebelum deployment. Docker Compose tetap tersedia untuk pengembangan lokal.
+
+\section{Observabilitas}
+Grafana pada port 30000 menampilkan metrik dari Prometheus, log ber-correlation ID dari Loki, dan trace dari Tempo. Sampling trace bawaan adalah 1\%. Pemeriksaan klaster menghasilkan satu trace yang disampel secara eksplisit.

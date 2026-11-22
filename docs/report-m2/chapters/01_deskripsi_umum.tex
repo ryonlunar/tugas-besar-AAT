@@ -1,0 +1,48 @@
+\chapter{DESKRIPSI UMUM SISTEM}
+
+\section{Latar Belakang}
+Sistem ini dibangun untuk memenuhi Milestone 2 tugas besar IF4031 Arsitektur Aplikasi Terdistribusi, yang mengangkat kebutuhan pertukaran data kebencanaan antarinstansi. BMKG menyediakan informasi gempa dan peringatan tsunami, sedangkan PVMBG menyediakan laporan aktivitas gunung api. BNPB berperan sebagai simpul koordinasi yang menyatukan informasi tersebut untuk Media, Tim Lapangan, dan kebutuhan internal. Karena setiap instansi memiliki format data dan mekanisme akses sendiri, pertukaran data ini membutuhkan perantara yang dapat menangani perbedaan tersebut \cite{spec}.
+
+Pada Milestone 1 (M1), sistem mengambil data dari mock BMKG dan PVMBG, memetakannya ke format bersama, lalu menyediakannya melalui API dan distribusi event. Milestone 2 (M2) melanjutkan sistem tersebut dengan menambah sumber data dan menguji bagaimana layanan pulih ketika sebagian komponennya mengalami gangguan.
+
+\section{Tujuan}
+Lima problem pada M2 menjadi dasar perancangan dan pengujian sistem.
+\begin{enumerate}
+  \item Membagi data ke beberapa shard, menjaga data saat satu worker hilang, dan menghitung agregat lintas shard untuk dasbor analitik.
+  \item Menambah kapasitas pembacaan melalui beberapa Aggregator sambil menjaga satu pemilik pengambilan data per sumber.
+  \item Menangani perubahan skema dan pesan yang gagal, serta menyimpan laporan Tim Lapangan sebelum memberikan tanda terima.
+  \item Mengenali kebakaran dari Feed Satelit dan melanjutkan pemrosesan setelah koneksi atau proses terhenti.
+  \item Mengisolasi gangguan Sensor Pantai dan mengirim pengamatan kritis kepada Tim Lapangan.
+\end{enumerate}
+
+\section{Ruang Lingkup}
+Data yang ditangani mencakup gempa, peringatan tsunami, aktivitas gunung api, kebakaran hutan, dan pengamatan pesisir. Aggregator menerima data dari mock BMKG dan PVMBG, katalog gempa historis, Feed Satelit, dan Sensor Pantai. Data kejadian dipetakan ke format bersama \texttt{HazardEvent}, sedangkan laporan Tim Lapangan mempunyai tanda terima tersendiri.
+
+Media memperoleh ringkasan kejadian. Tim Lapangan dan BNPB internal dapat membaca rincian sesuai hak aksesnya. Tim Lapangan juga dapat mengirim laporan, sementara BNPB Internal Ops dapat memeriksa dan memproses ulang pesan sumber yang gagal.
+
+\section{Komponen BNPB dan Client}
+Tabel~\ref{tab:bnpb-components} merangkum peran komponen BNPB. Client mengakses sistem melalui Client API dan Auth. Broker menyalurkan event kepada consumer.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.15cm}Y@{}}
+\toprule
+Komponen BNPB & Peran dalam sistem \\
+\midrule
+Gateway / Aggregator & Mengambil dan memetakan data sumber, menerima laporan Tim Lapangan, melayani permintaan Client API, dan menyediakan Audit API. \\
+Canonical Store & Menyimpan jurnal masukan, kejadian kanonik, dan outbox pada shard PostgreSQL yang dikelola Aggregator. \\
+Client-Facing API & Menyediakan jalur baca, dasbor analitik, jalur laporan, dan operasi pesan gagal sesuai hak akses client. \\
+Auth / Token Service & Memeriksa identitas client, menerbitkan access token, dan mengelola refresh token. \\
+Message Broker & Menyimpan event di NATS JetStream dan mencatat posisi baca masing-masing consumer. \\
+Event Consumer & Dashboard Consumer memperbarui data dasbor. Notifier meneruskan pengamatan pesisir kritis ke Penerima Tim Lapangan. \\
+Penerima Tim Lapangan & Mencatat tanda terima peringatan yang dikirim oleh Notifier. \\
+\bottomrule
+\end{tabularx}
+\caption{Komponen BNPB dan tanggung jawabnya pada M2.}
+\label{tab:bnpb-components}
+\end{table}
+
+\section{Cakupan Bukti dan Demonstrasi}
+Laporan ini memuat hasil yang tersedia pada pengumpulan 22 November 2026. Lampiran~\ref{app:evidence} merangkum bukti dan batas kesimpulan per kriteria.
+
+Spesifikasi menjadwalkan pengujian akhir dengan bahan asisten setelah tenggat kode dan laporan. Hasil pengujian tersebut direkam untuk video demonstrasi yang dikumpulkan paling lambat 29 November 2026 pukul 23.59 WIB \cite{spec}.

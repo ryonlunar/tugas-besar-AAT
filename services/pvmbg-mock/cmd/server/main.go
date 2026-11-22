@@ -15,6 +15,7 @@ import (
 
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/pvmbg-mock/internal/mock"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
@@ -66,6 +67,10 @@ func run() error {
 	if err != nil || port < 1 || port > 65535 {
 		return errors.New("PVMBG_MOCK_HTTP_PORT must be between 1 and 65535")
 	}
+	testerPort, err := intEnv("PVMBG_TESTER_ADMIN_PORT", 0)
+	if err != nil || testerPort < 0 || testerPort > 65535 || testerPort == port {
+		return errors.New("PVMBG_TESTER_ADMIN_PORT must be disabled (0) or a distinct valid port")
+	}
 	minMS, err := int64Env("PVMBG_DELAY_MIN_MS", 500)
 	if err != nil || minMS < 0 {
 		return errors.New("PVMBG_DELAY_MIN_MS must be non-negative")
@@ -95,7 +100,7 @@ func run() error {
 		return err
 	}
 	if err := catalog.SetSchemaVersion(version); err != nil {
-		return err
+		return fmt.Errorf("PVMBG_SCHEMA_VERSION must be between 1 and 5 (1-2 compatible with M1; 3 renames alert_level to level; 4 changes eruption_count_24h to a string; 5 drops ash_column_height_m): %w", err)
 	}
 	outage, err := boolEnv("PVMBG_OUTAGE_ENABLED", false)
 	if err != nil {
@@ -122,7 +127,20 @@ func run() error {
 	}
 	defer closeMetrics()
 	server := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: monitor.Wrap(mock.WithCorrelationID(mock.NewPVMBGHandler(mock.PVMBGConfig{Token: token}, catalog, nil, nil)), "/volcanic-reports", "/admin/schema-version", "/admin/delay", "/admin/outage"), ReadHeaderTimeout: 2 * time.Second, IdleTimeout: 30 * time.Second, WriteTimeout: 5 * time.Second}
-	return serve(ctx, server, "pvmbg-mock", seedCount)
+	if testerPort == 0 {
+		return serve(ctx, server, "pvmbg-mock", seedCount)
+	}
+	tester := &http.Server{
+		Addr:              fmt.Sprintf(":%d", testerPort),
+		Handler:           mock.WithCorrelationID(mock.NewTesterAdminHandler(catalog)),
+		ReadHeaderTimeout: 2 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Second,
+	}
+	group, ctx := errgroup.WithContext(ctx)
+	group.Go(func() error { return serve(ctx, server, "pvmbg-mock", seedCount) })
+	group.Go(func() error { return serve(ctx, tester, "pvmbg-tester", seedCount) })
+	return group.Wait()
 }
 
 func intEnv(key string, fallback int) (int, error) {

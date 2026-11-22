@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sensor-pantai-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sensor-pantai
+  labels: {role: sensor}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: sensor-pantai}}
+  template:
+    metadata: {labels: {app: sensor-pantai, role: sensor}}
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector: {aat.dev/control: "true"}
+      containers:
+        - name: sensor
+          image: sustuna/sensor-pantai@sha256:51fbd90d3891ad6e9f5768ad330ffb65205644cb29e50da65c7538f2e0b4397d
+          env:
+            - {name: PANTAI_PROFILE, value: practice}
+            - {name: PANTAI_SEED, value: "42"}
+            - {name: PANTAI_SPEED, value: "60"}
+            - name: PANTAI_AUTH_TOKEN
+              valueFrom: {secretKeyRef: {name: pantai-token, key: token}}
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /healthz, port: 8080}}
+          resources:
+            requests: {memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            # For the exam, also mount the assistant's key as /var/run/pantai/key.
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: sensor-pantai-data}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sensor-pantai
+spec:
+  selector: {app: sensor-pantai}
+  ports: [{port: 8080, targetPort: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sensor-pantai-ingress
+spec:
+  podSelector: {matchLabels: {app: sensor-pantai}}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {matchLabels: {role: aggregator}}
+      ports: [{port: 8080, protocol: TCP}]
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aggregator-sensor-egress
+spec:
+  podSelector: {matchLabels: {role: aggregator}}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: {matchLabels: {app: sensor-pantai}}
+      ports: [{port: 8080, protocol: TCP}]

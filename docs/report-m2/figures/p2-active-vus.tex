@@ -1,0 +1,24 @@
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[x=0.065cm,y=0.00028cm]
+  \draw[gray!40] (0,5000) -- (210,5000);
+  \draw[gray!40] (0,10000) -- (210,10000);
+  \draw[archink] (0,10500) -- (0,0) -- (210,0);
+  \foreach \x in {0,30,60,90,120,150,180,210} {
+    \draw[archink] (\x,0) -- (\x,-175) node[below,font=\footnotesize]{\x};
+  }
+  \foreach \y/\value in {0/0,5000/{5.000},10000/{10.000}} {
+    \draw[archink] (0,\y) -- (-2,\y) node[left,font=\footnotesize]{\value};
+  }
+  \node[above right,font=\footnotesize] at (0,10500) {VU aktif};
+  \node[below=13pt,font=\footnotesize] at (105,0) {Detik sejak sampel k6 pertama};
+  \draw[archink!75,semithick] plot file {evidence/hetzner/k6-vu.dat};
+  \foreach \x/\replicas in {70.191/5,120.484/2} {
+    \draw[archevent,densely dashed] (\x,1600) -- (\x,10000);
+    \fill[archevent] (\x,10000) circle[radius=2pt];
+    \node[above,font=\footnotesize,text=archevent] at (\x,10250) {\replicas\ replika siap};
+  }
+\end{tikzpicture}
+\caption{VU aktif pada pengulangan pertama. Pengujian dimulai dengan tiga Aggregator. Penanda menunjukkan saat lima dan dua replika dinyatakan siap oleh Kubernetes.}
+\label{fig:p2-active-vus}
+\end{figure}

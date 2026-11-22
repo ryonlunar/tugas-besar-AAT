@@ -1,0 +1,74 @@
+\chapter{PROBLEM 4}
+\label{ch:p4}
+
+\begin{center}\large\bfseries Atap Seng di Siang Bolong\end{center}
+
+\section{Identifikasi Masalah}
+
+Deteksi dari lintasan yang sama dapat tiba pada waktu yang berbeda, sementara beberapa satelit dapat mengamati kebakaran yang sama. Mengelompokkan deteksi berdasarkan jam tiba akan memisahkan titik yang seharusnya dihubungkan atau menggabungkan pengamatan dari lintasan yang berbeda. Pemisahan antara \emph{event time} dan waktu pemrosesan memungkinkan pengelompokan mengikuti waktu deteksi, sementara \emph{watermark} dan batas keterlambatan menentukan kapan sebuah deteksi masih boleh mengubah hasil \cite{akidau2015}. Ini merupakan persoalan data di luar urutan pada kriteria 2.
+
+Lonjakan feed pada kriteria 4 menguji kemampuan sistem menampung data masuk dan menghabiskan antrean ketika laju kedatangan untuk sementara melebihi laju pemrosesan. Kriteria 5 menambah persoalan pemulihan state. Jika proses mati di tengah pengenalan, sistem harus dapat mengambil kembali titik yang sudah diterima, posisi pembacaan, dan perubahan HazardEvent yang belum selesai diterapkan. Log persisten, pencatatan posisi, dan penerapan ulang yang idempoten menjadi dasar pemulihan tersebut \cite{kleppmann2017}.
+
+\section{Rancangan Solusi dan Mekanisme}
+
+\subsection{Penerimaan feed dan posisi pembacaan}
+
+Poller M1 cocok untuk BMKG dan PVMBG karena keduanya menyediakan snapshot HTTP. Feed Satelit justru menyediakan riwayat berurutan lewat Server-Sent Events (SSE), termasuk koreksi dan penarikan deteksi. Aggregator membuka \path{GET /v1/stream?from=<offset>} dengan token kelompok dari Kubernetes Secret, lalu membaca respons yang terus mengalir. Offset memberi posisi pemulihan yang tepat saat sambungan terputus, sedangkan pembacaan kontinu menghindari jeda antar-poll selama lonjakan \cite{sse}.
+
+Penerima menulis data mentah dalam batch ke jurnal PostgreSQL. Penyimpanan batch dan kemajuan kursor dilakukan dalam satu transaksi. Bila sambungan terputus sebelum batch tersimpan, Aggregator meminta kembali mulai dari offset yang masih tercatat. Offset yang lebih kecil dari posisi yang diharapkan dilewati. Bila ada celah, pembaca berhenti dan menyambung ulang dari posisi yang semestinya. Pemrosesan jurnal berjalan tersendiri sehingga laju penulisan HazardEvent tidak harus menyamai laju data yang masuk pada setiap saat.
+
+\subsection{Pengenalan kebakaran dan data terlambat}
+
+Setiap deteksi VIIRS dikenali melalui gabungan satelit, tanggal dan waktu akuisisi, lintang, serta bujur. Deteksi identik dihitung satu kali. Tanggal dan waktu akuisisi digabung dalam UTC, lalu deteksi dengan confidence \texttt{low} dikeluarkan dari pengelompokan. Dua titik terhubung apabila jaraknya paling jauh 1~km dan selisih waktu deteksinya paling lama 360~menit. Keterhubungan ini berlaku secara transitif. Sebuah komponen dengan sedikitnya dua deteksi menjadi satu kebakaran walaupun deteksinya berasal dari satelit berbeda. Titik tunggal disimpan sebagai deteksi tanpa HazardEvent.
+
+Kebakaran yang memenuhi ambang dua deteksi langsung menghasilkan \path{HazardEvent} kategori \texttt{WILDFIRE} dari sumber \texttt{SATELIT}. Waktu kejadian mengikuti deteksi paling awal, sedangkan lokasi mengikuti titik pusat dan provinsi dengan koordinat referensi terdekat. Atribut mencakup jumlah deteksi, daftar satelit, confidence tertinggi, total FRP, dan kunci deteksi. Tingkat bahaya menjadi \texttt{AWAS} mulai 20 deteksi atau 100~MW, \texttt{SIAGA} mulai 6 deteksi atau 30~MW, dan \texttt{WASPADA} untuk kebakaran di bawah kedua ambang tersebut.
+
+Pengenalan awal dianggap cukup ketika komponen mencapai dua deteksi. Hasilnya tetap dapat direvisi. Untuk tiap satelit, Aggregator menyimpan waktu deteksi termutakhir yang sudah diterima dan memakai toleransi keterlambatan 12~jam. Deteksi baru yang tiba dalam rentang itu masih dapat mengubah komponen. Deteksi yang waktu kejadiannya sudah melewati batas disimpan dengan status \texttt{late} dan menambah counter keterlambatan. Toleransi ini memberi ruang bagi lintasan yang terlambat tanpa menunda publikasi awal. Konsekuensinya, deteksi baru yang datang lebih dari 12~jam di belakang kemajuan satelit tersebut tidak ikut dalam pengenalan aktif.
+
+Pesan \texttt{update} dan \texttt{retract} diproses dalam urutan offset dan dapat mengubah hasil yang sudah terbit. Pencatatan identitas kebakaran mempertahankan \path{source_ref_id} selama komponen yang sama masih dikenali. Pada penggabungan, satu identitas dipertahankan secara deterministik dan identitas lain ditarik. Ketika penarikan deteksi memecah komponen, bagian yang masih memenuhi definisi kebakaran dan memuat deteksi jangkar mempertahankan ID awal. Jika deteksi jangkar sudah ditarik, bagian yang memenuhi definisi dan memiliki deteksi paling awal mempertahankan ID tersebut. Event ditarik ketika tidak tersisa komponen yang memenuhi definisi. Aturan ini menjaga kontinuitas hasil sekaligus memberi cara untuk mencatat perubahan struktur ketika bukti pengamatan berubah.
+
+\subsection{Pemulihan state dan jaminan pemrosesan}
+
+State sementara, termasuk deteksi, anggota komponen, identitas kebakaran, dan watermark, tersimpan di PostgreSQL. Perubahan state pengenalan dan rencana mutasi kanonik dicatat bersama. Jika worker mati sesudah transaksi itu commit, penggantinya menerapkan rencana tersimpan tanpa menjalankan ulang pengenalan atas batch tersebut. Shard tujuan menyimpan penanda pemrosesan secara atomik dengan perubahan kanonik dan outbox, sehingga langkah yang telah di-commit tidak diulang. Generasi kepemilikan sumber membatasi penulisan dari proses lama setelah perpindahan pemilik.
+
+Penerimaan memakai pola \emph{at-least-once} selama feed masih menyediakan offset yang perlu dibaca kembali. Transaksi jurnal dan deduplikasi membuat pengulangan tersebut tidak menggandakan perubahan kanonik. Jaminan yang diuji adalah idempotensi per batch ketika pemrosesan dilanjutkan dan pemulihan posisi intake setelah pergantian pemilik. Mutasi yang menyentuh beberapa shard dapat terlihat pada waktu berbeda karena masing-masing memiliki transaksi sendiri.
+
+\section{Alasan Keputusan dan Trade-off}
+
+Polling tetap dipakai untuk sumber yang menyediakan snapshot. SSE mengurangi jeda pengambilan untuk Feed Satelit dan menyediakan offset untuk menyambung ulang. Batch mengurangi jumlah transaksi dan membatasi buffer di memori, dengan konsekuensi sebagian input menunggu hingga batch siap ditulis. Batas keterlambatan 12~jam menjaga ruang koreksi tanpa menunda publikasi awal.
+
+\section{Batasan yang Disadari}
+
+Uji live tersebut belum mengaudit seluruh offset untuk membuktikan tidak ada kehilangan atau duplikasi. Dengan backlog historis pada awal uji dan batch yang masih tertunda setelah pergantian pod, hasilnya juga belum dapat membuktikan sistem kembali mutakhir dalam 60~detik setelah lonjakan. Untuk menguji target itu, batas lonjakan perlu dicatat dan hasil intake serta HazardEvent perlu dibandingkan dengan catatan feed sampai antrean habis. Uji pemulihan atas dua deteksi membuktikan replay rencana pada titik kegagalan tertentu. Kesamaan hasil akhir antara dua pemrosesan live lengkap, dengan dan tanpa gangguan, masih perlu diperiksa.
+
+Perbandingan aliran lengkap (kriteria 6) menunggu hasil referensi asisten. Kriteria 7 dinilai dari sesi feed live pada video demonstrasi. Penghitungan titik tunggal dan deteksi di luar batas untuk seluruh aliran juga masih perlu dilaporkan. Posisi ibu kota yang dipakai sebagai titik referensi provinsi masih perlu dibandingkan dengan tabel BNPB. Batas 12~jam juga berarti deteksi pertama yang lebih terlambat tetap tersedia untuk audit, tetapi tidak digunakan untuk menghitung kembali kebakaran. Jika perbandingan dengan referensi menunjukkan selisih, status \texttt{late} perlu diperiksa bersama riwayat koreksi dan penarikan sebelum menyimpulkan penyebabnya.
+
+\section{Bukti Penyelesaian}
+
+Uji integrasi dengan PostgreSQL memperlihatkan bahwa dua deteksi yang terhubung menghasilkan satu mutasi. Setelah state dan rencana tercatat, pengujian mengulang fase penyiapan untuk mensimulasikan kegagalan sebelum penerapan. Rencana yang dikembalikan mempertahankan ID dan urutan yang sama, dan hasil akhirnya adalah satu HazardEvent. Fixture PostgreSQL \path{TestSatelliteRetriesAfterTemporaryStorageTimeout} memverifikasi bahwa pemrosesan dapat dicoba kembali setelah operasi penyimpanan melewati tenggat. Pengujian algoritme mencakup penggabungan lintas satelit, keterlambatan, dan koreksi. Dalam uji batas waktu, deteksi yang terlambat sekitar 10~jam tetap dapat membentuk satu kebakaran, sedangkan dua deteksi yang terlambat sekitar 13~jam tercatat sebagai dua kejadian pada counter keterlambatan. Uji putus-sambung dengan feed simulasi juga memeriksa urutan offset tanpa celah dan tanpa duplikasi. Dalam skenario sintetis yang memuat 1.800 kunci deteksi, Dashboard menerima dua kebakaran dan Notifier menerima kebakaran berskala besar. Rangkaian ini memberi bukti untuk kriteria 1--3 dan bukti pemulihan pada skenario terkontrol untuk kriteria 5.
+
+Uji klaster lokal pada 21 November 2026 memakai feed \texttt{practice} pada percepatan 60$\times$ dengan backlog historis yang sudah ada. Setelah pod pemilik dihapus, generasi kepemilikan naik dari 4 ke 5. Kemajuan penerimaan kembali teramati setelah 10{,}41~detik dan offset berikutnya kemudian mencapai 47.419. Tabel~\ref{tab:p4-reconnect} menunjukkan bahwa kursor kembali maju meskipun antrean pemrosesan belum habis.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}Yrr@{}}
+\toprule
+\textbf{Ukuran} & \textbf{Sebelum pod dihapus} & \textbf{Setelah tersambung ulang} \\
+\midrule
+Offset berikutnya di jurnal & 34.328 & 38.872 \\
+Jarak dari offset terkini feed & 2.026.114 & 2.012.117 \\
+Batch yang belum selesai & 86 & 119 \\
+Observasi latensi batch kanonik & 17 & 28 \\
+Estimasi p95 latensi hingga penyimpanan kanonik & 300~s & 300~s \\
+\bottomrule
+\end{tabularx}
+\caption{Sampel metrik feed practice pada uji pergantian pemilik.}
+\label{tab:p4-reconnect}
+\end{table}
+
+Dasbor metrik menampilkan jarak terhadap offset terkini feed dan jumlah batch belum selesai. Jarak offset mengukur ketertinggalan intake, sedangkan jumlah batch belum selesai mengukur antrean pemrosesan setelah data tersimpan di jurnal. Estimasi p95 dihitung dari histogram latensi tingkat batch yang menghasilkan mutasi, dari waktu penerimaan input pertama hingga commit kanonik. Angka 300~detik berada pada batas bucket berhingga tertinggi. Histogram tersebut hanya memberi perkiraan kasar latensi per batch. Uji live memberikan bukti untuk kemajuan kursor saat sambungan terbentuk kembali (kriteria 8), serta pengamatan awal tentang antrean dan latensi (kriteria 4).
+
+\section{Jawaban atas Butir ``Di laporan''}
+
+SSE memungkinkan Aggregator melanjutkan pembacaan dari offset terakhir yang sudah tercatat. Dua deteksi terhubung cukup untuk publikasi awal dan hasil tetap dapat direvisi. Watermark per satelit membatasi penerimaan deteksi baru yang terlambat hingga 12~jam. State dan rencana mutasi disimpan bersama di PostgreSQL. Uji integrasi menjalankan ulang rencana yang sama tanpa menggandakan perubahan, sedangkan Tabel~\ref{tab:p4-reconnect} menunjukkan kemajuan kursor setelah pergantian pemilik.

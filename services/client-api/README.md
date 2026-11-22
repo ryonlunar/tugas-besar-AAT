@@ -4,7 +4,7 @@ Memverifikasi JWT RS256 secara lokal dan membaca data melalui HTTP internal Aggr
 
 ## Konfigurasi
 
-Memerlukan `JWT_PUBLIC_KEY_FILE`, `AGGREGATOR_BASE_URL`, dan `AGGREGATOR_API_KEY`. Setup service tersedia di [README utama](../../README.md#menjalankan-aplikasi).
+Memerlukan `JWT_PUBLIC_KEY_FILE`, `AGGREGATOR_BASE_URL`, dan `AGGREGATOR_API_KEY`. Setup service untuk Docker Compose tersedia di [panduan M1](../../README-m1.md#menjalankan-aplikasi).
 
 ## Endpoint dan hak akses
 

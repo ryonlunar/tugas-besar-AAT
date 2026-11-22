@@ -19,6 +19,15 @@ type SleepFunc func(context.Context, time.Duration) error
 type DelayPicker func(time.Duration, time.Duration) time.Duration
 
 func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pick DelayPicker) http.Handler {
+	return newPVMBGHandler(cfg, catalog, sleep, pick, false)
+}
+
+// NewTesterAdminHandler serves only mock controls on the cluster's restricted Tester Agent port.
+func NewTesterAdminHandler(catalog *PVMBGCatalog) http.Handler {
+	return newPVMBGHandler(PVMBGConfig{}, catalog, nil, nil, true)
+}
+
+func newPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pick DelayPicker, testerAdminOnly bool) http.Handler {
 	if sleep == nil {
 		sleep = sleepContext
 	}
@@ -26,6 +35,18 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 		pick = randomDelay
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/schema-version", "/admin/outage", "/admin/delay":
+			if !testerAdminOnly && r.Method == http.MethodPost && !authorizedPVMBG(r, cfg.Token) {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+		default:
+			if testerAdminOnly {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
+		}
 		switch r.URL.Path {
 		case "/health":
 			if r.Method != http.MethodGet {
@@ -71,10 +92,12 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 				writeError(w, http.StatusRequestTimeout, "request_cancelled")
 				return
 			}
-			filtered := make([]VolcanicReport, 0)
-			for _, report := range catalog.Snapshot() {
+			reports := catalog.Snapshot()
+			rendered := catalog.RenderedSnapshot()
+			filtered := make([]json.RawMessage, 0, len(rendered))
+			for i, report := range reports {
 				if since.IsZero() || !report.ReportedAt.Before(since) {
-					filtered = append(filtered, report)
+					filtered = append(filtered, rendered[i])
 				}
 			}
 			writeJSON(w, http.StatusOK, filtered)
@@ -83,29 +106,27 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 				methodNotAllowed(w, http.MethodPost)
 				return
 			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
 			var body struct {
-				Version int `json:"version"`
+				Version *int    `json:"version"`
+				Mode    *string `json:"mode"`
 			}
 			if err := decodeAdmin(w, r, &body); err != nil {
 				writeError(w, statusForBodyError(err), "invalid_body")
 				return
 			}
-			if err := catalog.SetSchemaVersion(body.Version); err != nil {
+			version, err := resolveSchemaVersion(body.Version, body.Mode)
+			if err != nil {
 				writeError(w, http.StatusBadRequest, "invalid_version")
 				return
 			}
-			writeJSON(w, http.StatusOK, body)
+			if err := catalog.SetSchemaVersion(version); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid_version")
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]int{"version": version})
 		case "/admin/outage":
 			if r.Method != http.MethodPost {
 				methodNotAllowed(w, http.MethodPost)
-				return
-			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			var body struct {
@@ -120,10 +141,6 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 		case "/admin/delay":
 			if r.Method != http.MethodPost {
 				methodNotAllowed(w, http.MethodPost)
-				return
-			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			var body struct {
@@ -156,6 +173,32 @@ func authorizedPVMBG(r *http.Request, token string) bool {
 	value := r.Header.Get("Authorization")
 	prefix, credential, ok := strings.Cut(value, " ")
 	return ok && prefix == "Bearer" && subtle.ConstantTimeCompare([]byte(credential), []byte(token)) == 1 && !strings.Contains(credential, " ")
+}
+
+// Named modes and the numeric "version" are mutually exclusive.
+var schemaModeAliases = map[string]int{
+	"compatible_v1":          1,
+	"compatible_v2":          2,
+	"rename_field":           3,
+	"type_change":            4,
+	"missing_required_field": 5,
+}
+
+func resolveSchemaVersion(version *int, mode *string) (int, error) {
+	if version != nil && mode != nil {
+		return 0, errors.New("exactly one of version or mode must be set")
+	}
+	if version != nil {
+		return *version, nil
+	}
+	if mode != nil {
+		resolved, ok := schemaModeAliases[*mode]
+		if !ok {
+			return 0, fmt.Errorf("unknown schema mode %q", *mode)
+		}
+		return resolved, nil
+	}
+	return 0, errors.New("exactly one of version or mode must be set")
 }
 
 func parseSince(rawQuery string) (time.Time, error) {

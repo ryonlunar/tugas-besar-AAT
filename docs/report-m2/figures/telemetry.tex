@@ -1,0 +1,35 @@
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+  component/.style={draw=archink,rounded corners=2pt,fill=archlight,align=center,
+    text width=3.65cm,minimum height=13mm,font=\fontsize{10}{12}\selectfont,inner sep=4pt},
+  wire/.style={-{Straight Barb[length=2mm,width=1.6mm]},draw=archink,semithick},
+  label/.style={fill=white,inner sep=1pt,font=\fontsize{8}{10}\selectfont,align=center}
+]
+  \node[component,dashed,fill=white,text width=13.1cm] (pods) at (0,0)
+    {Pod aplikasi dan exporter metrik pada pod NATS};
+
+  \node[component] (prom) at (-4.5,-2.0)
+    {\textbf{Prometheus}\\Metrik pada PVC sendiri};
+  \node[component] (alloy) at (0,-2.0)
+    {\textbf{Grafana Alloy}\\Posisi baca pada PVC sendiri};
+  \node[component] (tempo) at (4.5,-2.0)
+    {\textbf{Tempo}\\Trace pada PVC sendiri};
+  \node[component] (loki) at (0,-4.0)
+    {\textbf{Loki}\\Log pada PVC sendiri};
+  \node[component] (grafana) at (0,-6.0)
+    {\textbf{Grafana}\\Konfigurasi pada PVC sendiri};
+
+  \draw[wire] (prom.north) -- node[label,right]{HTTP /metrics} (prom.north |- pods.south);
+  \draw[wire] (alloy.north) -- node[label,right]{HTTPS / log pod} (alloy.north |- pods.south);
+  \draw[wire] (tempo.north |- pods.south) -- node[label,right]{OTLP/HTTP} (tempo.north);
+  \draw[wire] (alloy) -- node[label,right]{HTTP / push log} (loki);
+  \draw[wire] (grafana) -- node[label,right]{HTTP} (loki);
+  \draw[wire] (grafana.west) -| node[label,near start,above]{HTTP} (prom.south);
+  \draw[wire] (grafana.east) -| node[label,near start,above]{HTTP} (tempo.south);
+\end{tikzpicture}%
+}
+\caption{Container observabilitas dan alur telemetri. Alloy membaca log pod melalui Kubernetes API, sedangkan aplikasi yang diinstrumentasi mengirim trace ke Tempo. Grafana mengakses tiap sumber data melalui HTTP.}
+\label{fig:m2-telemetry}
+\end{figure}

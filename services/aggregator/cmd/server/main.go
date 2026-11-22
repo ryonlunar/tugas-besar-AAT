@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -23,12 +24,14 @@ import (
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/api"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/audit"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/bmkgimport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/fieldreport"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/mapper"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/outbox"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/pipeline"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/poller"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/satellite"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
@@ -76,6 +79,10 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	sensor, err := coastalAdapter(cfg)
+	if err != nil {
+		return err
+	}
 	closeTracing, traceErr := telemetry.StartTracing("aggregator")
 	if traceErr != nil {
 		return traceErr
@@ -88,9 +95,19 @@ func run(logger *slog.Logger) error {
 	}
 	defer closeRepository()
 
+	publishSubjects := []string{store.SubjectBMKG, store.SubjectPVMBG}
+	if cfg.shardConfigFile != "" {
+		for _, source := range []contracts.Source{contracts.SourceSatellite, contracts.SourceCoastal} {
+			subject, err := store.SubjectForSource(source)
+			if err != nil {
+				return err
+			}
+			publishSubjects = append(publishSubjects, subject)
+		}
+	}
 	publisher, err := broker.NewJetStreamPublisher(broker.JetStreamConfig{
 		URL: cfg.natsURL, Token: cfg.natsToken, Stream: cfg.natsStream,
-		Subjects: []string{store.SubjectBMKG, store.SubjectPVMBG}, StreamSubjects: []string{store.SubjectFilter},
+		Subjects: publishSubjects, StreamSubjects: []string{store.SubjectFilter},
 		MaxAge: cfg.natsMaxAge, MaxBytes: cfg.natsMaxBytes, MaxMsgs: cfg.natsMaxMsgs, MaxMsgSize: int32(cfg.natsMaxMsgSize), DuplicateWindow: cfg.natsDuplicateWindow, ConnectTimeout: time.Second, Replicas: cfg.natsReplicas,
 	})
 	if err != nil {
@@ -105,10 +122,13 @@ func run(logger *slog.Logger) error {
 	bmkgClient := poller.NewBMKGClient(cfg.bmkgURL, cfg.bmkgKey, &http.Client{Timeout: cfg.bmkgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes)
 	pvmbgClient := poller.NewPVMBGClient(cfg.pvmbgURL, cfg.pvmbgToken, &http.Client{Timeout: cfg.pvmbgTimeout, Transport: telemetry.HTTPTransport(http.DefaultTransport)}, cfg.maxResponseBytes)
 	pollerService := poller.New(repository, bmkgClient, pvmbgClient,
-		mapper.New(mapper.DefaultVolcanoLocations()), logger)
+		mapper.New(mapper.DefaultVolcanoLocations()).WithVolcanicAdaptations(cfg.pvmbgAdapters), logger)
 	pollerService.SetMaxEnvelopeBytes(cfg.natsMaxMsgSize)
 	pollerService.SetOutboxLimit(cfg.outboxMaxPending)
 
+	if sensor != nil {
+		sensor.Observe = monitor.ObserveOperation
+	}
 	pollerService.Observe = monitor.ObserveOperation
 	relay.Observe = monitor.ObserveOperation
 	closeMetrics, err := monitor.Listen("http://127.0.0.1" + cfg.listenAddr + "/ready")
@@ -118,20 +138,38 @@ func run(logger *slog.Logger) error {
 	defer closeMetrics()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	var satelliteStats *satelliteMetrics
+	if cfg.satelliteEnabled {
+		satelliteStats = newSatelliteMetrics(monitor.Registry)
+	}
 	waitForWorkers := startBackgroundTasks(
 		func() {
 			run := func() error { return pollerService.Run(ctx, cfg.pollInterval) }
 			if distributed, ok := repository.(*sharded.Store); ok {
 				run = func() error {
-					return distributed.CoordinateSessions(ctx, []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}, cfg.sourceIdle, cfg.sourceRetry, logger,
+					return distributed.CoordinateSessions(ctx, configuredSources(cfg, sensor != nil), cfg.sourceIdle, cfg.sourceRetry, logger,
 						func(ctx context.Context, source contracts.Source, session *sourcejournal.Session) error {
+							if source == contracts.SourceCoastal {
+								return pipeline.RunAdapter(ctx, session, source, sensor, sensor.Process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation, nil)
+							}
+							if source == contracts.SourceSatellite {
+								return runSatelliteSource(ctx, cfg, session, distributed, logger, monitor.ObserveOperation, satelliteStats)
+							}
+							process := pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations()).WithVolcanicAdaptations(cfg.pvmbgAdapters))
+							if source == contracts.SourceBMKG && cfg.bmkgHistoricalCatalogFile != "" {
+								if err := runBMKGCatalogImport(ctx, cfg, session, distributed, process, logger, monitor.ObserveOperation); err != nil {
+									return err
+								}
+							}
 							read := pipeline.Reader(bmkgClient.ReadRecords)
 							if source == contracts.SourcePVMBG {
 								read = pvmbgClient.ReadRecords
 							}
-							return pipeline.RunSession(ctx, session, source, read, pipeline.DefaultProcessor(mapper.New(mapper.DefaultVolcanoLocations())), distributed, cfg.pollInterval, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
+							return pipeline.RunSession(ctx, session, source, read, process, distributed, cfg.pollInterval, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, monitor.ObserveOperation)
 						})
 				}
+			} else if cfg.satelliteEnabled {
+				logger.Warn("satellite source configured but repository is not the sharded profile", "reason", "SATELLITE_REQUIRES_SHARDED_PROFILE")
 			}
 			if err := run(); err != nil && ctx.Err() == nil {
 				logger.Error("source polling stopped", "reason", "POLL_LOOP_FAILURE")
@@ -162,7 +200,7 @@ func run(logger *slog.Logger) error {
 	}
 	server := &http.Server{
 		Addr:              cfg.listenAddr,
-		Handler:           monitor.Wrap(handler, "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay", "/internal/v1/field-reports", "/internal/v1/field-reports/{report_id}"),
+		Handler:           monitor.Wrap(handler, "/internal/v1/analytics", "/internal/v1/hazards", "/internal/v1/hazards/{id}", "/internal/audit/events", "/internal/audit/checksum", "/internal/audit/location", "/internal/audit/unprocessed", "/internal/v1/failed-messages", "/internal/v1/failed-messages/{message_id}", "/internal/v1/failed-messages/{message_id}/replay", "/internal/v1/field-reports", "/internal/v1/field-reports/{report_id}"),
 		ReadHeaderTimeout: cfg.readHeaderTimeout,
 		IdleTimeout:       cfg.idleTimeout,
 		WriteTimeout:      cfg.writeTimeout,
@@ -195,6 +233,82 @@ func startBackgroundTasks(tasks ...func()) func() {
 		}(task)
 	}
 	return func() { wg.Wait() }
+}
+
+func configuredSources(cfg config, coastalEnabled bool) []contracts.Source {
+	sources := []contracts.Source{contracts.SourceBMKG, contracts.SourcePVMBG}
+	if cfg.satelliteEnabled {
+		sources = append(sources, contracts.SourceSatellite)
+	}
+	if coastalEnabled {
+		sources = append(sources, contracts.SourceCoastal)
+	}
+	return sources
+}
+
+// runSatelliteSource wires a satellite.Client/Adapter/Recognizer into
+// pipeline.RunAdapter for the SATELIT source. CanRead backs off once the
+// journal has 9000+ unfinished inputs (ahead of RunAdapter's own
+// PollingAdapter-only 10000 cap, which does not apply to a non-polling
+// adapter) so a slow processor never lets the satellite source run away
+// unbounded (D4/P4.4d).
+func runSatelliteSource(ctx context.Context, cfg config, session *sourcejournal.Session, distributed *sharded.Store, logger *slog.Logger, observe func(string, string, error, time.Duration), stats *satelliteMetrics) error {
+	client, err := satellite.NewClient(cfg.satelliteBaseURL, cfg.satelliteToken, cfg.satelliteRequestTimeout)
+	if err != nil {
+		return err
+	}
+	adapter := &satellite.Adapter{
+		Client:       client,
+		MaxEvents:    cfg.satelliteBatchMaxEvents,
+		MaxBytes:     cfg.satelliteBatchMaxBytes,
+		MaxWait:      cfg.satelliteBatchMaxWait,
+		IdleTimeout:  cfg.satelliteIdleTimeout,
+		ReconnectMin: cfg.satelliteReconnectMin,
+		ReconnectMax: cfg.satelliteReconnectMax,
+		CanRead: func(ctx context.Context) (bool, error) {
+			n, err := session.Unfinished(ctx)
+			return n < 9000, err
+		},
+		Observe: func(outcome, _ string, err error, elapsed time.Duration) {
+			observe("satellite_adapter_"+outcome, "SATELIT", err, elapsed)
+		},
+	}
+	ctx, stopMetrics := context.WithCancel(ctx)
+	metricsDone := make(chan struct{})
+	go func() {
+		defer close(metricsDone)
+		stats.sample(ctx, cfg.satelliteSessionPollInterval, client, session, observe)
+	}()
+	defer func() {
+		stopMetrics()
+		<-metricsDone
+	}()
+	recognizer := satellite.NewRecognizer(cfg.satelliteLateness)
+	return pipeline.RunAdapter(ctx, session, contracts.SourceSatellite, adapter, satellite.Processor(recognizer), distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe, stats.observeStored)
+}
+
+// runBMKGCatalogImport runs the historical-catalog import phase (P1.1a,
+// D11) to completion before the caller falls through to BMKG's live
+// polling. It treats the import's own completion (io.EOF, from either
+// finishing the file or finding a cursor already marked done for this
+// exact file content) as success; any other error -- including ctx
+// cancellation -- propagates so CoordinateSessions retries from the
+// durable row cursor rather than silently skipping ahead to live polling
+// with a half-imported catalog.
+func runBMKGCatalogImport(ctx context.Context, cfg config, session *sourcejournal.Session, distributed *sharded.Store, process pipeline.Processor, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
+	adapter := &bmkgimport.Adapter{
+		Path: cfg.bmkgHistoricalCatalogFile,
+		CanRead: func(ctx context.Context) (bool, error) {
+			n, err := session.Unfinished(ctx)
+			return n < 9000, err
+		},
+	}
+	err := pipeline.RunAdapter(ctx, session, contracts.SourceBMKG, adapter, process, distributed, cfg.natsMaxMsgSize, cfg.processingEnabled, logger, observe, nil)
+	if err != nil && !errors.Is(err, io.EOF) {
+		logger.Error("bmkg historical catalog import stopped", "reason", "CATALOG_IMPORT_FAILURE")
+		return err
+	}
+	return nil
 }
 
 func probeReadiness(client *http.Client, baseURL string) error {
@@ -230,30 +344,39 @@ func openDB(dsn string, maxConns int) (*sql.DB, error) {
 }
 
 type config struct {
-	processingEnabled                                      bool
-	fieldReportProcessing                                  bool
-	fieldReportInterval                                    time.Duration
-	fieldReportMaxInflight, reportConns                    int
-	auditToken                                             string
-	shardConfigFile                                        string
-	sourceIdle, sourceRetry                                time.Duration
-	natsReplicas                                           int
-	listenAddr                                             string
-	bmkgURL, pvmbgURL, bmkgKey, pvmbgToken, internalKey    string
-	databaseURL                                            string
-	readConns, bmkgWriteConns, pvmbgWriteConns, relayConns int
-	dbReadTimeout, dbWriteTimeout                          time.Duration
-	pollInterval, bmkgTimeout, pvmbgTimeout, staleAfter    time.Duration
-	maxResponseBytes                                       int64
-	maxInflight                                            int
-	readHeaderTimeout, idleTimeout, writeTimeout           time.Duration
-	natsURL, natsToken, natsStream                         string
-	natsMaxAge, natsDuplicateWindow, natsPublishTimeout    time.Duration
-	natsMaxBytes, natsMaxMsgs                              int64
-	natsMaxMsgSize                                         int
-	outboxPoll, outboxRetryMin, outboxRetryMax             time.Duration
-	outboxBatch                                            int
-	outboxMaxPending                                       int64
+	processingEnabled bool
+
+	fieldReportProcessing               bool
+	fieldReportInterval                 time.Duration
+	fieldReportMaxInflight, reportConns int
+
+	auditToken                                                                                          string
+	shardConfigFile                                                                                     string
+	sourceIdle, sourceRetry                                                                             time.Duration
+	natsReplicas                                                                                        int
+	listenAddr                                                                                          string
+	bmkgURL, pvmbgURL, bmkgKey, pvmbgToken, internalKey                                                 string
+	pvmbgAdapters                                                                                       mapper.VolcanicAdaptations
+	databaseURL                                                                                         string
+	readConns, bmkgWriteConns, pvmbgWriteConns, relayConns                                              int
+	dbReadTimeout, dbWriteTimeout                                                                       time.Duration
+	pollInterval, bmkgTimeout, pvmbgTimeout, staleAfter                                                 time.Duration
+	maxResponseBytes                                                                                    int64
+	maxInflight                                                                                         int
+	readHeaderTimeout, idleTimeout, writeTimeout                                                        time.Duration
+	natsURL, natsToken, natsStream                                                                      string
+	natsMaxAge, natsDuplicateWindow, natsPublishTimeout                                                 time.Duration
+	natsMaxBytes, natsMaxMsgs                                                                           int64
+	natsMaxMsgSize                                                                                      int
+	outboxPoll, outboxRetryMin, outboxRetryMax                                                          time.Duration
+	outboxBatch                                                                                         int
+	outboxMaxPending                                                                                    int64
+	satelliteEnabled                                                                                    bool
+	satelliteBaseURL, satelliteToken                                                                    string
+	satelliteLateness, satelliteBatchMaxWait, satelliteIdleTimeout                                      time.Duration
+	satelliteReconnectMin, satelliteReconnectMax, satelliteRequestTimeout, satelliteSessionPollInterval time.Duration
+	satelliteBatchMaxEvents, satelliteBatchMaxBytes                                                     int
+	bmkgHistoricalCatalogFile                                                                           string
 }
 
 func loadConfig() (config, error) {
@@ -395,7 +518,11 @@ func loadConfig() (config, error) {
 	if c.natsMaxMsgs, err = envInt64("NATS_MAX_MSGS", 100000, 1, 1<<40); err != nil {
 		return config{}, err
 	}
-	if c.natsMaxMsgSize, err = envInt("NATS_MAX_MSG_SIZE", 65536, 1, 65536); err != nil {
+	defaultEnvelopeBytes := broker.DefaultEnvelopeBytes
+	if c.shardConfigFile != "" {
+		defaultEnvelopeBytes = broker.MaxEnvelopeBytes
+	}
+	if c.natsMaxMsgSize, err = envInt("NATS_MAX_MSG_SIZE", defaultEnvelopeBytes, 1, broker.MaxEnvelopeBytes); err != nil {
 		return config{}, err
 	}
 	if c.natsMaxMsgSize > int(^uint32(0)>>1) {
@@ -425,7 +552,75 @@ func loadConfig() (config, error) {
 	if c.outboxPoll <= 0 || c.outboxRetryMin <= 0 || c.outboxRetryMax < c.outboxRetryMin {
 		return config{}, errors.New("outbox retry configuration is invalid")
 	}
+	if c.pvmbgAdapters, err = mapper.ParseVolcanicAdaptations(os.Getenv("PVMBG_SCHEMA_ADAPTERS")); err != nil {
+		return config{}, err
+	}
+	if err := c.loadSatelliteConfig(); err != nil {
+		return config{}, err
+	}
+	c.bmkgHistoricalCatalogFile = strings.TrimSpace(os.Getenv("BMKG_HISTORICAL_CATALOG_FILE"))
 	return c, nil
+}
+
+// loadSatelliteConfig reads Feed Satelit settings (SAT.1, SAT.2). Both
+// SATELLITE_BASE_URL and SATELLITE_TOKEN empty means the source is simply
+// disabled -- this keeps dev/CI/M1-profile startup working unchanged.
+// Exactly one set is a startup error: a half-configured source is never
+// silently ignored.
+func (c *config) loadSatelliteConfig() error {
+	c.satelliteBaseURL = strings.TrimSpace(os.Getenv("SATELLITE_BASE_URL"))
+	c.satelliteToken = os.Getenv("SATELLITE_TOKEN")
+	switch {
+	case c.satelliteBaseURL == "" && c.satelliteToken == "":
+		c.satelliteEnabled = false
+		return nil
+	case c.satelliteBaseURL == "" || c.satelliteToken == "":
+		return errors.New("SATELLITE_BASE_URL and SATELLITE_TOKEN must both be set, or both left empty")
+	}
+	parsed, err := url.Parse(c.satelliteBaseURL)
+	if err != nil {
+		return errors.New("SATELLITE_BASE_URL is not a valid URL")
+	}
+	host := parsed.Hostname()
+	localOrBareService := host == "127.0.0.1" || host == "localhost" || !strings.Contains(host, ".")
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && localOrBareService) {
+		return errors.New("SATELLITE_BASE_URL must use https:// (http:// only for 127.0.0.1/localhost or a bare service name)")
+	}
+	c.satelliteEnabled = true
+	var err2 error
+	if c.satelliteLateness, err2 = envDuration("SATELLITE_ALLOWED_LATENESS", "12h"); err2 != nil {
+		return err2
+	}
+	if c.satelliteBatchMaxEvents, err2 = envInt("SATELLITE_BATCH_MAX_EVENTS", 200, 1, 10000); err2 != nil {
+		return err2
+	}
+	if c.satelliteBatchMaxBytes, err2 = envInt("SATELLITE_BATCH_MAX_BYTES", 262144, 1, 1<<20); err2 != nil {
+		return err2
+	}
+	if c.satelliteBatchMaxWait, err2 = envDuration("SATELLITE_BATCH_MAX_WAIT", "250ms"); err2 != nil {
+		return err2
+	}
+	if c.satelliteIdleTimeout, err2 = envDuration("SATELLITE_IDLE_TIMEOUT", "30s"); err2 != nil {
+		return err2
+	}
+	if c.satelliteReconnectMin, err2 = envDuration("SATELLITE_RECONNECT_MIN", "500ms"); err2 != nil {
+		return err2
+	}
+	if c.satelliteReconnectMax, err2 = envDuration("SATELLITE_RECONNECT_MAX", "30s"); err2 != nil {
+		return err2
+	}
+	if c.satelliteRequestTimeout, err2 = envDuration("SATELLITE_REQUEST_TIMEOUT", "5s"); err2 != nil {
+		return err2
+	}
+	if c.satelliteSessionPollInterval, err2 = envDuration("SATELLITE_SESSION_POLL_INTERVAL", "5s"); err2 != nil {
+		return err2
+	}
+	if c.satelliteLateness <= 0 || c.satelliteBatchMaxWait <= 0 || c.satelliteIdleTimeout <= 0 ||
+		c.satelliteReconnectMin <= 0 || c.satelliteReconnectMax < c.satelliteReconnectMin ||
+		c.satelliteRequestTimeout <= 0 || c.satelliteSessionPollInterval <= 0 {
+		return errors.New("satellite durations must be positive, and SATELLITE_RECONNECT_MAX must be at least SATELLITE_RECONNECT_MIN")
+	}
+	return nil
 }
 
 func env(name, fallback string) string {

@@ -140,3 +140,19 @@ func TestMapperRejectsTimestampWithoutTimezone(t *testing.T) {
 		t.Fatal("timestamp without timezone must be rejected")
 	}
 }
+
+func TestVolcanicIncompatibleReasons(t *testing.T) {
+	m := New(DefaultVolcanoLocations())
+	base := `{"report_id":"r1","volcano_id":"sim-tamriel-red-mountain","alert_level":"Siaga","eruption_count_24h":3,"ash_column_height_m":500,"reported_at":"2026-11-12T02:00:00Z"}`
+	cases := map[string]struct{ payload, want string }{
+		"rename":  {strings.Replace(base, `"alert_level"`, `"level"`, 1), "field wajib 'alert_level' hilang"},
+		"type":    {strings.Replace(base, `"eruption_count_24h":3`, `"eruption_count_24h":"3"`, 1), "field 'eruption_count_24h' berubah dari number menjadi string"},
+		"missing": {strings.Replace(base, `,"ash_column_height_m":500`, ``, 1), "field wajib 'ash_column_height_m' hilang"},
+	}
+	for name, c := range cases {
+		_, err := m.MapVolcanic([]byte(c.payload), "00000000-0000-4000-8000-000000000001", time.Now())
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%s: got %v, want %q", name, err, c.want)
+		}
+	}
+}

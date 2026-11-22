@@ -10,8 +10,12 @@ resources:
   - tempo.yaml
   - aggregator-peers.yaml
   - audit-access.yaml
+  - field-team-receiver.yaml
+  - pvmbg-tester.yaml
 replicas:
   - name: aggregator
+    count: 3
+  - name: client-api
     count: 3
   - name: postgres
     count: 0
@@ -33,6 +37,20 @@ patches:
   - path: aggregator.yaml
   - target:
       kind: Deployment
+      name: pvmbg-mock
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PVMBG_TESTER_ADMIN_PORT
+          value: "8088"
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          name: tester-admin
+          containerPort: 8088
+  - target:
+      kind: Deployment
       name: dashboard-consumer|notifier-consumer
     patch: |-
       - op: add
@@ -40,6 +58,26 @@ patches:
         value:
           name: NATS_URL
           value: nats://nats-ha:4222
+  - target:
+      kind: Deployment
+      name: notifier-consumer
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FIELD_ALERT_URL
+          value: http://field-team-receiver:8087
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CONSUMER_NAK_DELAY
+          value: 1s
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FIELD_ALERT_TOKEN
+          valueFrom:
+            secretKeyRef: {name: aat-credentials, key: FIELD_ALERT_TOKEN}
   - target:
       kind: Deployment
       name: bmkg-mock|pvmbg-mock|aggregator|auth|client-api|dashboard-consumer|notifier-consumer

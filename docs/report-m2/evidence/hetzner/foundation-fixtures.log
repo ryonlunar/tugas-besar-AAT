@@ -1,0 +1,60 @@
+secret/aat-foundation-3b439f91 created
+pod/aat-foundation-3b439f91 created
+pod/aat-foundation-3b439f91 condition met
+CREATE DATABASE
+CREATE DATABASE
+CREATE DATABASE
+CREATE DATABASE
+=== RUN   TestSourceOwnershipExcludesOtherReplicas
+--- PASS: TestSourceOwnershipExcludesOtherReplicas (0.08s)
+=== RUN   TestExpiredOwnerCannotAppendAfterTakeover
+--- PASS: TestExpiredOwnerCannotAppendAfterTakeover (0.24s)
+=== RUN   TestRawBytesAndCursorAreAtomicAndReplayIsIdempotent
+--- PASS: TestRawBytesAndCursorAreAtomicAndReplayIsIdempotent (0.04s)
+=== RUN   TestLostOwnershipCancelsTheSourceAdapter
+--- PASS: TestLostOwnershipCancelsTheSourceAdapter (0.13s)
+=== RUN   TestHeartbeatKeepsOwnershipBetweenSourceBatches
+--- PASS: TestHeartbeatKeepsOwnershipBetweenSourceBatches (0.73s)
+=== RUN   TestFourDatabaseRoutingPaginationAndPartialReads
+    foundation_test.go:281: 300 same-region identities distributed across databases: [71 73 81 75]
+--- PASS: TestFourDatabaseRoutingPaginationAndPartialReads (0.17s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/foundationtest	1.409s
+=== RUN   TestBMKGCatalogImportResumesWithoutDuplicates
+--- PASS: TestBMKGCatalogImportResumesWithoutDuplicates (0.86s)
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/retry_returns_first_receipt_and_conflicting_reuse_is_rejected
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/concurrent_duplicates_store_one_report
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/receipts_survive_receiver_restart_before_processing
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/concurrent_workers_process_each_report_once
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/a_crash_before_commit_releases_the_claim
+=== RUN   TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/an_unstorable_queued_report_is_rejected_without_blocking_the_unit
+--- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce (0.25s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/retry_returns_first_receipt_and_conflicting_reuse_is_rejected (0.02s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/concurrent_duplicates_store_one_report (0.02s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/receipts_survive_receiver_restart_before_processing (0.05s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/concurrent_workers_process_each_report_once (0.06s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/a_crash_before_commit_releases_the_claim (0.01s)
+    --- PASS: TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce/an_unstorable_queued_report_is_rejected_without_blocking_the_unit (0.01s)
+=== RUN   TestDurableProcessingReplayAndAudit
+--- PASS: TestDurableProcessingReplayAndAudit (1.58s)
+=== RUN   TestPVMBGIncompatibleModesReplayAfterAdaptation
+=== RUN   TestPVMBGIncompatibleModesReplayAfterAdaptation/mode3_rename_alert_level
+=== RUN   TestPVMBGIncompatibleModesReplayAfterAdaptation/mode4_eruption_count_string
+=== RUN   TestPVMBGIncompatibleModesReplayAfterAdaptation/mode5_missing_ash_height
+--- PASS: TestPVMBGIncompatibleModesReplayAfterAdaptation (0.70s)
+    --- PASS: TestPVMBGIncompatibleModesReplayAfterAdaptation/mode3_rename_alert_level (0.07s)
+    --- PASS: TestPVMBGIncompatibleModesReplayAfterAdaptation/mode4_eruption_count_string (0.06s)
+    --- PASS: TestPVMBGIncompatibleModesReplayAfterAdaptation/mode5_missing_ash_height (0.06s)
+=== RUN   TestPVMBGMalformedInputsDoNotBlockOthers
+--- PASS: TestPVMBGMalformedInputsDoNotBlockOthers (0.59s)
+=== RUN   TestSatelliteRecognizerPersistsThroughRealPostgres
+--- PASS: TestSatelliteRecognizerPersistsThroughRealPostgres (0.56s)
+=== RUN   TestSatelliteRetriesAfterTemporaryStorageTimeout
+--- PASS: TestSatelliteRetriesAfterTemporaryStorageTimeout (2.54s)
+=== RUN   TestRoutingFencingAndPartialReads
+=== RUN   TestRoutingFencingAndPartialReads/fresh_installation_and_incomplete_legacy_schema
+--- PASS: TestRoutingFencingAndPartialReads (1.44s)
+    --- PASS: TestRoutingFencingAndPartialReads/fresh_installation_and_incomplete_legacy_schema (0.01s)
+PASS
+ok  	github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sharded	8.525s

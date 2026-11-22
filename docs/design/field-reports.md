@@ -1,6 +1,6 @@
 # M2 Field Reports, Ops access, and request priority
 
-Covers P3 criteria 5–6 and P5 criterion 5. See the [foundation design](m2-foundation.md) for shared storage and the [checklist](m2-requirements-checklist.md) for status.
+Covers P3 criteria 5–6 and P5 criterion 5. See the [storage and ingestion design](storage-and-ingestion.md) for shared storage.
 
 ## Permissions
 
@@ -81,38 +81,4 @@ Run them with:
 go test -run TestFieldReport -v ./services/aggregator/internal/sharded
 ```
 
-### Manual demo
-
-Log in as each client following the README's [manual login](../README.md#login-manual) (`field-team`, `media`, `bnpb-internal`), then set `FIELD_ACCESS_TOKEN`, `MEDIA_ACCESS_TOKEN`, and `OPS_ACCESS_TOKEN`.
-
-Submit a report, then retry it with the same key. Both responses carry the same `report_id`:
-
-```bash
-KEY="report-$(date +%s)"
-for attempt in 1 2; do
-  curl -sS -w ' %{http_code} %{time_total}s\n' -X POST "$API_URL/field-reports" \
-    -H "Authorization: Bearer $FIELD_ACCESS_TOKEN" -H "Idempotency-Key: $KEY" \
-    -H 'Content-Type: application/json' --data-binary @contracts/examples/field-report.json
-done
-```
-
-Accept while processing is stopped, kill the receiving pods after the 202, then resume and confirm the status becomes `processed`:
-
-```bash
-kubectl -n sistem-informasi-kebencanaan-bnpb set env deployment/aggregator FIELD_REPORT_PROCESSING_ENABLED=false
-kubectl -n sistem-informasi-kebencanaan-bnpb rollout status deployment/aggregator
-# POST a report as above and keep its report_id in REPORT_ID, then:
-kubectl -n sistem-informasi-kebencanaan-bnpb delete pod -l app=aggregator --wait=false
-kubectl -n sistem-informasi-kebencanaan-bnpb set env deployment/aggregator FIELD_REPORT_PROCESSING_ENABLED-
-curl -sS "$API_URL/field-reports/$REPORT_ID" -H "Authorization: Bearer $FIELD_ACCESS_TOKEN"
-```
-
-Check access restrictions. Media and Tim Lapangan get 403; BNPB Internal gets the list:
-
-```bash
-for token in "$MEDIA_ACCESS_TOKEN" "$FIELD_ACCESS_TOKEN" "$OPS_ACCESS_TOKEN"; do
-  curl -sS -o /dev/null -w '%{http_code}\n' "$API_URL/failed-messages?source=PVMBG" -H "Authorization: Bearer $token"
-done
-```
-
-The `app=aggregator` selector and namespace follow the k3s manifests; adjust them if the deployment labels differ. Priority under overload is measured during the P5 load test: run a Media read flood and a Tim Lapangan stream together, and compare their 429 rates.
+See the [P3 walkthrough](../../README.md#problem-3) for the manual receipt and replay tests.

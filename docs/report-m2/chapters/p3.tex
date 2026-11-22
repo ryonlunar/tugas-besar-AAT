@@ -1,0 +1,84 @@
+\chapter{PROBLEM 3}
+\label{ch:p3}
+
+\begin{center}\large\bfseries Surat dari Tetangga\end{center}
+
+\section{Identifikasi Masalah}
+
+Perubahan kontrak PVMBG menimbulkan dua persoalan yang perlu ditangani secara berbeda. Gangguan sementara, seperti kegagalan menulis ke basis data, masih dapat pulih pada percobaan berikutnya. Sebaliknya, mengulang pemrosesan payload dengan field wajib yang hilang akan menghasilkan kegagalan yang sama selama aturan pemetaannya belum berubah. Payload yang sengaja atau tidak sengaja melampaui batas sumber daya juga dapat menghambat pesan lain. Rancangan perlu mengisolasi \emph{poison message}, menyimpan pesan yang gagal untuk diperiksa, serta memberi jalan untuk memprosesnya kembali secara terurut dan idempoten. Keempat hal ini berkaitan dengan evolusi skema, pemutaran ulang log, dan deduplikasi dalam sistem pemrosesan data \cite{kleppmann2017}.
+
+Laporan Tim Lapangan menghadapi risiko lain. Jika server mengirim \texttt{202 Accepted} sebelum laporan tersimpan secara persisten, pod penerima dapat mati setelah client mengira laporan sudah diterima. Client juga dapat mengirim ulang laporan ketika respons hilang. Karena itu, penerimaan harus dipisahkan dari pemrosesan asinkron dan percobaan ulang harus dapat dikaitkan dengan penerimaan yang sama.
+
+\section{Rancangan Solusi dan Mekanisme}
+
+\subsection{Kebijakan kompatibilitas PVMBG}
+
+Aggregator menerima field tambahan dan perubahan urutan field selama nama, tipe, dan makna field yang digunakan dalam pemetaan tetap sesuai kontrak. Untuk perubahan yang tidak kompatibel, PVMBG mock menyediakan tiga mode melalui \path{POST /admin/schema-version}. Mode \path{rename_field} mengganti nama \path{alert_level}, \path{type_change} mengubah \path{eruption_count_24h} dari angka menjadi string, sedangkan \path{missing_required_field} menghapus \path{ash_column_height_m}. Pada konfigurasi awal, ketiganya ditahan untuk diperiksa. Setelah perubahan dikonfirmasi, operator dapat mengaktifkan adapter yang sesuai, seperti alias nama field atau konversi string numerik yang tervalidasi.
+
+\subsection{Penyimpanan, pemeriksaan, dan replay}
+
+Jurnal per sumber di PostgreSQL menyimpan payload yang sudah diterima sebagai byte asli, bersama sumber, waktu penerimaan, alasan kegagalan, dan correlation ID. Kegagalan sementara berstatus \texttt{retrying} dan dijadwalkan ulang secara otomatis dengan jeda yang meningkat. Pesan yang memerlukan penyesuaian aturan berstatus \texttt{parked} dan baru dicoba kembali atas permintaan operator. Batas ukuran input dan kedalaman JSON membatasi kerja parser. Apabila sebuah pesan tertahan, urutan untuk \path{source_ref_id} yang sama tetap dijaga dan entitas lain dapat terus diproses.
+
+Daftar dan detail pesan gagal tersedia melalui \path{GET /failed-messages} dan \path{GET /failed-messages/{message_id}}. Client API hanya mengizinkan identitas BNPB Internal Ops mengaksesnya. Respons detail menyertakan payload sebagai base64 agar urutan byte tetap terjaga. Setelah menyesuaikan adapter, Ops dapat mengajukan replay melalui \path{POST /failed-messages/{message_id}/replay}. Permintaan itu menjadwalkan kembali entri lama sehingga ordinal jurnalnya tetap berlaku. Rencana perubahan dan penanda pemrosesan tersimpan durabel. Pada shard tujuan, perubahan HazardEvent, outbox, dan penanda pemrosesan dicatat dalam satu transaksi sehingga percobaan ulang atas entri yang sama tidak menerapkan perubahan kanonik dua kali.
+
+\subsection{Penerimaan laporan Tim Lapangan}
+
+\path{POST /field-reports} menyimpan payload dan tanda terima berdasarkan identitas client serta \path{Idempotency-Key}. Jalur penerimaan mengonfirmasi penyimpanan secara sinkron ke primary dan standby sebelum mengembalikan \texttt{202}. Jika konfirmasi itu belum dapat dipastikan, client dapat mengulang permintaan dengan kunci awal. Payload identik mengembalikan tanda terima yang sama, sedangkan penggunaan ulang kunci dengan byte payload berbeda menghasilkan \texttt{409 Conflict}.
+
+Setelah penerimaan, worker mengambil laporan dari penyimpanan bersama. Perubahan status akhir dilakukan dalam transaksi dengan penguncian baris sehingga dua worker tidak mencatat hasil untuk satu laporan. Jika transaksi worker terputus sebelum commit, laporan masih dapat diambil ulang. Setelah worker pulih, laporan yang masih menunggu akan dicoba kembali (\emph{at-least-once} pada percobaan pemrosesan). Tanda terima dan hasil akhir yang tersimpan tetap satu untuk setiap kunci dan payload. Pendekatan ini menjaga laporan yang sudah memperoleh \texttt{202} selama salinan persisten yang mutakhir masih tersedia, dengan waktu respons penerimaan yang bergantung pada replikasi basis data.
+
+\section{Alasan Keputusan dan Trade-off}
+
+Mengonversi tipe atau mengisi nilai yang hilang secara umum memang dapat mengurangi jumlah pesan yang tertahan, tetapi berisiko menghasilkan data kebencanaan dengan makna yang keliru. Penerimaan laporan juga dipisahkan dari pemrosesan supaya client memperoleh tanda terima setelah commit tanpa menunggu worker. Replikasi sinkron membuat waktu respons penerimaan bergantung pada penyimpanan.
+
+\section{Batasan yang Disadari}
+
+Jurnal mempertahankan setiap byte untuk payload yang telah diterima dalam batas input. Respons HTTP yang melebihi \path{SOURCE_RESPONSE_MAX_BYTES} (bawaan 1 MiB) ditolak sebelum masuk jurnal untuk membatasi penggunaan memori. Dampaknya, respons yang melampaui batas tersebut tidak dapat diperiksa atau diulang dari jurnal. Skenario payload rusak telah diuji dengan PostgreSQL uji, sedangkan pengiriman seluruh ragam payload rusak melalui mock pada klaster masih perlu dilakukan. Percobaan live ini memperlihatkan penolakan perubahan tak kompatibel. Perubahan aditif dan perubahan urutan field belum diuji melalui skenario live yang sama.
+
+Uji penghentian pod mencakup satu laporan yang sudah memperoleh persetujuan penerimaan. Jaminan pemrosesan satu kali berlaku untuk pencatatan di PostgreSQL dan bergantung pada kunci idempotensi yang dipertahankan client. Efek samping pada sistem di luar basis data memerlukan mekanisme idempotensi tersendiri.
+
+\section{Bukti Penyelesaian}
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}Y@{}}
+\toprule
+\textbf{Skenario} & \textbf{Hasil uji} \\
+\midrule
+Perubahan kontrak dan akses Ops (kriteria 1, 2, 5) &
+Pada klaster lokal, 21 November 2026, tiga mode tidak kompatibel dapat diperiksa bersama payload asli. Akses daftar sebagai BNPB Internal Ops menghasilkan HTTP 200. Media dan Tim Lapangan sama-sama menerima HTTP 403. \\
+\addlinespace
+Pesan rusak dan kegagalan sementara (kriteria 2, 3) &
+Uji integrasi PostgreSQL mencakup JSON terpotong, nesting berlebih, UTF-8 tidak valid, dan event kanonik yang melampaui batas pesan broker. Pesan rusak ditahan dan entitas lain tetap diproses. Uji integrasi pemulihan pipeline juga memverifikasi kegagalan sementara dapat dijadwalkan ulang. \\
+\addlinespace
+Replay setelah adapter aktif (kriteria 4) &
+Pada uji cluster, seluruh 129 entri dalam kelompok uji selesai diproses setelah pemilik PVMBG yang baru aktif dengan adapter. Jumlah entri yang belum selesai turun dari 129 menjadi 0. Uji integrasi PostgreSQL memeriksa bahwa replay menjaga urutan per entitas dan tidak menggandakan perubahan. \\
+\bottomrule
+\end{tabularx}
+\caption{Hasil pengujian jalur PVMBG.}
+\label{tab:p3-pvmbg}
+\end{table}
+
+Tabel~\ref{tab:p3-laporan} merangkum uji penghentian pod penerima (kriteria 6) dengan correlation ID \path{demo-report-20261121093809692167}. Uji fixture PostgreSQL \path{TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce} juga memeriksa pengiriman ulang secara serentak, pergantian penerima sebelum pemrosesan, dan beberapa worker yang mencoba mengambil laporan yang sama.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.45\linewidth}Y@{}}
+\toprule
+\textbf{Langkah} & \textbf{Hasil yang tercatat} \\
+\midrule
+Jeda worker di semua pod lalu kirim satu laporan & HTTP 202 dalam 41{,}6~ms. \\
+Hapus pod penerima lalu periksa tanda terima & HTTP 200 dengan status \texttt{accepted}. \\
+Kirim ulang kunci dan payload yang sama & HTTP 202 dengan ID laporan yang sama. \\
+Aktifkan kembali pemrosesan & Worker memproses laporan itu sekali. \\
+\bottomrule
+\end{tabularx}
+\caption{Tanda terima laporan tetap tersedia setelah pod penerima dihapus.}
+\label{tab:p3-laporan}
+\end{table}
+
+\section{Jawaban atas Butir ``Di laporan''}
+
+Ops mengulang pesan yang tidak kompatibel setelah adapter disesuaikan (Tabel~\ref{tab:p3-pvmbg}). Laporan Tim Lapangan dicatat sekali per kunci dan payload (Tabel~\ref{tab:p3-laporan}).

@@ -183,6 +183,32 @@ func TestPVMBGHandlerAuthAdminSchemaAndOutage(t *testing.T) {
 	}
 }
 
+func TestTesterAdminPortOnlyServesMockControls(t *testing.T) {
+	catalog := testPVMBGCatalog(t)
+	tester := NewTesterAdminHandler(catalog)
+	primary := NewPVMBGHandler(PVMBGConfig{Token: "test-token"}, catalog, nil, nil)
+
+	schema := httptest.NewRecorder()
+	tester.ServeHTTP(schema, httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":2}`)))
+	if schema.Code != http.StatusOK {
+		t.Fatalf("tester schema status = %d: %s", schema.Code, schema.Body.String())
+	}
+
+	blocked := httptest.NewRecorder()
+	primary.ServeHTTP(blocked, httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":1}`)))
+	if blocked.Code != http.StatusUnauthorized {
+		t.Fatalf("primary admin status without token = %d", blocked.Code)
+	}
+
+	for _, path := range []string{"/volcanic-reports", "/health", "/ready"} {
+		resp := httptest.NewRecorder()
+		tester.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
+		if resp.Code != http.StatusNotFound {
+			t.Errorf("tester GET %s = %d", path, resp.Code)
+		}
+	}
+}
+
 func TestPVMBGRejectsUnknownAdminFieldsAndExposesPublicHealth(t *testing.T) {
 	h := NewPVMBGHandler(PVMBGConfig{Token: "test-token"}, testPVMBGCatalog(t), func(context.Context, time.Duration) error { return nil }, func(min, max time.Duration) time.Duration { return min })
 	req := httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":2,"extra":true}`))
@@ -232,5 +258,162 @@ func TestPVMBGCatalogKeepsGeneratingDuringOutage(t *testing.T) {
 	c.AddGenerated(time.Date(2026, 9, 28, 10, 0, 10, 0, time.UTC))
 	if got := len(c.Snapshot()); got != 21 {
 		t.Fatalf("reports during outage=%d, want 21", got)
+	}
+}
+
+func TestSchemaVersion3RenamesAlertLevel(t *testing.T) {
+	c, err := NewPVMBGCatalog(time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC), "t", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetSchemaVersion(3); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range c.RenderedSnapshot() {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := m["alert_level"]; ok {
+			t.Fatal("alert_level must be renamed")
+		}
+		if _, ok := m["level"].(string); !ok {
+			t.Fatal("level must carry the former alert_level string")
+		}
+	}
+}
+
+func TestSchemaVersion4ChangesEruptionCountType(t *testing.T) {
+	c, err := NewPVMBGCatalog(time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC), "t", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := c.Snapshot()
+	if err := c.SetSchemaVersion(4); err != nil {
+		t.Fatal(err)
+	}
+	rendered := c.RenderedSnapshot()
+	if len(rendered) != len(original) {
+		t.Fatalf("rendered=%d original=%d", len(rendered), len(original))
+	}
+	for i, raw := range rendered {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		value, ok := m["eruption_count_24h"].(string)
+		if !ok {
+			t.Fatalf("eruption_count_24h must become a JSON string, got %#v", m["eruption_count_24h"])
+		}
+		if want := fmt.Sprint(original[i].EruptionCount24h); value != want {
+			t.Fatalf("eruption_count_24h=%q, want %q (same value as v1 integer)", value, want)
+		}
+	}
+}
+
+func TestSchemaVersion5DropsAshHeight(t *testing.T) {
+	c, err := NewPVMBGCatalog(time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC), "t", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetSchemaVersion(5); err != nil {
+		t.Fatal(err)
+	}
+	rendered := c.RenderedSnapshot()
+	if len(rendered) == 0 {
+		t.Fatal("no rendered reports")
+	}
+	for _, raw := range rendered {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := m["ash_column_height_m"]; ok {
+			t.Fatal("ash_column_height_m must be absent in schema version 5")
+		}
+		// Everything else stays identical to v2 (confidence_level included).
+		if _, ok := m["confidence_level"]; !ok {
+			t.Fatal("version 5 must still carry v2's confidence_level field")
+		}
+		if _, ok := m["alert_level"].(string); !ok {
+			t.Fatal("version 5 must keep alert_level untouched")
+		}
+	}
+}
+
+func TestAdminSchemaVersionAcceptsIncompatibleModes(t *testing.T) {
+	c := testPVMBGCatalog(t)
+	h := NewPVMBGHandler(PVMBGConfig{Token: "test-token"}, c, func(context.Context, time.Duration) error { return nil }, func(min, max time.Duration) time.Duration { return min })
+	post := func(body string) (*httptest.ResponseRecorder, map[string]any) {
+		req := httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer test-token")
+		resp := httptest.NewRecorder()
+		h.ServeHTTP(resp, req)
+		var decoded map[string]any
+		_ = json.Unmarshal(resp.Body.Bytes(), &decoded)
+		return resp, decoded
+	}
+
+	resp, _ := post(`{"version":3}`)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("version 3 admin status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	get := httptest.NewRequest(http.MethodGet, "/volcanic-reports", nil)
+	get.Header.Set("Authorization", "Bearer test-token")
+	getResp := httptest.NewRecorder()
+	h.ServeHTTP(getResp, get)
+	var reports []map[string]any
+	if err := json.Unmarshal(getResp.Body.Bytes(), &reports); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) == 0 {
+		t.Fatal("no reports returned")
+	}
+	for _, r := range reports {
+		if _, ok := r["alert_level"]; ok {
+			t.Fatalf("alert_level still present after switching to version 3: %+v", r)
+		}
+		if _, ok := r["level"].(string); !ok {
+			t.Fatalf("level missing after switching to version 3: %+v", r)
+		}
+	}
+
+	resp, body := post(`{"version":6}`)
+	if resp.Code != http.StatusBadRequest || body["error"] != "invalid_version" {
+		t.Fatalf("version 6 status=%d body=%v", resp.Code, body)
+	}
+
+	resp, body = post(`{"mode":"type_change"}`)
+	if resp.Code != http.StatusOK || body["version"] != float64(4) {
+		t.Fatalf("mode alias type_change status=%d body=%v", resp.Code, body)
+	}
+	resp, body = post(`{"mode":"rename_field"}`)
+	if resp.Code != http.StatusOK || body["version"] != float64(3) {
+		t.Fatalf("mode alias rename_field status=%d body=%v", resp.Code, body)
+	}
+	resp, body = post(`{"mode":"missing_required_field"}`)
+	if resp.Code != http.StatusOK || body["version"] != float64(5) {
+		t.Fatalf("mode alias missing_required_field status=%d body=%v", resp.Code, body)
+	}
+	resp, body = post(`{"mode":"compatible_v1"}`)
+	if resp.Code != http.StatusOK || body["version"] != float64(1) {
+		t.Fatalf("mode alias compatible_v1 status=%d body=%v", resp.Code, body)
+	}
+	resp, body = post(`{"mode":"compatible_v2"}`)
+	if resp.Code != http.StatusOK || body["version"] != float64(2) {
+		t.Fatalf("mode alias compatible_v2 status=%d body=%v", resp.Code, body)
+	}
+	resp, body = post(`{"mode":"unknown_mode"}`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("unknown mode status=%d body=%v", resp.Code, body)
+	}
+
+	resp, _ = post(`{"version":1,"mode":"compatible_v1"}`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("version+mode together must be rejected: status=%d", resp.Code)
+	}
+	resp, _ = post(`{}`)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("neither version nor mode must be rejected: status=%d", resp.Code)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ryonlunar/tugas-besar-AAT/contracts"
 	"github.com/ryonlunar/tugas-besar-AAT/pkg/telemetry"
+	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/broker"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/sourcejournal"
 	"github.com/ryonlunar/tugas-besar-AAT/services/aggregator/internal/store"
 	"go.opentelemetry.io/otel"
@@ -30,6 +31,12 @@ type Repository interface {
 type PermanentError struct{ Reason string }
 
 func (e *PermanentError) Error() string { return e.Reason }
+
+type RetryableError struct{ Reason string }
+
+func (e *RetryableError) Error() string { return e.Reason }
+func Retry(reason string) error         { return &RetryableError{Reason: reason} }
+
 func Park(reason string) error {
 	if len(reason) > 512 {
 		reason = strings.ToValidUTF8(reason[:512], "")
@@ -40,36 +47,34 @@ func Park(reason string) error {
 // RunSession separates polling from processing. Ownership/fencing is supplied by
 // the coordinator; intake acknowledges only the journal commit, never mapping.
 func RunSession(ctx context.Context, session *sourcejournal.Session, source contracts.Source, read Reader, process Processor, repository Repository, interval time.Duration, maxEnvelopeBytes int, processingEnabled bool, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
-	return RunAdapter(ctx, session, source, &PollingAdapter{Read: read, Interval: interval, Source: source, Observe: observe}, process, repository, maxEnvelopeBytes, processingEnabled, logger, observe)
+	return RunAdapter(ctx, session, source, &PollingAdapter{Read: read, Interval: interval, Source: source, Observe: observe}, process, repository, maxEnvelopeBytes, processingEnabled, logger, observe, nil)
 }
 
 // RunAdapter uses opaque adapter cursors unchanged. The coordinator must supply
 // a live session and a fenced context. Polling and streaming share the worker.
-func RunAdapter(ctx context.Context, session *sourcejournal.Session, source contracts.Source, adapter contracts.SourceAdapter, process Processor, repository Repository, maxEnvelopeBytes int, processingEnabled bool, logger *slog.Logger, observe func(string, string, error, time.Duration)) error {
-	if adapter == nil || process == nil || maxEnvelopeBytes <= 0 || maxEnvelopeBytes > 64<<10 {
+func RunAdapter(ctx context.Context, session *sourcejournal.Session, source contracts.Source, adapter contracts.SourceAdapter, process Processor, repository Repository, maxEnvelopeBytes int, processingEnabled bool, logger *slog.Logger, observe func(string, string, error, time.Duration), observeStored func(time.Duration)) error {
+	if adapter == nil || process == nil || maxEnvelopeBytes <= 0 || maxEnvelopeBytes > broker.MaxEnvelopeBytes {
 		return errors.New("source adapter and processor and valid envelope limit required")
 	}
-	var fetched atomic.Bool
+	var health atomic.Value
+	health.Store("SOURCE_FETCH_FAILED")
 	refresh := func(ctx context.Context, correlation string) error {
 		pending, err := session.Unfinished(ctx)
 		if err != nil {
 			return err
 		}
-		success := fetched.Load() && pending == 0
-		code := ""
-		if !success {
+		code := health.Load().(string)
+		if code == "" && pending > 0 && source != contracts.SourceCoastal {
 			code = "UNPROCESSED_INPUT"
-			if !fetched.Load() {
-				code = "SOURCE_FETCH_FAILED"
-			}
 		}
+		success := code == ""
 		now := time.Now().UTC()
 		return repository.ApplyCycle(ctx, source, nil, correlation, success, code, now, now)
 	}
 	group, ctx := errgroup.WithContext(ctx)
 	if polling, ok := adapter.(*PollingAdapter); ok {
 		polling.onFailure = func(ctx context.Context) error {
-			fetched.Store(false)
+			health.Store("SOURCE_FETCH_FAILED")
 			logger.WarnContext(ctx, "source fetch failed", "source", source, "reason", "SOURCE_FETCH_FAILED")
 			return refresh(ctx, "source-intake")
 		}
@@ -83,10 +88,12 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			if err := store.CheckOwnership(batchCtx); err != nil {
 				return err
 			}
-			if err := session.Append(batchCtx, batch); err != nil {
-				return err
+			if len(batch.Records) > 0 || batch.From != batch.Cursor {
+				if err := session.Append(batchCtx, batch); err != nil {
+					return err
+				}
 			}
-			fetched.Store(true)
+			health.Store(batch.DegradedReason)
 			return refresh(batchCtx, "source-intake")
 		})
 		if err == nil {
@@ -125,6 +132,7 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			if processErr == nil {
 				processErr = repository.ApplyInput(workCtx, message.Key, source, plan.Sequence, plan.Mutations, message.CorrelationID, time.Now().UTC())
 			}
+			storageLatency := time.Since(message.ReceivedAt)
 			if processErr != nil {
 				span.SetStatus(codes.Error, "input processing failed")
 			}
@@ -142,6 +150,10 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			retryable := true
 			if processErr != nil {
 				reason = "canonical_write_failed"
+				var retry *RetryableError
+				if errors.As(processErr, &retry) {
+					reason = retry.Reason
+				}
 				var permanent *PermanentError
 				if errors.As(processErr, &permanent) {
 					reason = permanent.Reason
@@ -158,6 +170,9 @@ func RunAdapter(ctx context.Context, session *sourcejournal.Session, source cont
 			delay := time.Second * time.Duration(1<<min(message.Attempts, 5))
 			if err := session.Finish(ctx, message.Key, reason, retryable, delay); err != nil {
 				return err
+			}
+			if observeStored != nil && processErr == nil && len(plan.Mutations) > 0 && storageLatency >= 0 {
+				observeStored(storageLatency)
 			}
 			changed = true
 		}

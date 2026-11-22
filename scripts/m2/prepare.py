@@ -13,8 +13,21 @@ NAMESPACE = 'sistem-informasi-kebencanaan-bnpb'
 SECRET_KEYS = (
     'BMKG_API_KEY', 'PVMBG_TOKEN', 'AGGREGATOR_API_KEY', 'CONSUMER_DEMO_KEY',
     'POSTGRES_PASSWORD', 'NATS_TOKEN', 'MEDIA_CLIENT_SECRET',
-    'FIELD_TEAM_CLIENT_SECRET', 'BNPB_INTERNAL_CLIENT_SECRET', 'AUDIT_TOKEN',
+    'FIELD_TEAM_CLIENT_SECRET', 'BNPB_INTERNAL_CLIENT_SECRET', 'AUDIT_TOKEN', 'FIELD_ALERT_TOKEN',
 )
+# Secrets that come from OUTSIDE this script (e.g. the Feed Satelit token
+# the asisten hands the group, stored only in .secrets/satellite-secret.yaml
+# -- git-ignored, applied directly to the cluster). Unlike SECRET_KEYS,
+# these are never randomly generated here, and -- like SECRET_KEYS -- never
+# written into the runtime.env ConfigMap: Task 5.6's manifest wires them in
+# via secretKeyRef instead.
+EXTERNAL_SECRET_KEYS = ('SATELLITE_TOKEN',)
+
+
+def new_secret(key):
+    value = secrets.token_hex(32)
+    # NATS config expansion can misparse a token that starts with a digit.
+    return 'k' + value if key == 'NATS_TOKEN' else value
 
 
 def prepare():
@@ -26,10 +39,10 @@ def prepare():
         if set(credentials) - set(SECRET_KEYS) or not all(credentials.values()):
             raise ValueError('Invalid saved credentials; inspect the private state directory.')
     else:
-        credentials = {key: secrets.token_hex(32) for key in SECRET_KEYS}
-        credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
+        credentials = {}
     for key in SECRET_KEYS:
-        credentials.setdefault(key, secrets.token_hex(32))
+        if key not in credentials:
+            credentials[key] = new_secret(key)
     credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
     private_key, public_key = STATE / 'jwt-private.pem', STATE / 'jwt-public.pem'
     if private_key.exists() != public_key.exists():
@@ -45,7 +58,7 @@ def prepare():
     for line in (ROOT / '.env.example').read_text().splitlines():
         if line and not line.startswith('#') and '=' in line:
             key, value = line.split('=', 1)
-            if key not in SECRET_KEYS:
+            if key not in SECRET_KEYS and key not in EXTERNAL_SECRET_KEYS:
                 runtime[key] = value
     runtime.update(POSTGRES_HOST='postgres', METRICS_ADDR=':9091')
     runtime_path = STATE / 'runtime.env'
@@ -54,7 +67,7 @@ def prepare():
     for line in runtime_path.read_text().splitlines():
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)
-            if key in SECRET_KEYS:
+            if key in SECRET_KEYS or key in EXTERNAL_SECRET_KEYS:
                 raise ValueError('Keep credentials out of runtime.env.')
             runtime[key] = value
     resources = [
