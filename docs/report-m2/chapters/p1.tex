@@ -40,9 +40,9 @@ Audit \texttt{/events} & Daftar kejadian aktif, terurut menurut \texttt{ingested
 Audit \texttt{/checksum} & SHA-256 atas ID referensi yang diurutkan per byte dan dipisah baris baru. & Hash dihitung dari ID yang terjangkau dan ditandai parsial. Hash ini hanya mewakili bagian tersebut. \\
 Audit \texttt{/location} & Lokasi diperiksa pada setiap salinan PostgreSQL setelah shard diketahui. & Pencarian atau pemeriksaan salinan yang gagal ditandai parsial. HTTP~404 hanya bila semua primary dapat diperiksa dan ID tidak ditemukan. \\
 Audit \texttt{/unprocessed} & Memindai catatan jurnal yang belum selesai pada shard asal setiap sumber. & Menandai hasil parsial bila jurnal yang dibutuhkan tak terjangkau. \\
-\texttt{POST /field-reports} & HTTP~202 setelah laporan tersimpan di primary dan standby sinkron pada shard yang dipilih dari identitas client dan \path{Idempotency-Key}. Kunci dan payload yang sama mengembalikan tanda terima yang sama, sedangkan payload berbeda menerima HTTP~409. & HTTP~503 dengan \texttt{Retry-After} bila shard tujuan belum dapat mengonfirmasi penyimpanan. Client mengulang dengan kunci yang sama setelah primary baru tersedia. Tanda terima yang sudah diberikan tetap ada karena WAL-nya sudah tersimpan di standby. \\
-\texttt{GET /field-reports/\{id\}} & Mencari ID laporan di semua shard dan mengembalikan status terakhir yang tersimpan. & HTTP~404 hanya bila semua shard menjawab. Bila ada shard yang tak terjangkau, API mengembalikan HTTP~503 agar laporan yang ada tidak dianggap hilang. \\
-\texttt{/failed-messages} & Daftar memakai pemindaian yang sama dengan Audit \texttt{/unprocessed}. Detail dan replay membaca serta menulis jurnal pada shard asal sumber. & Daftar ditandai parsial. Detail dan replay mengembalikan HTTP~503 bila shard asal tak terjangkau, sehingga replay tidak dijalankan pada salinan yang belum pasti mutakhir. \\
+\texttt{POST /field-reports} & HTTP~202 setelah commit di primary dan standby sinkron. Kunci dan payload sama memberi tanda terima sama, payload berbeda HTTP~409. & HTTP~503 dan \texttt{Retry-After} bila shard belum dapat mengonfirmasi. Tanda terima lama tetap ada di standby. \\
+\texttt{GET /field-reports/\{id\}} & Mencari ID laporan di semua shard. & HTTP~404 hanya bila semua shard menjawab, selain itu HTTP~503. \\
+\texttt{/failed-messages} & Daftar seperti Audit \texttt{/unprocessed}. Detail dan replay memakai jurnal di shard asal. & Daftar ditandai parsial. Detail dan replay HTTP~503 bila shard asal tak terjangkau. \\
 \bottomrule
 \end{tabularx}
 \end{table}
