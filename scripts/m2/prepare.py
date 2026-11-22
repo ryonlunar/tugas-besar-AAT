@@ -24,6 +24,12 @@ SECRET_KEYS = (
 EXTERNAL_SECRET_KEYS = ('SATELLITE_TOKEN',)
 
 
+def new_secret():
+    # NATS expands $NATS_TOKEN inside its config file; a value that starts
+    # with a digit parses as a number and the server exits. Start with a letter.
+    return 'k' + secrets.token_hex(32)
+
+
 def prepare():
     os.umask(0o077)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -33,10 +39,13 @@ def prepare():
         if set(credentials) - set(SECRET_KEYS) or not all(credentials.values()):
             raise ValueError('Invalid saved credentials; inspect the private state directory.')
     else:
-        credentials = {key: secrets.token_hex(32) for key in SECRET_KEYS}
+        credentials = {key: new_secret() for key in SECRET_KEYS}
         credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
     for key in SECRET_KEYS:
-        credentials.setdefault(key, secrets.token_hex(32))
+        credentials.setdefault(key, new_secret())
+    if credentials['NATS_TOKEN'][:1].isdigit():
+        # Rotate a token saved by an older version; NATS cannot start with it.
+        credentials['NATS_TOKEN'] = new_secret()
     credentials_path.write_text(json.dumps(credentials, indent=2) + '\n')
     private_key, public_key = STATE / 'jwt-private.pem', STATE / 'jwt-public.pem'
     if private_key.exists() != public_key.exists():
