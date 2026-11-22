@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "coastal_source_status": "fresh",
+  "audit_window": [
+    "2026-11-12T00:00:00+00:00",
+    "2026-11-12T00:30:00+00:00"
+  ],
+  "analytics_matches_audit": true,
+  "analytics_events": 120,
+  "categories": {
+    "COASTAL": 120
+  },
+  "critical_receipts_sampled": 3
+}

@@ -1,0 +1,19 @@
+owners_before {'bmkg-mock': 'aggregator-59fbb9f49f-srvfs', 'pvmbg-mock': 'aggregator-59fbb9f49f-8sphj'}
+killed aggregator-59fbb9f49f-srvfs at 1795326784.2694767
+{
+  "bmkg-mock": {
+    "old_owner": "aggregator-59fbb9f49f-srvfs",
+    "new_owner": "aggregator-59fbb9f49f-8gbz2",
+    "last_old_request": 1795326783.31985,
+    "first_new_request": 1795326786.73027,
+    "gap_seconds": 3.41,
+    "since_kill_seconds": 2.46
+  },
+  "pvmbg-mock": {
+    "owner_unchanged": "aggregator-59fbb9f49f-8sphj",
+    "callers_after_kill": []
+  }
+}
+before no rows
+during: n=127 statuses={'200': 127} partial=0 p50=7.7ms p95=17.3ms max=87.3ms span=33s
+dups 0 events 4879

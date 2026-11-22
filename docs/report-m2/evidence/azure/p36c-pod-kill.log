@@ -1,0 +1,10 @@
+deployment "aggregator" successfully rolled out
+processing flag on live pods: false false false 
+accepted: 20/20
+before kill: {"report_id":"90020e55-be63-4fc4-8e36-e99463b20def","status":"accepted","received_at":"2026-11-22T06:11:09.763104Z","processed_at":null,"reason":null,"attempts":0,"unit":"shard-1"}
+all aggregator pods force-deleted at 2026-11-22T06:11:10Z
+deployment "aggregator" successfully rolled out
+after resume, first: {"report_id": "90020e55-be63-4fc4-8e36-e99463b20def", "status": "processed", "received_at": "2026-11-22T06:11:09.763104Z", "processed_at": "2026-11-22T06:11:14.535796Z", "reason": null, "attempts": 1, "unit": "shard-1"}
+status counts: {'processed': 20}
+attempts counts: {1: 20}
+processed after kill: 20 / 20

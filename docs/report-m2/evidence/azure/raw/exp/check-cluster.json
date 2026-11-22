@@ -1,0 +1,125 @@
+{
+  "started_at": "2026-11-22T05:51:43.318463+00:00",
+  "profile": "multi-node-development",
+  "passed": true,
+  "checks": {
+    "http_readiness": true,
+    "source_ingestion": true,
+    "token_ttl_seconds": 60,
+    "media_access_restriction": true,
+    "source_credential_isolation": true,
+    "dashboard-consumer": {
+      "inbox_count": 4436,
+      "quarantine_count": 0
+    },
+    "notifier-consumer": {
+      "inbox_count": 4438,
+      "quarantine_count": 0
+    },
+    "correlated_logs": true,
+    "metrics_targets": [
+      "aggregator",
+      "auth",
+      "bmkg-mock",
+      "client-api",
+      "dashboard-consumer",
+      "nats",
+      "notifier-consumer",
+      "pvmbg-mock"
+    ],
+    "grafana": true,
+    "storage_network_isolation": true,
+    "aggregator_nodes": [
+      "aat-dev",
+      "aat-worker-1",
+      "aat-worker-2"
+    ],
+    "storage_units": {
+      "shard-0": {
+        "records": 1111,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-0-1",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-2"
+        ]
+      },
+      "shard-1": {
+        "records": 1139,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-1-0",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-2"
+        ]
+      },
+      "shard-2": {
+        "records": 1135,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-2-0",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-2"
+        ]
+      },
+      "shard-3": {
+        "records": 1115,
+        "pending": 0,
+        "streaming": 2,
+        "synchronous": 1,
+        "synchronous_commit": "on",
+        "recovery": {
+          "use_pg_rewind": true,
+          "remove_data_directory_on_rewind_failure": true,
+          "remove_data_directory_on_diverged_timelines": true
+        },
+        "primary": "shard-3-2",
+        "nodes": [
+          "aat-dev",
+          "aat-worker-1",
+          "aat-worker-2"
+        ]
+      }
+    },
+    "jetstream_replicas": 3,
+    "source_callers": {
+      "bmkg-mock": "aggregator-59fbb9f49f-srvfs",
+      "pvmbg-mock": "aggregator-59fbb9f49f-srvfs"
+    },
+    "http_database_trace": {
+      "trace_id": "4b0f53ef372443dd97e1b47838fe0179",
+      "services": [
+        "aggregator",
+        "client-api"
+      ],
+      "spans": 14
+    }
+  }
+}

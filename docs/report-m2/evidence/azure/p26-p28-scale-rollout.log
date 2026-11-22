@@ -1,0 +1,12 @@
+SCALE5_AT=1795327678
+deployment "aggregator" successfully rolled out
+SCALE2_AT=1795327703
+SCALE3_AT=1795327733
+deployment "aggregator" successfully rolled out
+ROLL_AT=1795327747
+deployment "aggregator" successfully rolled out
+ROLL_DONE=1795327759
+before: n=54 statuses={'200': 54} partial=0 p50=8.7ms p95=18.8ms max=62.5ms span=14s
+during: n=365 statuses={'200': 365} partial=0 p50=9.9ms p95=25.3ms max=77.4ms span=96s
+{"label": "scaling", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 55, "aggregator-6556c449c-csr9h": 3}, "buckets": 57, "buckets_with_two_callers": 1}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-bjff8": 41, "aggregator-6556c449c-csr9h": 1}, "buckets": 42, "buckets_with_two_callers": 0}}
+dups 0 events 8947

@@ -1,0 +1,84 @@
+== light: 4 media, 4 field, 20s
+{
+  "media_threads": 4,
+  "field_threads": 4,
+  "seconds": 20.0,
+  "field_report": {
+    "n": 283,
+    "rps": 14.2,
+    "codes": {
+      "202": 283
+    },
+    "rejected_429_pct": 0.0,
+    "success_pct": 100.0,
+    "p50_ms": 24.3,
+    "p95_ms": 82.8
+  },
+  "media_read": {
+    "n": 2009,
+    "rps": 100.5,
+    "codes": {
+      "200": 2009
+    },
+    "rejected_429_pct": 0.0,
+    "success_pct": 100.0,
+    "p50_ms": 27.9,
+    "p95_ms": 100.9
+  },
+  "field_read": {
+    "n": 283,
+    "rps": 14.2,
+    "codes": {
+      "200": 283
+    },
+    "rejected_429_pct": 0.0,
+    "success_pct": 100.0,
+    "p50_ms": 34.0,
+    "p95_ms": 128.5
+  }
+}
+== overload: 250 media, 8 field, 45s
+{
+  "media_threads": 250,
+  "field_threads": 8,
+  "seconds": 45.0,
+  "media_read": {
+    "n": 12140,
+    "rps": 269.8,
+    "codes": {
+      "200": 5246,
+      "429": 6885,
+      "503": 9
+    },
+    "rejected_429_pct": 56.71,
+    "success_pct": 43.21,
+    "p50_ms": 1107.9,
+    "p95_ms": 2028.7
+  },
+  "field_report": {
+    "n": 146,
+    "rps": 3.2,
+    "codes": {
+      "202": 146
+    },
+    "rejected_429_pct": 0.0,
+    "success_pct": 100.0,
+    "p50_ms": 1131.7,
+    "p95_ms": 2017.6
+  },
+  "field_read": {
+    "n": 146,
+    "rps": 3.2,
+    "codes": {
+      "200": 146
+    },
+    "rejected_429_pct": 0.0,
+    "success_pct": 100.0,
+    "p50_ms": 1196.2,
+    "p95_ms": 1876.2
+  }
+}
+NAME           CPU(cores)   CPU(%)   MEMORY(bytes)   MEMORY(%)   
+aat-dev        1998m        99%      2934Mi          36%         
+aat-worker-1   953m         47%      1493Mi          38%         
+aat-worker-2   884m         44%      861Mi           22%         
