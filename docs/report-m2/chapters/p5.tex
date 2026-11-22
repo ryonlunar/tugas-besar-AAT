@@ -116,6 +116,39 @@ Skenario latihan ini melibatkan satu gangguan yang disengaja. Postmortem game da
 
 \section{Jawaban atas Butir ``Di laporan''}
 
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{1.6cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.3cm}Y@{}}
+\toprule
+Kriteria & Persoalan & Istilah literatur & Mekanisme kelompok \\
+\midrule
+K2 & Data sensor melanggar kontrak & Validasi kontrak, karantina & Rekaman tidak valid disisihkan beserta alasan \\
+K3 & Gangguan sensor menjalar ke sumber lain & \emph{Bulkhead}, \emph{cascading failure} & Polling terpisah per sumber, client dilayani dari penyimpanan \\
+K4 & Sensor menjawab tetapi datanya usang, percobaan ulang melonjak & \emph{Gray failure}, \emph{retry storm}, \emph{backoff} & Deteksi \texttt{stale}, backoff 1--8~detik dengan jitter \\
+K5 & Beban melebihi kapasitas & \emph{Load shedding}, prioritisasi & 128 slot dengan 32 slot cadangan, Media menerima 429 \\
+\bottomrule
+\end{tabularx}
+\caption{Ringkasan persoalan dan mekanisme P5.}
+\label{tab:p5-ringkas}
+\end{table}
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[caption={Pembagian kapasitas umum dan cadangan prioritas.},label={code:p5-capacity}]
+// services/aggregator/internal/api/priority.go
+func SplitCapacity(total int) (general, reserved int) {
+	if total < 2 {
+		return 1, 1
+	}
+	reserved = total / 4
+	if reserved < 1 {
+		reserved = 1
+	}
+	return total - reserved, reserved
+}
+\end{lstlisting}
+\end{minipage}
+
+
 \begin{enumerate}
 \item \textbf{Persoalan dan namanya dalam literatur.} Kriteria~2 adalah persoalan validasi kontrak masukan: data dari sumber yang tidak tepercaya diperiksa sebelum menjadi data kanonis, dan rekaman yang melanggar kontrak dikarantina beserta alasannya. Kriteria~3 adalah persoalan \emph{fault isolation} atau \emph{bulkhead}, yaitu mencegah \emph{cascading failure} dari satu sumber ke layanan sumber lain. Kriteria~4 memuat dua persoalan. Pertama, \emph{partial failure} atau \emph{gray failure}: sensor masih menjawab HTTP~200 tetapi datanya sudah usang. Kedua, \emph{retry storm}: percobaan ulang yang tidak dibatasi justru memperberat sumber yang sedang bermasalah, sehingga dibutuhkan \emph{backoff} dengan \emph{jitter} dan \emph{graceful degradation} berupa data terakhir. Kriteria~5 adalah persoalan \emph{load shedding} dan prioritisasi permintaan saat beban melebihi kapasitas \cite{kleppmann2017,sre}.
 

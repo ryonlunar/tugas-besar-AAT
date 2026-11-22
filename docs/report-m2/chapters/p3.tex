@@ -103,6 +103,44 @@ Akses \path{GET /failed-messages} & Media dan Tim Lapangan menerima HTTP~403, BN
 
 \section{Jawaban atas Butir ``Di laporan''}
 
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{1.6cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.3cm}Y@{}}
+\toprule
+Kriteria & Persoalan & Istilah literatur & Mekanisme kelompok \\
+\midrule
+K2 & Pesan gagal harus disimpan dan dibedakan & \emph{Dead letter queue}, \emph{transient} lawan permanen & Jurnal PostgreSQL dengan status \texttt{retrying} dan \texttt{parked} \\
+K3 & Pesan rusak dapat menghentikan pemroses & \emph{Poison message} & Batas ukuran dan kedalaman JSON, pesan rusak ditahan \\
+K4 & Skema berubah dan pesan perlu diproses ulang & \emph{Schema evolution}, \emph{replay}, \emph{deduplication} & Adapter, replay entri lama, penanda pemrosesan dalam satu transaksi \\
+K6 & Laporan tidak boleh hilang setelah 202 & \emph{Durable acceptance}, \emph{idempotency key} & Commit sinkron sebelum 202 dan kunci idempotensi per client \\
+\bottomrule
+\end{tabularx}
+\caption{Ringkasan persoalan dan mekanisme P3.}
+\label{tab:p3-ringkas}
+\end{table}
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[caption={Penerimaan laporan Tim Lapangan.},label={code:p3-intake}]
+// services/aggregator/internal/fieldreport/http.go
+receipt, err := repository.AcceptFieldReport(r.Context(), Submission{
+	ClientID: r.Header.Get("X-Client-ID"), IdempotencyKey: key, CorrelationID: correlation(r), Payload: body,
+})
+switch {
+case errors.Is(err, ErrConflict):
+	writeError(w, r, http.StatusConflict, "IDEMPOTENCY_CONFLICT", "Idempotency-Key was already used with a different body")
+	return
+case err != nil:
+	// log STORAGE_UNAVAILABLE (dipersingkat)
+	w.Header().Set("Retry-After", "1")
+	writeError(w, r, http.StatusServiceUnavailable, "STORAGE_UNAVAILABLE", "Field report was not stored; retry with the same Idempotency-Key")
+	return
+}
+// set Idempotent-Replayed dan log penerimaan (dipersingkat)
+writeJSON(w, http.StatusAccepted, receipt)
+\end{lstlisting}
+\end{minipage}
+
+
 \begin{enumerate}
 \item \textbf{Persoalan dan namanya dalam literatur.} Kriteria~2 adalah persoalan \emph{dead letter queue}: pesan yang gagal disimpan terpisah agar dapat diperiksa, dengan pembedaan antara kegagalan sementara (\emph{transient}, layak dicoba ulang) dan kegagalan permanen yang memerlukan perubahan sistem. Kriteria~3 adalah persoalan \emph{poison message}, yaitu pesan rusak yang dapat membuat pemroses gagal berulang atau menghabiskan sumber daya bila tidak dibatasi. Kriteria~4 menyangkut \emph{schema evolution} serta pemutaran ulang log (\emph{replay}) yang harus menjaga urutan per kunci dan tidak menggandakan hasil (\emph{deduplication}). Kriteria~6 adalah persoalan penerimaan yang tahan lama (\emph{durable acceptance}) pada jalur asinkron: tanda terima baru boleh diberikan setelah data tersimpan persisten, dan percobaan ulang client dikaitkan dengan penerimaan yang sama melalui \emph{idempotency key} \cite{kleppmann2017}.
 
