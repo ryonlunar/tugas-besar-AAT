@@ -54,6 +54,10 @@ Pada Milestone 1, sistem mengambil data gempa, peringatan tsunami, dan aktivitas
 
 Aggregator menyimpan hasil pengolahan pada PostgreSQL dan menerbitkan perubahan melalui JetStream. Client API melayani pembacaan dan laporan Tim Lapangan. Notifier meneruskan peringatan pesisir kritis ke Penerima Tim Lapangan. Diagram deployment dan batas layanan tersedia di [Bab 2 laporan](docs/report-m2/IF4031_M2_DikejarDeadline.pdf).
 
+### Arsitektur observabilitas
+
+![Alur metrik Prometheus, log Alloy dan Loki, serta trace Tempo menuju Grafana](docs/assets/m2-observability.png)
+
 ### Topologi
 
 Klaster k3s terdiri dari **empat node VM Ubuntu 24.04**, masing-masing dengan kernel dan disk sendiri. `aat-dev` menjalankan control plane, API, Auth, mock, consumer, dan observabilitas. Ketiga worker menjalankan Aggregator dan JetStream. Empat shard PostgreSQL memiliki tiga salinan per shard yang tersebar pada keempat node.
@@ -537,7 +541,14 @@ Untuk ujian, isi Secret `tester-key` sesuai format yang diberikan asisten dan gu
    unset SATELLITE_TOKEN
    ```
 
-   Untuk ujian, mulai sesi dengan `POST https://satellite.naufarrel.dev/v1/exam/start` memakai Bearer token ujian tepat saat rekaman dimulai. Pada latihan, lanjutkan sesi yang ditunjukkan oleh probe.
+   Pada latihan, lanjutkan sesi yang ditunjukkan oleh probe. Untuk ujian, siapkan token dari asisten dan mulai sesi tepat saat rekaman dimulai:
+
+   ```bash
+   read -rsp 'Token ujian Feed Satelit: ' SATELLITE_EXAM_TOKEN; printf '\n'
+   curl -fsS -X POST -H "Authorization: Bearer $SATELLITE_EXAM_TOKEN" \
+     https://satellite.naufarrel.dev/v1/exam/start | tee "$EVIDENCE/exam-start.json"
+   unset SATELLITE_EXAM_TOKEN
+   ```
 
 2. Rekam beberapa menit pemrosesan live. Buka panel **Satellite feed lag**, **Satellite unfinished batches**, dan **Satellite storage latency · p95** di Grafana. Gunakan interval pengukuran yang sama untuk seluruh panel.
 
@@ -654,8 +665,6 @@ Untuk ujian, isi Secret `tester-key` sesuai format yang diberikan asisten dan gu
    File pembanding berisi array objek dengan `observation_id` dan `available_at` berformat RFC3339. Gunakan waktu data tersedia pada jam pengujian. Cocokkan jumlah peringatan hilang atau ganda, p95 terhadap batas 5 detik, dan pemakaian anggaran keterlambatan. Catat deteksi, dampak, pemulihan, dan perbaikan dalam post-mortem.
 
 ## Observabilitas
-
-![Alur metrik Prometheus, log Alloy dan Loki, serta trace Tempo menuju Grafana](docs/assets/m2-observability.png)
 
 1. Buka dasbor Grafana pada port `30000`. Pilih interval uji yang sama untuk latency, error rate, throughput, operasi upstream, serta lag. Gunakan Dasbor Analitik pada `/analytics/` untuk hasil agregasi.
 2. Ambil trace lintas layanan dan tampilkan durasi setiap langkah di Grafana Explore dengan data source Tempo.
