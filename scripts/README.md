@@ -24,7 +24,7 @@ Script membersihkan proses mock saat selesai.
 
 ## Alternatif tooling load test
 
-Untuk menggunakan k6, ganti command `hazards-monotonic.py` pada langkah P2 di README utama dengan command berikut. Environment dan collector TCP tetap digunakan:
+Untuk menggunakan k6, ganti perintah `hazards-monotonic.py` pada [pengujian P2 M1](../README-m1.md#problem-2) dengan perintah berikut. Environment dan collector TCP tetap digunakan.
 
 ```bash
 k6 run --summary-export "$EVIDENCE_DIR/k6-summary.json" scripts/load/hazards.js

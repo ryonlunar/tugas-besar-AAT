@@ -7,7 +7,7 @@ if [[ $(id -u) == 0 ]]; then
   exit 1
 fi
 sudo apt-get update
-sudo apt-get install -y buildah ca-certificates curl git jq openssl python3
+sudo apt-get install -y buildah ca-certificates curl git jq make openssl python3
 sudo install -d /etc/containers/registries.conf.d
 printf '%s\n' 'unqualified-search-registries = ["docker.io"]' 'short-name-mode = "disabled"' \
   | sudo tee /etc/containers/registries.conf.d/aat.conf >/dev/null

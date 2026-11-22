@@ -36,8 +36,11 @@ case "$action" in
     [[ ! -f "$here/.terraform.lock.hcl" ]] || cp "$here/.terraform.lock.hcl" "$state/"
     ref=$(git -C "$repo" rev-parse --verify "${2:-HEAD}^{commit}")
     printf '%s\n' "$ref" > "$state/source-commit"
-    git -C "$repo" archive --format=tar.gz --output="$state/source.tar.gz" "$ref" \
-      go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts
+    source_paths=(go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts)
+    if git -C "$repo" cat-file -e "$ref:Makefile" 2>/dev/null; then
+      source_paths+=(Makefile)
+    fi
+    git -C "$repo" archive --format=tar.gz --output="$state/source.tar.gz" "$ref" "${source_paths[@]}"
     git -C "$repo" show "$ref:scripts/m2/configure-node.sh" > "$state/configure-node.sh"
     ssh-keygen -q -t ed25519 -N '' -C "aat-$name" -f "$state/ssh"
     python3 - "$state" "$name" "$1" <<'PY'

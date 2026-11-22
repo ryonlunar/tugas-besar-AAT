@@ -4,7 +4,7 @@ Menerbitkan JWT RS256 untuk Media, Field Team, dan BNPB internal. Access token b
 
 ## Konfigurasi
 
-Memerlukan `MEDIA_CLIENT_SECRET`, `FIELD_TEAM_CLIENT_SECRET`, `BNPB_INTERNAL_CLIENT_SECRET`, dan `JWT_PRIVATE_KEY_FILE`. Lokasi SQLite diatur melalui `AUTH_STATE_PATH` (default `/data/auth.db`) dan harus dapat ditulis. Setup kunci dan service tersedia di [README utama](../../README.md#menjalankan-aplikasi).
+Memerlukan `MEDIA_CLIENT_SECRET`, `FIELD_TEAM_CLIENT_SECRET`, `BNPB_INTERNAL_CLIENT_SECRET`, dan `JWT_PRIVATE_KEY_FILE`. Lokasi SQLite diatur melalui `AUTH_STATE_PATH` (default `/data/auth.db`) dan harus dapat ditulis. Setup kunci dan service untuk Docker Compose tersedia di [panduan M1](../../README-m1.md#menjalankan-aplikasi).
 
 ## Endpoint
 

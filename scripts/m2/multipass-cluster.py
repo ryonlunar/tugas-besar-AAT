@@ -43,7 +43,7 @@ def main():
         with tarfile.open(destination, 'w:gz') as archive:
             for raw in files:
                 name = os.fsdecode(raw)
-                if name in ('go.mod', 'go.sum', '.env.example', '.dockerignore') or name.startswith(('contracts/', 'pkg/', 'services/', 'infra/', 'scripts/', 'docs/m2-')):
+                if name in ('Makefile', 'go.mod', 'go.sum', '.env.example', '.dockerignore') or name.startswith(('contracts/', 'pkg/', 'services/', 'infra/', 'scripts/', 'docs/m2-')):
                     path = ROOT / name
                     if path.is_file():
                         archive.add(path, arcname=name)

@@ -83,7 +83,7 @@ go test -run TestFieldReport -v ./services/aggregator/internal/sharded
 
 ### Manual demo
 
-Log in as each client following the README's [manual login](../README.md#login-manual) (`field-team`, `media`, `bnpb-internal`), then set `FIELD_ACCESS_TOKEN`, `MEDIA_ACCESS_TOKEN`, and `OPS_ACCESS_TOKEN`.
+Prepare the [M2 test terminal](m2-verification.md#terminal-pengujian), then use `field_login`, `media_login`, and `ops_login` to set `FIELD_ACCESS_TOKEN`, `MEDIA_ACCESS_TOKEN`, and `OPS_ACCESS_TOKEN` before the respective requests.
 
 Submit a report, then retry it with the same key. Both responses carry the same `report_id`:
 
@@ -96,14 +96,21 @@ for attempt in 1 2; do
 done
 ```
 
-Accept while processing is stopped, kill the receiving pods after the 202, then resume and confirm the status becomes `processed`:
+Accept while processing is stopped, replace the receiving pod after the 202, then resume and confirm the status becomes `processed`.
 
 ```bash
 kubectl -n sistem-informasi-kebencanaan-bnpb set env deployment/aggregator FIELD_REPORT_PROCESSING_ENABLED=false
 kubectl -n sistem-informasi-kebencanaan-bnpb rollout status deployment/aggregator
-# POST a report as above and keep its report_id in REPORT_ID, then:
-kubectl -n sistem-informasi-kebencanaan-bnpb delete pod -l app=aggregator --wait=false
+# POST a report and keep its report_id in REPORT_ID.
+k logs -l app=aggregator --prefix --max-log-requests=10 --since=2m | grep -F "$REPORT_ID"
+# Set RECEIVER to the pod on the "field report accepted" line for the first POST.
+k delete pod "$RECEIVER"
+k rollout status deployment/aggregator
+FIELD_ACCESS_TOKEN=$(field_login)
+curl -fsS "$API_URL/field-reports/$REPORT_ID" -H "Authorization: Bearer $FIELD_ACCESS_TOKEN"
 kubectl -n sistem-informasi-kebencanaan-bnpb set env deployment/aggregator FIELD_REPORT_PROCESSING_ENABLED-
+k rollout status deployment/aggregator
+FIELD_ACCESS_TOKEN=$(field_login)
 curl -sS "$API_URL/field-reports/$REPORT_ID" -H "Authorization: Bearer $FIELD_ACCESS_TOKEN"
 ```
 
