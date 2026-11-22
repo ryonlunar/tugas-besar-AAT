@@ -1,0 +1,17 @@
+{"label": "pre", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 3}, "buckets": 3, "buckets_with_two_callers": 0}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8gbz2": 1}, "buckets": 1, "buckets_with_two_callers": 0}}
+FREEZE_AT=1795327011.001598595
+THAW_AT=1795327523.718711764
+0
+   2363 Tsl  k3s-agent       /usr/local/bin/k3s agent
+  21948 T    sudo            sudo sh -c echo 1 > /sys/fs/cgroup/kubepods.slice/cgroup.freeze; kill -STOP $(pgrep -f "k3s
+stopped left: 0
+THAW_AGENT_AT=1795327534.174136077
+THAW_AT=1795327578.193913142
+{"label": "window", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 28}, "buckets": 28, "buckets_with_two_callers": 0}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-bjff8": 21}, "buckets": 21, "buckets_with_two_callers": 0}}
+before no rows
+during: n=2350 statuses={'200': 2350} partial=41 p50=9.0ms p95=21.8ms max=874.3ms span=623s
+error: error from server (NotFound): pods "aggregator-59fbb9f49f-8gbz2" not found in namespace "sistem-informasi-kebencanaan-bnpb"
+8gbz2 upstream requests: 0 last: None
+dups 0 events 8315
+frozen owner 8gbz2: last request -2.0 s relative to freeze; requests after thaw: 0
+first other owner bjff8 at +64.2s after freeze

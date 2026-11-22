@@ -1,0 +1,21 @@
+== before: PVMBG 203 dups 0
+== switch PVMBG mock to rename_field (incompatible)
+{"version":3}
+ 200
+failed PVMBG: 200 {('parked', False): 200}
+example: {"message_id": "UFZNQkcAOTU1ZmIwMjUyZmZhNDcwZTU4YmU0MTNmODY1ZjAzNDU1ZjVjMDQyYWY5MmI4ZDY1ODZkYTQ2Y2NiMjliY2M3Mg", "source": "PVMBG", "received_at": "2026-11-22T06:12:02.537274Z", "reason": "schema_incompatible: field wajib 'alert_level' hilang", "retryable": false, "attempts": 1, "status": "parked"}
+== client-api reads PVMBG still answer: 200
+== adapt: PVMBG_SCHEMA_ADAPTERS=level_alias
+deployment "aggregator" successfully rolled out
+replaying 200 parked messages
+replay codes:       1      200 202 
+failed PVMBG: 9 {('parked', False): 9}
+example: {"message_id": "UFZNQkcAOTlkNzFhNmM0MTM5YmI1NTFhY2E4YWRjZmQ3ZDU3ODgyMjQ0MGI4MTI1Yjg3ODI5YWQwZWQ1MmRkM2E3YmUzMg", "source": "PVMBG", "received_at": "2026-11-22T06:12:02.544206Z", "reason": "schema_incompatible: field wajib 'alert_level' hilang", "retryable": false, "attempts": 1, "status": "parked"}
+== after: PVMBG 208 dups 0
+== restore mock to compatible_v1
+{"version":1}
+ 200
+round 1: parked=9
+  replay codes:       9 202 
+round 2: parked=0
+final PVMBG 216 dups 0 partial False

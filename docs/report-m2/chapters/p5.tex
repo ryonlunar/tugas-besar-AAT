@@ -84,7 +84,27 @@ Tabel~\ref{tab:p5-fixtures} merangkum pengujian dengan respons HTTP yang sengaja
   \end{tabularx}
 \end{table}
 
-Uji prioritas pada Client API mengisi tiga dari empat slot dengan permintaan Media. Permintaan Media berikutnya menerima HTTP~429 dan header \texttt{Retry-After}, sementara pengajuan laporan oleh Tim Lapangan menerima HTTP~202 pada pengujian yang sama. Uji ini memeriksa pembagian kapasitas di API dengan upstream terkendali. Pengaruhnya terhadap latensi dan tingkat penolakan pada klaster masih perlu diuji saat beban tinggi.
+Uji prioritas pada Client API mengisi tiga dari empat slot dengan permintaan Media. Permintaan Media berikutnya menerima HTTP~429 dan header \texttt{Retry-After}, sementara pengajuan laporan oleh Tim Lapangan menerima HTTP~202 pada pengujian yang sama. Uji ini memeriksa pembagian kapasitas di API dengan upstream terkendali.
+
+Pembagian kapasitas tersebut juga diuji pada klaster Azure (Tabel~\ref{tab:topology-azure}). Generator beban berjalan di \texttt{aat-dev} dan masuk melalui Auth serta Client API. Pada fase beban ringan selama 20~detik, empat thread Media dan empat thread Tim Lapangan seluruhnya berhasil tanpa penolakan. Pada fase beban berlebih selama 45~detik, 250 thread Media membaca \texttt{/v1/hazards?limit=50} secepat mungkin, sementara delapan thread Tim Lapangan bergantian mengirim laporan dan membaca kejadian. Tabel~\ref{tab:p5-azure} merangkum hasilnya.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Prioritas permintaan saat beban berlebih pada klaster Azure, 22 November 2026.}
+  \label{tab:p5-azure}
+  \small
+  \begin{tabularx}{\linewidth}{@{}Y r r r r@{}}
+    \toprule
+    Jenis permintaan & Jumlah & Berhasil & HTTP~429 & p95 \\
+    \midrule
+    Media, baca & 12.140 & 43{,}2\% & 56{,}7\% & 2.028{,}7~ms \\
+    Tim Lapangan, kirim laporan & 146 & 100\% & 0\% & 2.017{,}6~ms \\
+    Tim Lapangan, baca & 146 & 100\% & 0\% & 1.876{,}2~ms \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+Sembilan permintaan Media (0{,}07\%) menerima HTTP~503. Latensi seluruh jenis permintaan naik karena CPU \texttt{aat-dev} mencapai 99\% saat menjalankan generator beban bersama Auth dan Client API. Hasil ini menunjukkan penolakan terkontrol hanya mengenai Media, sedangkan permintaan Tim Lapangan tetap dilayani.
 
 Untuk diagnosis, grafik polling per sumber memperlihatkan apakah kegagalan terpusat di Sensor Pantai. Grafik p95 pembacaan per sumber serta jumlah HTTP~429 membantu melihat imbasnya terhadap client. Grafik waktu pengiriman ke penerima dan hasil percobaan notifier membantu membedakan hambatan pada sensor dari hambatan pengiriman. Log perubahan kondisi sumber menyertakan \texttt{correlation\_id} yang dapat ditelusuri di Loki. Tempo melengkapi penelusuran jika permintaan tercakup oleh sampling. Pada pemeriksaan klaster, satu jejak dengan 14 span menautkan Client API dan Aggregator hingga akses basis data. Saat game day, tiap anggota perlu menunjukkan cara mengaitkan gejala di dasbor dengan log atau jejak yang relevan.
 
@@ -96,4 +116,22 @@ Skenario latihan ini melibatkan satu gangguan yang disengaja. Postmortem game da
 
 \section{Jawaban atas Butir ``Di laporan''}
 
-Konfigurasi isolasi sumber menetapkan batas polling, waktu tunggu, dan jeda percobaan ulang. Tabel~\ref{tab:p5-fixtures} mencatat perilaku menyimpang yang diuji, cara mengenalinya, dan hasil penanganan. Catatan insiden latihan menjelaskan satu pemadaman. Hasil game day untuk postmortem dan anggaran keterlambatan diukur pada tahap demonstrasi.
+\begin{enumerate}
+\item \textbf{Persoalan dan namanya dalam literatur.} Kriteria~2 adalah persoalan validasi kontrak masukan: data dari sumber yang tidak tepercaya diperiksa sebelum menjadi data kanonis, dan rekaman yang melanggar kontrak dikarantina beserta alasannya. Kriteria~3 adalah persoalan \emph{fault isolation} atau \emph{bulkhead}, yaitu mencegah \emph{cascading failure} dari satu sumber ke layanan sumber lain. Kriteria~4 memuat dua persoalan. Pertama, \emph{partial failure} atau \emph{gray failure}: sensor masih menjawab HTTP~200 tetapi datanya sudah usang. Kedua, \emph{retry storm}: percobaan ulang yang tidak dibatasi justru memperberat sumber yang sedang bermasalah, sehingga dibutuhkan \emph{backoff} dengan \emph{jitter} dan \emph{graceful degradation} berupa data terakhir. Kriteria~5 adalah persoalan \emph{load shedding} dan prioritisasi permintaan saat beban melebihi kapasitas \cite{kleppmann2017,sre}.
+
+\item \textbf{Mekanisme ketahanan, konfigurasi, dan alasannya.}
+\begin{itemize}
+\item \emph{Polling terpisah per sumber} dengan jeda 500~ms, agar sebagian besar target 5~detik tersisa untuk pemrosesan dan pengiriman.
+\item \emph{Batas panggilan} 1~detik dan ukuran respons 1~MiB, agar sensor yang lambat atau mengirim data berlebihan tidak menahan adapter.
+\item \emph{Deteksi data usang}: sumber ditandai \texttt{stale} bila pengamatan terbaru tertinggal lebih dari 2~menit dari waktu sensor atau tidak maju selama 30~detik, termasuk ketika sensor menjawab HTTP~200.
+\item \emph{Backoff} dari 1 hingga 8~detik dengan \emph{jitter} hingga 20\% saat sumber bermasalah, agar permintaan ke sensor tidak melonjak selama sensor belum pulih.
+\item \emph{Percobaan ulang metadata stasiun} dengan jeda 2--32~detik hingga percobaan kedelapan, agar pembaruan katalog sempat masuk sebelum rekaman disisihkan.
+\item \emph{Pembacaan dari penyimpanan}: client menerima data terakhir dengan status \texttt{stale}, atau HTTP~503 \path{SOURCE_UNAVAILABLE} bila belum ada data, sehingga permintaan tidak menunggu sensor.
+\item \emph{Pembatasan kapasitas}: Client API dan Aggregator masing-masing menerima 128 permintaan serentak dengan 32 slot dicadangkan untuk Tim Lapangan dan BNPB internal. Media menerima HTTP~429 dengan \texttt{Retry-After: 1} saat slot umumnya habis. Penerimaan laporan dibatasi 64 permintaan serentak.
+\item \emph{Pengiriman peringatan}: outbox dalam transaksi yang sama dengan penyimpanan, JetStream tiga replika, dan durable consumer yang baru mengirim ACK setelah penerima menjawab HTTP~204. Batas waktu ke penerima 750~ms dengan percobaan ulang setelah 1~detik. Pesan tanpa ACK dikirim ulang setelah 30~detik, selama masih dalam retensi 24~jam, 100.000 pesan, dan 256~MiB. Penerima mencatat secara idempoten menurut identitas \texttt{HazardEvent}, sehingga pengiriman ulang tidak menggandakan notifikasi \cite{nats}.
+\end{itemize}
+
+\item \textbf{Perilaku menyimpang Sensor Pantai.} Tabel~\ref{tab:p5-fixtures} mencatat tiga perilaku yang diturunkan dari kontrak dasar dan diuji dengan respons terkendali: data usang dengan HTTP~200 ditandai \texttt{stale}, pengamatan kritis dari stasiun yang belum terdaftar ditunda lalu diproses setelah katalog pulih, dan tinggi gelombang negatif disisihkan dengan alasan \path{coastal_observation_invalid_fields}. Pada profil latihan, sensor yang dihentikan dikenali dari perubahan status \texttt{fresh} menjadi \texttt{stale}. Untuk sensor yang mengirim banyak data sekaligus setelah diam, halaman historis tetap dibaca pada interval normal selama kursor maju agar antrean terkuras. Daftar perilaku dari profil ujian akan dilengkapi setelah game day.
+
+\item \textbf{Post-mortem.} Untuk latihan pemadaman sensor pada 21 November 2026, \emph{deteksi} terjadi melalui probe yang melihat status berubah dari \texttt{fresh} menjadi \texttt{stale}. \emph{Dampaknya} terbatas pada kesegaran data pesisir: pembacaan pesisir tetap HTTP~200 dengan data terakhir, sedangkan 14 permintaan BMKG dan 14 permintaan PVMBG tetap berhasil dengan p95 12{,}9~ms dan 44{,}2~ms. \emph{Mitigasinya} otomatis: API menyajikan data tersimpan, adapter memperlambat percobaan ulang, dan polling serta status \texttt{fresh} kembali tanpa restart setelah sensor dijalankan lagi. \emph{Perbaikan} yang direncanakan adalah merekam laju polling sepanjang gangguan dan mencocokkan tanda terima dengan daftar pengamatan kritis dari sensor. Post-mortem game day dan pemakaian anggaran keterlambatan disusun setelah skenario ujian dijalankan pada tahap demonstrasi.
+\end{enumerate}

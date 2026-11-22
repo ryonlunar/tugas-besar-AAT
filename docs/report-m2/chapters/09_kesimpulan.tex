@@ -4,6 +4,8 @@ Milestone 2 memperluas sistem M1 agar sumber baru dapat diterima dan pekerjaan y
 
 Pada klaster Hetzner, Aggregator pengganti melanjutkan polling BMKG dalam 3{,}64 detik dan PVMBG dalam 6{,}44 detik, dengan urutan ID mock lengkap. Uji pada klaster lokal mencatat pemulihan seluruh 6.040 ID awal setelah satu VM worker ditangguhkan. Pada jalur tulis, 129 entri PVMBG selesai diproses ulang setelah adapter yang sesuai diaktifkan, dan tanda terima laporan Tim Lapangan tetap tersedia setelah pod penerima dihapus.
 
+Pada klaster Azure tiga node, worker yang dimatikan paksa dan bergabung kembali dengan disk kosong tidak menghilangkan satu pun dari 3.062 ID awal, dan seluruh 1.198 pembacaan selama pemulihan menerima HTTP~200. Dua puluh laporan Tim Lapangan diproses tepat satu kali setelah seluruh pod Aggregator dihapus. Saat beban berlebih, 56{,}7\% pembacaan Media ditolak secara terkontrol, sementara seluruh permintaan Tim Lapangan berhasil.
+
 Dua pengulangan pada 10.000 VU mencatat nol galat tak terduga saat jumlah Aggregator diubah dari tiga menjadi lima lalu dua. Penggantian versi pada beban yang sama selesai dalam 16{,}1 detik tanpa permintaan gagal. Tiga dari empat pasangan pengukuran juga melampaui dua kali throughput pembacaan lengkap.
 
 Pada tahap demonstrasi, hasil latihan akan dilengkapi dengan pengujian yang memakai katalog dan checksum acuan, workload dari asisten, hasil referensi Feed Satelit, serta game day. Pengujian tersebut akan mengukur hasil saat skenario resmi dijalankan, termasuk kelengkapan dan latensi peringatan pesisir selama gangguan gabungan.

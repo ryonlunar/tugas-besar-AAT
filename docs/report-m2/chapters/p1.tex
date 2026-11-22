@@ -40,6 +40,9 @@ Audit \texttt{/events} & Daftar kejadian aktif, terurut menurut \texttt{ingested
 Audit \texttt{/checksum} & SHA-256 atas ID referensi yang diurutkan per byte dan dipisah baris baru. & Hash dihitung dari ID yang terjangkau dan ditandai parsial. Hash ini hanya mewakili bagian tersebut. \\
 Audit \texttt{/location} & Lokasi diperiksa pada setiap salinan PostgreSQL setelah shard diketahui. & Pencarian atau pemeriksaan salinan yang gagal ditandai parsial. HTTP~404 hanya bila semua primary dapat diperiksa dan ID tidak ditemukan. \\
 Audit \texttt{/unprocessed} & Memindai catatan jurnal yang belum selesai pada shard asal setiap sumber. & Menandai hasil parsial bila jurnal yang dibutuhkan tak terjangkau. \\
+\texttt{POST /field-reports} & HTTP~202 setelah commit di primary dan standby sinkron. Kunci dan payload sama memberi tanda terima sama, payload berbeda HTTP~409. & HTTP~503 dan \texttt{Retry-After} bila shard belum dapat mengonfirmasi. Tanda terima lama tetap ada di standby. \\
+\texttt{GET /field-reports/\{id\}} & Mencari ID laporan di semua shard. & HTTP~404 hanya bila semua shard menjawab, selain itu HTTP~503. \\
+\texttt{/failed-messages} & Daftar seperti Audit \texttt{/unprocessed}. Detail dan replay memakai jurnal di shard asal. & Daftar ditandai parsial. Detail dan replay HTTP~503 bila shard asal tak terjangkau. \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -71,7 +74,7 @@ Hash identitas & ID berbeda dari wilayah atau sumber yang sama dapat tersebar. P
 
 \section{Batasan yang Disadari}
 
-Uji impor memakai CSV latihan. Checksum yang cocok mengonfirmasi kelengkapan 500 baris dalam skenario itu. Uji pemulihan dan penambahan worker dilakukan secara terpisah. Setelah katalog dan checksum dari asisten tersedia, pengujian akhir untuk demonstrasi dapat memakai keduanya untuk memeriksa impor, lonjakan di satu wilayah, kehilangan disk, dan penggantian worker dalam satu rangkaian. Pada rangkaian itu, beban tiap node dan indikator parsial di dasbor juga perlu diukur.
+Uji impor memakai CSV latihan. Checksum yang cocok mengonfirmasi kelengkapan 500 baris dalam skenario itu. Kehilangan disk dan penggantian worker sudah diuji dalam satu rangkaian pada klaster Azure tiga node, tetapi belum pada klaster Hetzner empat node. Setelah katalog dan checksum dari asisten tersedia, pengujian akhir untuk demonstrasi dapat memakai keduanya untuk memeriksa impor, lonjakan di satu wilayah, kehilangan disk, dan penggantian worker dalam satu rangkaian. Pada rangkaian itu, beban tiap node dan indikator parsial di dasbor juga perlu diukur.
 
 Rancangan mengasumsikan satu kegagalan worker dalam satu waktu dengan control plane tetap tersedia. Hashing menyebarkan kejadian antarshard, sementara beban per node mengikuti penempatan primary. Pada Tabel~\ref{tab:p1-placement}, dua dari empat primary berada di \texttt{aat-dev}. \emph{Switchover} terencana dapat memindahkan beban bila pengukuran menunjukkan hotspot pada node tersebut.
 
@@ -111,7 +114,32 @@ Fixture PostgreSQL memeriksa kelanjutan impor tanpa duplikat. Uji dengan empat b
 
 Setelah satu VM worker lokal ditangguhkan dan dibangunkan kembali, Audit menemukan seluruh 6.040 ID awal di antara 6.068 ID. Selama uji, 140 permintaan dijawab tanpa galat HTTP, termasuk 21 respons parsial. Latensi tertinggi mencapai 873{,}5~ms. Klaster kembali memiliki 12 salinan setelah pulih.
 
-Pada uji penambahan node di lingkungan lokal, worker tambahan menampung replika \texttt{shard-1}. Setelah menyusul primary, replika dipromosikan dan worker menangani pembacaan ke shard tersebut serta satu Aggregator. Peran primary dikembalikan setelah uji. Skenario penggantian worker berdisk kosong masih menunggu pengujian akhir.
+Pada uji penambahan node di lingkungan lokal, worker tambahan menampung replika \texttt{shard-1}. Setelah menyusul primary, replika dipromosikan dan worker menangani pembacaan ke shard tersebut serta satu Aggregator. Peran primary dikembalikan setelah uji. Penggantian worker dengan disk kosong diuji pada klaster Azure.
+
+\subsection{Kehilangan worker dan penggantian disk pada klaster Azure}
+
+Uji ini memakai klaster Azure tiga node (Tabel~\ref{tab:topology-azure}) dan mengikuti cara pemeriksaan uji Hetzner: Audit API memindai seluruh \texttt{HazardEvent} sebelum dan sesudah gangguan, sementara probe membaca \texttt{/v1/hazards} melalui Auth dan Client API sepanjang uji. Sebelum gangguan, \texttt{aat-worker-1} memegang primary \texttt{shard-0} dan \texttt{shard-3}, standby \texttt{shard-1} dan \texttt{shard-2}, satu Aggregator, dan satu broker JetStream. VM tersebut dimatikan paksa tanpa proses shutdown. Sekitar 80~detik kemudian, objek node dan kelima volume lamanya (empat volume PostgreSQL dan satu volume JetStream) dihapus dari klaster. VM yang sama lalu dinyalakan kembali sehingga bergabung dengan disk kosong. Tabel~\ref{tab:p1-azure} merangkum hasilnya.
+
+\begin{table}[htbp]
+\centering\small
+\caption{Kehilangan worker dan penggantian disk pada klaster Azure, 22 November 2026.}
+\label{tab:p1-azure}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.33\linewidth}Y@{}}
+\toprule
+Pengamatan & Hasil \\
+\midrule
+Failover primary & \texttt{shard-0} pindah ke \texttt{aat-worker-2} dan \texttt{shard-3} pindah ke \texttt{aat-dev} tanpa intervensi. \\
+Pembacaan 64~detik pertama & 201 dari 201 permintaan menerima HTTP~200, 40 di antaranya berpenanda \texttt{partial}. p95 204{,}8~ms dan latensi tertinggi 881{,}2~ms. \\
+Pembacaan sejak kill hingga node pulih (324~detik) & 1.198 dari 1.198 permintaan menerima HTTP~200, termasuk 40 respons parsial. Tidak ada HTTP~500 maupun permintaan yang menggantung. \\
+Kelengkapan data & Audit sebelum gangguan mencatat 3.062 kejadian (BMKG 49, PVMBG 48, Sensor Pantai 2.965). Sesudahnya tercatat 4.429 kejadian dan seluruh 3.062 ID awal masih ada, tanpa \path{source_ref_id} ganda. \\
+Node bergabung dengan disk kosong & Empat replika PostgreSQL dan satu broker dibangun ulang pada volume baru. Ke-12 salinan dan JetStream kembali siap 172~detik setelah node bergabung. \\
+Node ikut menanggung beban & \emph{Switchover} Patroni memindahkan primary \texttt{shard-0} ke \texttt{aat-worker-1}, sehingga node itu kembali menanggung beban tulis. \\
+Redundansi pulih & \texttt{check-cluster.py} kembali lolos: setiap shard memiliki standby sinkron di node lain. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Uji ini belum memakai checksum resmi dari asisten, sehingga kelengkapan diperiksa dari himpunan ID Audit sebelum dan sesudah gangguan. Log dan skripnya tersedia di \path{docs/report-m2/evidence/azure}.
 
 \subsection{Kesesuaian agregat dengan Audit API}
 
@@ -126,4 +154,14 @@ Pada klaster lokal, dasbor dan Audit API sama-sama menghitung 120 kejadian pesis
 
 \section{Jawaban atas Butir ``Di laporan''}
 
-Data tetap mengikuti shard logis ketika node berubah. Tabel~\ref{tab:p1-partition} membandingkan kunci partisi dan Tabel~\ref{tab:p1-consistency} merinci jaminan baca, termasuk cakupan untuk hasil analitik parsial.
+\begin{enumerate}
+\item \textbf{Persoalan dan namanya dalam literatur.} Problem ini memuat empat persoalan. Pertama, \emph{partitioning} atau \emph{sharding}: satu basis data tidak lagi menampung seluruh kejadian, sehingga data dibagi ke beberapa unit. Kedua, \emph{skew} atau \emph{hotspot}: kunci partisi yang mengikuti wilayah atau sumber memusatkan beban pada satu unit ketika gempa terkonsentrasi di satu jalur. Ketiga, \emph{replication} dan \emph{failover}: data yang hanya disimpan di satu node hilang bersama node tersebut, sehingga setiap unit memerlukan salinan dan pemilihan primary baru. Keempat, \emph{rebalancing}: node baru harus ikut menanggung data tanpa menghentikan layanan \cite{kleppmann2017}. Pembacaan lintas shard juga menghadapi persoalan \emph{scatter-gather} dan \emph{tail latency}, karena hasil gabungan menunggu shard yang paling lambat \cite{dean2013}.
+
+\item \textbf{Mekanisme penempatan data.} Aggregator menghitung SHA-256 atas pasangan \texttt{source} dan \texttt{source\_ref\_id}, membaca delapan byte pertama sebagai bilangan, lalu memetakannya ke 96 bucket dan empat shard logis. Pemetaan ini tidak bergantung pada node, sehingga satu kejadian selalu menuju shard yang sama. Ketika node datang atau pergi, yang berubah hanya penempatan salinan fisik. Label node dan aturan anti-affinity menentukan node yang berhak menampung salinan. Saat primary hilang, Patroni mempromosikan standby sinkron. Node pengganti mengambil label yang kosong dan membangun ulang replika dari salinan yang tersisa. Setelah replika menyusul, \emph{switchover} terencana dapat memindahkan peran primary ke node tersebut. Perubahan jumlah shard logis tetap memerlukan migrasi pemetaan.
+
+\item \textbf{Perbandingan pendekatan alternatif.} Tabel~\ref{tab:p1-partition} membandingkan tiga kunci partisi. Partisi menurut wilayah memusatkan lonjakan gempa pada satu primary. Partisi menurut sumber menempatkan seluruh data BMKG pada satu shard, sehingga ketidakmerataan antarsumber langsung menjadi ketidakmerataan beban. Hash identitas menyebarkan kejadian dari wilayah yang sama. Pada uji impor 500 baris dengan koordinat yang sama, shard terpadat menampung 31\% kejadian. Konsekuensinya, pembacaan daftar harus menggabungkan hasil dari semua shard, dan beban per node masih mengikuti letak primary, yang dapat diseimbangkan dengan \emph{switchover}.
+
+\item \textbf{Jaminan konsistensi per endpoint.} Tabel~\ref{tab:p1-consistency} merinci jaminan setiap endpoint. Pada kondisi normal, pembacaan melihat transaksi yang sudah di-commit pada primary masing-masing shard, tetapi hasil gabungan tidak membentuk satu snapshot global karena setiap shard bertransaksi sendiri. Penulisan baru diakui setelah WAL tersimpan di primary dan satu standby sinkron, sehingga data yang sudah diakui tidak hilang saat satu node hilang. Selama pemulihan, endpoint daftar dan agregat mengembalikan data yang tersedia dengan penanda \texttt{partial} dan daftar unit yang tidak terjangkau. Endpoint yang mencari satu ID mengembalikan HTTP~503 bila shard yang mungkin menyimpan ID tersebut belum terjangkau, agar ketiadaan data tidak disimpulkan secara keliru. Pilihan ini mengutamakan kebenaran jawaban di atas kelengkapan selama partisi jaringan atau failover berlangsung.
+
+\item \textbf{Agregasi dasbor analitik.} Aggregator meminta setiap primary menjalankan satu pernyataan SQL yang mengelompokkan kejadian aktif dalam rentang $[\textit{from},\textit{to})$ menurut interval waktu, jenis bahaya, severity, dan \texttt{area\_name}. Hasil dari shard yang menjawab dalam 450~ms dijumlahkan per kelompok. Kejadian gempa yang memuat peringatan tsunami masuk ke seri gempa dan tsunami, tetapi dihitung sekali pada total, distribusi severity, dan distribusi wilayah. Bila ada shard yang tidak menjawab, respons membawa \texttt{partial} beserta jumlah shard yang berhasil dibaca, dan dasbor menampilkan peringatan data parsial bersama angka tersebut. Angka dasbor dibandingkan dengan Audit API memakai rentang \texttt{occurred\_at} dan aturan pengelompokan yang sama.
+\end{enumerate}

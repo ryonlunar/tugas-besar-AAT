@@ -1,0 +1,66 @@
+{"label": "before", "at": "2026-11-22T05:46:16+0000", "BMKG": {"count": 49, "checksum": "422907024c8149823d33f1adb63e1467529dde9aeb9ba8887dd6ba5389472dad", "partial": false, "unavailable_units": []}, "PVMBG": {"count": 48, "checksum": "2bca0e49ec7c974d7afefac70795b235290abd2b8107bf0e79dfe13eba794332", "partial": false, "unavailable_units": []}, "SENSOR_PANTAI": {"count": 2965, "checksum": "331d31bd596fd8bfec48b13686070d2269d9f74147b3d2fc0bf4821adebeb653", "partial": false, "unavailable_units": []}, "events_scanned": 3062, "events_partial": false, "duplicate_source_refs": 0}
+on-worker-1: aggregator-59fbb9f49f-8sphj
+on-worker-1: nats-ha-1
+on-worker-1: shard-0-0
+on-worker-1: shard-1-1
+on-worker-1: shard-2-2
+on-worker-1: shard-3-0
+primary shard-0-0 aat-worker-1
+primary shard-1-0 aat-worker-2
+primary shard-2-0 aat-dev
+primary shard-3-0 aat-worker-1
+KILL_AT=1795326378.195890211
+WARNING: About to power off the specified VM...
+It will continue to be billed. To deallocate a VM, run: az vm deallocate.
+STOPPED_AT=1795326389.433049464
+aat-dev Ready
+aat-worker-1 NotReady
+aat-worker-2 Ready
+primary-after shard-0-0 aat-worker-1
+primary-after shard-0-1 aat-worker-2
+primary-after shard-1-0 aat-worker-2
+primary-after shard-2-0 aat-dev
+primary-after shard-3-0 aat-worker-1
+primary-after shard-3-2 aat-dev
+before: n=85 statuses={'200': 85} partial=0 p50=7.6ms p95=14.2ms max=85.8ms span=22s
+during: n=201 statuses={'200': 201} partial=40 p50=7.8ms p95=204.8ms max=881.2ms span=64s
+REPLACE_AT=1795326458
+lost volumes: nats-ha-js-nats-ha-1 pgdata-shard-0-0 pgdata-shard-1-1 pgdata-shard-2-2 pgdata-shard-3-0
+node "aat-worker-1" deleted
+persistentvolumeclaim "nats-ha-js-nats-ha-1" deleted from sistem-informasi-kebencanaan-bnpb namespace
+persistentvolumeclaim "pgdata-shard-0-0" deleted from sistem-informasi-kebencanaan-bnpb namespace
+persistentvolumeclaim "pgdata-shard-1-1" deleted from sistem-informasi-kebencanaan-bnpb namespace
+persistentvolumeclaim "pgdata-shard-2-2" deleted from sistem-informasi-kebencanaan-bnpb namespace
+persistentvolumeclaim "pgdata-shard-3-0" deleted from sistem-informasi-kebencanaan-bnpb namespace
+5
+channel 0: open failed: connect failed: Connection refused
+stdio forwarding failed
+Connection closed by UNKNOWN port 65535
+node/aat-worker-1 condition met
+REJOINED_AT=1795326487
+ALL_READY_AT=1795326659 spilo=12 nats1=true
+new-on-worker-1: nats-ha-1 2/2
+new-on-worker-1: shard-0-0 1/1
+new-on-worker-1: shard-1-1 1/1
+new-on-worker-1: shard-2-2 1/1
+new-on-worker-1: shard-3-0 1/1
+orphans removed, left: 1
+bash: line 1: cd: /var/lib/rancher/k3s/storage: Permission denied
+no worker-1 sync standby; skipping switchover
+primary shard-0-1 aat-worker-2
+primary shard-1-0 aat-worker-2
+primary shard-2-0 aat-dev
+primary shard-3-2 aat-dev
+{"label": "after", "at": "2026-11-22T05:51:41+0000", "BMKG": {"count": 81, "checksum": "b51c90766c17d51012fbf4f8cb3f3a4622717e29e2209359ad420dd57c878d8c", "partial": false, "unavailable_units": []}, "PVMBG": {"count": 81, "checksum": "112806628c05420f17c21201f8ad5bc7e8ee76974112dd1ca22e4cae1015d3ee", "partial": false, "unavailable_units": []}, "SENSOR_PANTAI": {"count": 4267, "checksum": "376ffabeef15e3dbfbe8b16f09ec1959bd58fff028c60d264c06e9249f6d4ee3", "partial": false, "unavailable_units": []}, "events_scanned": 4429, "events_partial": false, "duplicate_source_refs": 0}
+lost_ids=0 before=3062 after=4429
+before: n=85 statuses={'200': 85} partial=0 p50=7.6ms p95=14.2ms max=85.8ms span=22s
+during: n=1198 statuses={'200': 1198} partial=40 p50=8.3ms p95=30.5ms max=881.2ms span=324s
+  "passed": true,
+  }
+}
+shard-0 sync before: shard-0-2
+2026-11-22 05:52:30.57294 Successfully switched over to "shard-0-0"
+primary shard-0-0 aat-worker-1
+primary shard-1-0 aat-worker-2
+primary shard-2-0 aat-dev
+primary shard-3-2 aat-dev

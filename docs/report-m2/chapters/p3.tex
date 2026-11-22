@@ -35,7 +35,7 @@ Mengonversi tipe atau mengisi nilai yang hilang secara umum memang dapat mengura
 
 Jurnal mempertahankan setiap byte untuk payload yang telah diterima dalam batas input. Respons HTTP yang melebihi \path{SOURCE_RESPONSE_MAX_BYTES} (bawaan 1 MiB) ditolak sebelum masuk jurnal untuk membatasi penggunaan memori. Dampaknya, respons yang melampaui batas tersebut tidak dapat diperiksa atau diulang dari jurnal. Skenario payload rusak telah diuji dengan PostgreSQL uji, sedangkan pengiriman seluruh ragam payload rusak melalui mock pada klaster masih perlu dilakukan. Percobaan live ini memperlihatkan penolakan perubahan tak kompatibel. Perubahan aditif dan perubahan urutan field belum diuji melalui skenario live yang sama.
 
-Uji penghentian pod mencakup satu laporan yang sudah memperoleh persetujuan penerimaan. Jaminan pemrosesan satu kali berlaku untuk pencatatan di PostgreSQL dan bergantung pada kunci idempotensi yang dipertahankan client. Efek samping pada sistem di luar basis data memerlukan mekanisme idempotensi tersendiri.
+Uji penghentian pod mencakup satu laporan pada klaster lokal dan 20 laporan pada klaster Azure tiga node. Jaminan pemrosesan satu kali berlaku untuk pencatatan di PostgreSQL dan bergantung pada kunci idempotensi yang dipertahankan client. Efek samping pada sistem di luar basis data memerlukan mekanisme idempotensi tersendiri.
 
 \section{Bukti Penyelesaian}
 
@@ -79,6 +79,36 @@ Aktifkan kembali pemrosesan & Worker memproses laporan itu sekali. \\
 \label{tab:p3-laporan}
 \end{table}
 
+Uji yang sama diulang pada klaster Azure (Tabel~\ref{tab:topology-azure}) dengan jumlah laporan yang lebih besar. Langkahnya mengikuti Tabel~\ref{tab:p3-laporan}, tetapi seluruh pod Aggregator dihapus paksa, bukan hanya pod penerima. Tabel~\ref{tab:p3-azure} merangkum hasilnya beserta uji replay PVMBG pada klaster yang sama.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.45\linewidth}Y@{}}
+\toprule
+\textbf{Langkah} & \textbf{Hasil yang tercatat} \\
+\midrule
+Kirim 100 laporan dengan kunci berbeda & Seluruhnya HTTP~202, p50 9{,}9~ms dan p95 18{,}7~ms. \\
+Kirim ulang kunci dan payload yang sama & HTTP~202 dengan ID laporan yang sama dan header \texttt{Idempotent-Replayed: true}. \\
+Jeda pemrosesan di semua pod lalu kirim 20 laporan & 20 dari 20 laporan memperoleh HTTP~202 dan berstatus \texttt{accepted} dengan \texttt{attempts} 0. \\
+Hapus paksa seluruh pod Aggregator, lalu aktifkan kembali pemrosesan & 20 dari 20 laporan berstatus \texttt{processed} dengan \texttt{attempts} 1, seluruhnya diproses setelah pod dihapus. \\
+Ubah mock PVMBG ke \path{rename_field} & 209 pesan ditahan dengan status \texttt{parked} dan \texttt{retryable: false}. Pembacaan PVMBG melalui Client API tetap HTTP~200. \\
+Aktifkan adapter lalu replay oleh Ops & Setiap replay menerima HTTP~202. Jumlah pesan yang tertahan turun menjadi 0 dan pemindaian Audit tidak menemukan \path{source_ref_id} ganda. \\
+Akses \path{GET /failed-messages} & Media dan Tim Lapangan menerima HTTP~403, BNPB Internal Ops menerima HTTP~200. \\
+\bottomrule
+\end{tabularx}
+\caption{Uji laporan Tim Lapangan dan replay PVMBG pada klaster Azure, 22 November 2026.}
+\label{tab:p3-azure}
+\end{table}
+
 \section{Jawaban atas Butir ``Di laporan''}
 
-Ops mengulang pesan yang tidak kompatibel setelah adapter disesuaikan (Tabel~\ref{tab:p3-pvmbg}). Laporan Tim Lapangan dicatat sekali per kunci dan payload (Tabel~\ref{tab:p3-laporan}).
+\begin{enumerate}
+\item \textbf{Persoalan dan namanya dalam literatur.} Kriteria~2 adalah persoalan \emph{dead letter queue}: pesan yang gagal disimpan terpisah agar dapat diperiksa, dengan pembedaan antara kegagalan sementara (\emph{transient}, layak dicoba ulang) dan kegagalan permanen yang memerlukan perubahan sistem. Kriteria~3 adalah persoalan \emph{poison message}, yaitu pesan rusak yang dapat membuat pemroses gagal berulang atau menghabiskan sumber daya bila tidak dibatasi. Kriteria~4 menyangkut \emph{schema evolution} serta pemutaran ulang log (\emph{replay}) yang harus menjaga urutan per kunci dan tidak menggandakan hasil (\emph{deduplication}). Kriteria~6 adalah persoalan penerimaan yang tahan lama (\emph{durable acceptance}) pada jalur asinkron: tanda terima baru boleh diberikan setelah data tersimpan persisten, dan percobaan ulang client dikaitkan dengan penerimaan yang sama melalui \emph{idempotency key} \cite{kleppmann2017}.
+
+\item \textbf{Kebijakan perubahan skema.} Aggregator menerima otomatis field tambahan dan perubahan urutan field selama nama, tipe, dan makna field yang dipakai pemetaan tidak berubah. Perubahan nama field (\path{rename_field}), perubahan tipe (\path{type_change}), dan hilangnya field wajib (\path{missing_required_field}) tidak diterima otomatis. Pesan tersebut ditahan dengan status \texttt{parked} sampai operator mengaktifkan adapter yang sesuai, misalnya alias nama field atau konversi string numerik yang tervalidasi. Alasannya, menebak arti field yang berubah dapat menghasilkan data kebencanaan yang keliru tanpa terdeteksi, sedangkan menahan pesan hanya menunda pemrosesan.
+
+\item \textbf{Penyimpanan, pemeriksaan, pemrosesan ulang, dan pencegahan duplikat.} Jurnal per sumber di PostgreSQL menyimpan payload sebagai byte asli bersama sumber, waktu penerimaan, alasan kegagalan, dan correlation ID. Kegagalan sementara berstatus \texttt{retrying} dan dijadwalkan ulang otomatis dengan jeda yang meningkat. Kegagalan yang memerlukan perubahan aturan berstatus \texttt{parked} dan hanya dicoba lagi atas permintaan operator. Batas ukuran input dan kedalaman JSON membatasi kerja parser, sehingga pesan rusak ditahan tanpa menghentikan pesan lain. BNPB Internal Ops memeriksa pesan melalui \path{GET /failed-messages} dan \path{GET /failed-messages/{message_id}}, lalu mengajukan \path{POST /failed-messages/{message_id}/replay}. Replay menjadwalkan ulang entri lama sehingga ordinal jurnal tetap berlaku dan urutan per \path{source_ref_id} terjaga. Duplikat dicegah karena perubahan \texttt{HazardEvent}, outbox, dan penanda pemrosesan dicatat dalam satu transaksi pada shard tujuan. Entri yang sudah tercatat selesai tidak diterapkan lagi.
+
+\item \textbf{Jaminan pengiriman jalur laporan Tim Lapangan.} Penerimaan bersifat durabel: HTTP~202 baru dikirim setelah laporan tersimpan di primary dan standby sinkron. Bila konfirmasi belum pasti, client mengulang dengan \path{Idempotency-Key} yang sama dan memperoleh tanda terima yang sama. Pemrosesan hilir berjalan dengan pola \emph{at-least-once}, tetapi status akhir ditulis dalam transaksi dengan penguncian baris, sehingga setiap laporan memiliki satu hasil akhir. Gabungan keduanya memberi efek \emph{exactly-once} pada data yang tersimpan di PostgreSQL. Tabel~\ref{tab:p3-laporan} menunjukkan tanda terima tetap tersedia setelah pod penerima dihapus, pengiriman ulang menghasilkan ID laporan yang sama, dan worker memproses laporan itu sekali. Fixture \path{TestFieldReportIntakeIsDurableIdempotentAndProcessedOnce} menguji pengiriman ulang serentak, pergantian penerima, dan beberapa worker yang mengambil laporan yang sama. Jaminan ini tidak mencakup efek samping di luar basis data.
+\end{enumerate}

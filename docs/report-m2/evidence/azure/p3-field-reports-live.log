@@ -1,0 +1,18 @@
+== P3.6a latency: 100 reports, distinct keys
+codes={'202': 100} p50=9.9ms p95=18.7ms max=85.0ms
+== P3.6b retry with same key
+attempt 1: 202 0.043935 report_id=f4b706ce-3ebd-4bd9-a02d-79b96b792acd 
+attempt 2: 202 0.013534 report_id=f4b706ce-3ebd-4bd9-a02d-79b96b792acd Idempotent-Replayed: true
+== P3.6c accept while processing is stopped, kill receivers after 202
+deployment "aggregator" successfully rolled out
+accepted: 20/20
+all aggregator pods force-deleted at 06:10:07
+deployment "aggregator" successfully rolled out
+first status: {"report_id": "d0182fd8-6f1c-44a0-8f4d-6f3711ebda0e", "status": "processed", "received_at": "2026-11-22T06:10:05.282811Z", "processed_at": "2026-11-22T06:10:05.521124Z", "reason": null, "attempts": 1, "unit": "shard-3"}
+status counts: {'processed': 20}
+attempts counts: {1: 20}
+== P3.5 failed-message access: media, field-team, bnpb-internal
+MEDIA: 403
+FIELD: 403
+OPS: 200
+ops list items: 0 first: null

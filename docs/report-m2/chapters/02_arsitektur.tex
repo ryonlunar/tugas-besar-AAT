@@ -28,19 +28,40 @@ Lingkungan acuan pengujian menggunakan Hetzner Cloud di Helsinki. OpenTofu menyi
 
 \begin{table}[htbp]
 \centering\small
-\begin{tabularx}{\textwidth}{@{}lYlrr@{}}
+\begin{tabularx}{\textwidth}{@{}lYlrrr@{}}
 \toprule
-VM & Peran & Tipe & vCPU & RAM \\
+ & & \multicolumn{3}{c}{Hetzner Cloud} & Multipass \\
+\cmidrule(lr){3-5}\cmidrule(l){6-6}
+VM & Peran & Tipe & vCPU & RAM & vCPU / RAM \\
 \midrule
-\texttt{aat-dev} & Control plane dan worker & CCX33 & 8 & 32 GB \\
-\texttt{aat-worker-1} & Worker & CPX32 & 4 & 8 GB \\
-\texttt{aat-worker-2} & Worker & CCX23 & 4 & 16 GB \\
-\texttt{aat-worker-3} & Worker & CPX32 & 4 & 8 GB \\
-\texttt{aat-loadgen} & Generator beban k6 & CPX52 & 12 & 24 GB \\
+\texttt{aat-dev} & Control plane dan worker & CCX33 & 8 & 32 GB & 4 / 8 GiB \\
+\texttt{aat-worker-1} & Worker & CPX32 & 4 & 8 GB & 2 / 3 GiB \\
+\texttt{aat-worker-2} & Worker & CCX23 & 4 & 16 GB & 2 / 3 GiB \\
+\texttt{aat-worker-3} & Worker & CPX32 & 4 & 8 GB & 2 / 3 GiB \\
+\texttt{aat-loadgen} & Generator beban k6 & CPX52 & 12 & 24 GB & --- \\
 \bottomrule
 \end{tabularx}
-\caption{Alokasi VM untuk pengujian di Hetzner Cloud.}
+\caption{Alokasi VM pada klaster Hetzner Cloud dan klaster lokal Multipass.}
 \label{tab:topology}
+\end{table}
+
+Sebagian bukti pada P1, P3, P4, dan P5 berasal dari klaster lokal. Klaster ini memakai empat VM Multipass dengan nama, peran, dan manifest yang sama dengan klaster Hetzner. Keempat VM berjalan pada satu laptop pengembangan dengan 12 \textit{logical CPU} dan RAM 32 GiB, dan setiap VM memakai disk 30 GiB. Karena berbagi satu host fisik, klaster lokal tidak dipakai untuk pengukuran throughput P2.
+
+Uji kehilangan worker dengan disk kosong (P1), penghentian pod penerima laporan (P3), dan prioritas saat beban berlebih (P5) dijalankan pada klaster Azure di region Indonesia Central (Tabel~\ref{tab:topology-azure}). Versi aplikasi sama dengan uji Hetzner, yaitu commit \texttt{1ab4ae6}, dan request serta limit memori tetap mengikuti Lampiran~B. Langganan Azure for Students membatasi 6 vCPU per region, sehingga klaster ini hanya memiliki tiga node. Empat shard PostgreSQL tetap memiliki tiga salinan, satu pada setiap node. Pembatasan node untuk Aggregator dan NATS dilonggarkan agar tiga replika tetap tersebar, dan skrip pemeriksaan disesuaikan dengan tiga node. Seluruh VM dibuat pukul 12.24 WIB dan dihapus pukul 13.23 WIB. Rincian perbedaan dan log tersedia di \path{docs/report-m2/evidence/azure}.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}lYlrr@{}}
+\toprule
+VM & Peran & Ukuran & vCPU & RAM \\
+\midrule
+\texttt{aat-dev} & Control plane dan worker & Standard\_B2as\_v2 & 2 & 8 GiB \\
+\texttt{aat-worker-1} & Worker & Standard\_B2als\_v2 & 2 & 4 GiB \\
+\texttt{aat-worker-2} & Worker & Standard\_B2als\_v2 & 2 & 4 GiB \\
+\bottomrule
+\end{tabularx}
+\caption{Alokasi VM pada klaster Azure. Setiap VM memakai Ubuntu 24.04 dan disk 30 GB.}
+\label{tab:topology-azure}
 \end{table}
 
 \input{figures/deployment}

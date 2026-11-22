@@ -1,0 +1,7 @@
+{"label": "baseline", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8gbz2": 6}, "buckets": 6, "buckets_with_two_callers": 0}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 4}, "buckets": 4, "buckets_with_two_callers": 0}}
+offset_plus45 worker2-dev=44.1s
+{"label": "plus45", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8gbz2": 8}, "buckets": 8, "buckets_with_two_callers": 0}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 6}, "buckets": 6, "buckets_with_two_callers": 0}}
+offset_minus30 worker2-dev=-30.8s
+{"label": "minus30", "bmkg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8gbz2": 5}, "buckets": 5, "buckets_with_two_callers": 0}, "pvmbg-mock": {"requests_by_caller": {"aggregator-59fbb9f49f-8sphj": 3}, "buckets": 3, "buckets_with_two_callers": 0}}
+offset_restored worker2-dev=-0.8s
+dups 0 events 5435 partial False

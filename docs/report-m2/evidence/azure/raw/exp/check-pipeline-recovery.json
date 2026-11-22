@@ -1,0 +1,31 @@
+{
+  "passed": true,
+  "recovery_exercised": true,
+  "checks": {
+    "credential_separation": true,
+    "physical_copies": [
+      {
+        "node": "aat-dev",
+        "unit": "shard-3-2",
+        "role": "replica"
+      },
+      {
+        "node": "aat-worker-1",
+        "unit": "shard-3",
+        "role": "primary"
+      },
+      {
+        "node": "aat-worker-2",
+        "unit": "shard-3-1",
+        "role": "replica"
+      }
+    ],
+    "checksum_matches_events": true,
+    "durable_inputs_while_processing_paused": 3,
+    "receiver_replacement_preserves_inputs": true,
+    "records_before": 2720,
+    "records_after": 2873,
+    "missing_baseline_records": 0,
+    "queued_inputs_processed_after_resume": true
+  }
+}
