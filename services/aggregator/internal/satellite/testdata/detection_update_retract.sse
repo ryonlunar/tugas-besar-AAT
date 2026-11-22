@@ -1,4 +1,4 @@
-: SYNTHETIC fixture -- bentuk mengikuti docs/m2-satellite-feed-notes.md, bukan data asisten
+: SYNTHETIC fixture -- bentuk mengikuti docs/design/satellite-feed.md, bukan data asisten
 id: 0
 event: detection
 data: {"offset":0,"detection":{"version":"2.0NRT","scan":0.5,"acq_date":"2026-01-15","acq_time":1234,"bright_ti4":300.10,"bright_ti5":290.20,"confidence":"n","daynight":"D","frp":12.50,"instrument":"VIIRS","latitude":-2.51230,"longitude":110.25000,"satellite":"N20","track":0.56}}

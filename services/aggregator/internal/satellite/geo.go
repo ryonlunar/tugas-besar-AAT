@@ -47,7 +47,7 @@ func Connected(a, b Detection) bool {
 // whether the detection must be excluded from clustering entirely (FIRE.3);
 // rank orders the remaining values for computing a fire's max_confidence
 // (MAP.7), where higher is more confident. Both the single-letter codes
-// observed live (docs/m2-satellite-feed-notes.md: "n", "l") and their
+// observed live (docs/design/satellite-feed.md: "n", "l") and their
 // full-word spellings are accepted, since the course specification's own
 // example ("max_confidence":"h") uses a different letter than any value
 // observed from the live feed.

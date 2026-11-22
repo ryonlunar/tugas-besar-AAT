@@ -18,7 +18,7 @@ import (
 )
 
 // sseDetectionEvent builds one well-formed `detection` SSE record for id,
-// matching the wrapper shape documented in docs/m2-satellite-feed-notes.md.
+// matching the wrapper shape documented in docs/design/satellite-feed.md.
 func sseDetectionEvent(t *testing.T, id int64) string {
 	t.Helper()
 	body := map[string]any{
@@ -369,7 +369,7 @@ func TestAdapterRejectsOffsetGap(t *testing.T) {
 	if batches[0].From != "" || batches[0].Cursor != "10" {
 		t.Fatalf("first batch = {From:%s Cursor:%s}, want {From:\"\" Cursor:10} (never commit past the gap at 10)", batches[0].From, batches[0].Cursor)
 	}
-	// docs/m2-satellite-feed-notes.md section 7: Batch.Cursor is "the next
+	// docs/design/satellite-feed.md section 2: Batch.Cursor is "the next
 	// offset never committed" (last success + 1); after committing [0,10),
 	// the reconnect must ask for exactly that offset -- not the plan
 	// draft's pre-correction "11", which assumed a different cursor

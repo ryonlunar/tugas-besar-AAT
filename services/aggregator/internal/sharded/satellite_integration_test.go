@@ -94,7 +94,7 @@ func TestSatelliteRecognizerPersistsThroughRealPostgres(t *testing.T) {
 }
 
 // satelliteFixtureTwoConnectedDetections builds two detection events
-// (~0.89km apart) in the live-observed wire shape (docs/m2-satellite-feed-notes.md).
+// (~0.89km apart) in the live-observed wire shape (docs/design/satellite-feed.md).
 func satelliteFixtureTwoConnectedDetections() string {
 	return "id: 0\nevent: detection\ndata: {\"offset\":0,\"detection\":{\"satellite\":\"N20\",\"acq_date\":\"2026-11-12\",\"acq_time\":200,\"confidence\":\"n\",\"frp\":10.2,\"latitude\":-2.5000,\"longitude\":113.8000}}\n\n" +
 		"id: 1\nevent: detection\ndata: {\"offset\":1,\"detection\":{\"satellite\":\"N20\",\"acq_date\":\"2026-11-12\",\"acq_time\":205,\"confidence\":\"n\",\"frp\":2.3,\"latitude\":-2.5080,\"longitude\":113.8000}}\n\n"

@@ -50,3 +50,9 @@ Pada fase utama uji beban, tiga replika Client API berjalan di \texttt{aat-dev} 
 Setiap kelompok PostgreSQL menyimpan salinannya di disk lokal pada tiga node berbeda. Label penempatan memilih node yang berhak menyimpan shard dan aturan \textit{pod anti-affinity} menjaga agar dua salinan shard yang sama tidak berada pada satu node. Ketika primary berpindah, aplikasi tetap mengakses alamat layanan untuk shard tersebut.
 
 Seluruh pod aplikasi berada di namespace \texttt{sistem-informasi-kebencanaan-bnpb} dan diberi label \texttt{role} sesuai kelasnya. Manifest mendefinisikan \textit{resource request} dan \textit{limit}. NetworkPolicy membatasi akses langsung ke penyimpanan. Kredensial dimuat dari Kubernetes Secret dan pengaturan aplikasi dari ConfigMap.
+
+\section{Pengerjaan Bonus}
+
+Keempat node k3s pada uji Hetzner ditempatkan dalam satu \textit{placement group} bertipe \textit{spread}. Hetzner menempatkan anggota grup tersebut pada host fisik yang berbeda\cite{hetzner-placement}. Kelompok baru memverifikasi penempatan VM melalui konfigurasi cloud. Tampilan tiap host saat demo, pengukuran latensi dan ketertinggalan data antar-node, serta pengamatan saat sambungan fisik diputus masih belum tersedia. Karena itu, kelompok belum mengklaim poin bonus ini.
+
+Kelompok tidak mengerjakan bonus komponen AI-native maupun penyesuaian kapasitas otomatis. Perubahan jumlah replika Aggregator pada P2 dijalankan secara manual selama uji beban.

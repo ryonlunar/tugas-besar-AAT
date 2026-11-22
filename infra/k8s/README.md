@@ -1,6 +1,6 @@
 # k3s development
 
-Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. Start with the [team handoff](../../docs/m2-handoff.md) for code entry points and remaining work; storage and ingestion decisions are in the [M2 design](../../docs/m2-foundation.md).
+Two development profiles share the existing Go services: a single-node M1 profile and a multi-node M2 profile. Both provide metrics and logs in Grafana; the multi-node profile also includes distributed tracing. See the [root README](../../README.md) for the M2 deployment and test sequence, and the [storage and ingestion design](../../docs/design/storage-and-ingestion.md) for implementation details.
 
 ## Prepare Ubuntu
 
@@ -22,7 +22,7 @@ multipass launch 24.04 --name aat-dev --cpus 4 --memory 8G --disk 30G
 From the host repository root, copy its committed runtime files into the VM:
 
 ```sh
-git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts docs/m2-foundation.md docs/m2-handoff.md docs/m2-status.md docs/m2-requirements-checklist.md
+git archive --format=tar.gz --output=../aat-runtime.tar.gz HEAD go.mod go.sum .env.example .dockerignore contracts pkg services infra scripts
 multipass transfer ../aat-runtime.tar.gz aat-dev:aat-runtime.tar.gz
 multipass shell aat-dev
 ```
@@ -55,7 +55,7 @@ Metrics are scraped every 5 seconds; the dashboard refreshes every 10 seconds an
 
 ## Multi-node profile
 
-Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. These are the reference allocations tested on Refki's Windows laptop (32 GiB RAM, 12 logical CPUs). Teammates may use different machines/providers while preserving kernel, placement, and resource requirements. This single-host setup does not provide physical-host fault tolerance.
+Use four Ubuntu VMs on a private network: `aat-dev` (4 vCPUs, 8 GiB) and `aat-worker-1` through `aat-worker-3` (2 vCPUs, 3 GiB each), with 30 GiB disk per VM. The reference host is a development laptop with 32 GiB of RAM and 12 logical CPUs. Other hosts can use the same VM allocations and placement rules. This single-host setup does not provide physical-host fault tolerance.
 
 With Python 3, Git, and Multipass installed on the host, run from this repository root:
 
@@ -65,7 +65,7 @@ python3 scripts/m2/multipass-cluster.py deploy
 multipass exec aat-dev -- bash -lc "cd ~/aat && python3 scripts/m2/check-cluster.py"
 ```
 
-`up` creates or starts the VMs, installs k3s, copies runtime files, and configures node placement. `deploy` synchronizes local changes, builds immutable image tags, and deploys the stack. From WSL, pass `--multipass /path/to/multipass.exe` before the action if the Windows executable is not on PATH.
+`up` creates or starts the VMs, installs k3s, copies runtime files, and configures node placement. `deploy` synchronizes local changes, builds immutable image tags, and deploys the stack. Set `AAT_MULTIPASS_BIN` if the Multipass executable is outside PATH.
 
 The deployment uses four PostgreSQL units with three replicas each, three Aggregators, and three NATS brokers. Broker connections use two-second heartbeats to detect silent peers. Each node is excluded from one storage unit. Only Aggregator receives application database credentials, with TLS certificate verification enabled. A local registry on port 30500 distributes development images over the trusted VM network; do not expose it publicly.
 

@@ -10,7 +10,7 @@ import (
 )
 
 // synthEvent builds the SSE wire bytes for one `detection` event with the
-// exact field shapes observed live (docs/m2-satellite-feed-notes.md):
+// exact field shapes observed live (docs/design/satellite-feed.md):
 // acq_time/latitude/longitude/frp as bare JSON numbers (no leading zero on
 // acq_time), confidence as a one-letter string.
 func synthEvent(offset int, satellite, acqDate, acqTime string, lat, lon float64, confidence string, frp float64) string {

@@ -112,7 +112,7 @@ func (c *Client) Session(ctx context.Context) (Session, error) {
 // parameter -- never by a Last-Event-ID header -- because the feed defines
 // ?from=N as inclusive of offset N while Last-Event-ID is exclusive; mixing
 // the two would silently reintroduce an off-by-one (see
-// docs/m2-satellite-feed-notes.md section 2). An empty cursor requests from
+// docs/design/satellite-feed.md section 2). An empty cursor requests from
 // offset 0. The caller owns the returned body and must Close it; a non-200
 // response's body is drained into a *FeedError and closed here instead.
 func (c *Client) OpenStream(ctx context.Context, cursor string) (io.ReadCloser, error) {
