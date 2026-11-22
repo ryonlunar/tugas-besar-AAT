@@ -35,7 +35,7 @@ Mengonversi tipe atau mengisi nilai yang hilang secara umum memang dapat mengura
 
 Jurnal mempertahankan setiap byte untuk payload yang telah diterima dalam batas input. Respons HTTP yang melebihi \path{SOURCE_RESPONSE_MAX_BYTES} (bawaan 1 MiB) ditolak sebelum masuk jurnal untuk membatasi penggunaan memori. Dampaknya, respons yang melampaui batas tersebut tidak dapat diperiksa atau diulang dari jurnal. Skenario payload rusak telah diuji dengan PostgreSQL uji, sedangkan pengiriman seluruh ragam payload rusak melalui mock pada klaster masih perlu dilakukan. Percobaan live ini memperlihatkan penolakan perubahan tak kompatibel. Perubahan aditif dan perubahan urutan field belum diuji melalui skenario live yang sama.
 
-Uji penghentian pod mencakup satu laporan yang sudah memperoleh persetujuan penerimaan. Jaminan pemrosesan satu kali berlaku untuk pencatatan di PostgreSQL dan bergantung pada kunci idempotensi yang dipertahankan client. Efek samping pada sistem di luar basis data memerlukan mekanisme idempotensi tersendiri.
+Uji penghentian pod mencakup satu laporan pada klaster lokal dan 20 laporan pada klaster Azure tiga node. Jaminan pemrosesan satu kali berlaku untuk pencatatan di PostgreSQL dan bergantung pada kunci idempotensi yang dipertahankan client. Efek samping pada sistem di luar basis data memerlukan mekanisme idempotensi tersendiri.
 
 \section{Bukti Penyelesaian}
 
@@ -77,6 +77,28 @@ Aktifkan kembali pemrosesan & Worker memproses laporan itu sekali. \\
 \end{tabularx}
 \caption{Tanda terima laporan tetap tersedia setelah pod penerima dihapus.}
 \label{tab:p3-laporan}
+\end{table}
+
+Uji yang sama diulang pada klaster Azure (Tabel~\ref{tab:topology-azure}) dengan jumlah laporan yang lebih besar. Langkahnya mengikuti Tabel~\ref{tab:p3-laporan}, tetapi seluruh pod Aggregator dihapus paksa, bukan hanya pod penerima. Tabel~\ref{tab:p3-azure} merangkum hasilnya beserta uji replay PVMBG pada klaster yang sama.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{0.45\linewidth}Y@{}}
+\toprule
+\textbf{Langkah} & \textbf{Hasil yang tercatat} \\
+\midrule
+Kirim 100 laporan dengan kunci berbeda & Seluruhnya HTTP~202, p50 9{,}9~ms dan p95 18{,}7~ms. \\
+Kirim ulang kunci dan payload yang sama & HTTP~202 dengan ID laporan yang sama dan header \texttt{Idempotent-Replayed: true}. \\
+Jeda pemrosesan di semua pod lalu kirim 20 laporan & 20 dari 20 laporan memperoleh HTTP~202 dan berstatus \texttt{accepted} dengan \texttt{attempts} 0. \\
+Hapus paksa seluruh pod Aggregator, lalu aktifkan kembali pemrosesan & 20 dari 20 laporan berstatus \texttt{processed} dengan \texttt{attempts} 1, seluruhnya diproses setelah pod dihapus. \\
+Ubah mock PVMBG ke \path{rename_field} & 209 pesan ditahan dengan status \texttt{parked} dan \texttt{retryable: false}. Pembacaan PVMBG melalui Client API tetap HTTP~200. \\
+Aktifkan adapter lalu replay oleh Ops & Setiap replay menerima HTTP~202. Jumlah pesan yang tertahan turun menjadi 0 dan pemindaian Audit tidak menemukan \path{source_ref_id} ganda. \\
+Akses \path{GET /failed-messages} & Media dan Tim Lapangan menerima HTTP~403, BNPB Internal Ops menerima HTTP~200. \\
+\bottomrule
+\end{tabularx}
+\caption{Uji laporan Tim Lapangan dan replay PVMBG pada klaster Azure, 22 November 2026.}
+\label{tab:p3-azure}
 \end{table}
 
 \section{Jawaban atas Butir ``Di laporan''}
