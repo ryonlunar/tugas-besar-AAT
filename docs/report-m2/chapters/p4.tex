@@ -71,6 +71,37 @@ Dasbor metrik menampilkan jarak terhadap offset terkini feed dan jumlah batch be
 
 \section{Jawaban atas Butir ``Di laporan''}
 
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{1.6cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.3cm}Y@{}}
+\toprule
+Kriteria & Persoalan & Istilah literatur & Mekanisme kelompok \\
+\midrule
+K2 & Deteksi tiba terlambat dan tidak berurutan & \emph{Event time}, \emph{watermark}, \emph{allowed lateness} & Watermark per satelit dengan toleransi 12~jam dan status \texttt{late} \\
+K4 & Lonjakan feed melebihi laju pemrosesan & \emph{Buffering}, \emph{backpressure}, \emph{lag} & Jurnal batch, pemrosesan terpisah, metrik ketertinggalan di Grafana \\
+K5, K8 & Proses atau koneksi putus di tengah pengenalan & \emph{Stateful recovery}, \emph{exactly-once} efektif & State dan rencana mutasi di PostgreSQL, kursor offset dalam transaksi \\
+\bottomrule
+\end{tabularx}
+\caption{Ringkasan persoalan dan mekanisme P4.}
+\label{tab:p4-ringkas}
+\end{table}
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[caption={Pemeriksaan offset SSE agar tidak ada data hilang atau ganda.},label={code:p4-offset}]
+// services/aggregator/internal/satellite/adapter.go
+if id < expected {
+	continue // overlap from a prior connection's unacknowledged tail; already committed
+}
+if id > expected {
+	if flushErr := a.flush(ctx, &batch, commit); flushErr != nil {
+		return expected, "gap_flush_failed", flushErr
+	}
+	return expected, "offset_gap", ErrOffsetGap
+}
+\end{lstlisting}
+\end{minipage}
+
+
 \begin{enumerate}
 \item \textbf{Persoalan dan namanya dalam literatur.} Kriteria~2 adalah persoalan \emph{event time} lawan \emph{processing time} pada data yang tiba di luar urutan (\emph{out-of-order data}). Literatur pemrosesan aliran menanganinya dengan \emph{watermark} dan batas keterlambatan (\emph{allowed lateness}) yang menentukan kapan sebuah jendela masih boleh berubah \cite{akidau2015}. Kriteria~4 adalah persoalan lonjakan beban ketika laju kedatangan sementara melebihi laju pemrosesan. Sistem perlu menampung data masuk (\emph{buffering}), menahan tekanan balik (\emph{backpressure}), dan mengukur ketertinggalan (\emph{lag}) sampai antrean habis. Kriteria~5 adalah persoalan pemulihan state pada pemrosesan aliran yang \emph{stateful}: setelah proses mati, state dan posisi baca harus dipulihkan dari penyimpanan persisten, dan langkah yang sudah diterapkan tidak boleh diterapkan dua kali \cite{kleppmann2017}.
 

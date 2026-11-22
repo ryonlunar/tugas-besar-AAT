@@ -22,6 +22,33 @@ Pengujian & Go, k6, Tester Agent & Pengujian Go memeriksa perilaku komponen dan 
 \label{tab:technology}
 \end{table}
 
+\section{Perubahan dari M1}
+Tabel~\ref{tab:m1-changes} memisahkan keputusan M1 yang dipertahankan, diubah, dan dibatalkan pada M2.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.6cm}>{\raggedright\arraybackslash}p{2.1cm}Y@{}}
+\toprule
+Keputusan M1 & Status & Alasan \\
+\midrule
+Batas layanan Go, HTTP/JSON, dan verifikasi JWT secara lokal & Dipertahankan & Client tetap mengakses sistem dengan cara yang sama, sehingga perubahan penyimpanan dan deployment tidak memengaruhi kontrak API. \\
+Kontrak kanonik \texttt{HazardEvent} & Dipertahankan & Kontrak hanya diperluas dengan jenis \texttt{WILDFIRE} dan \texttt{COASTAL} serta sumber baru sesuai spesifikasi M2. \\
+Polling HTTP untuk BMKG dan PVMBG & Dipertahankan & Kedua sumber tetap menyediakan snapshot HTTP. Feed Satelit memakai SSE karena menyediakan aliran berurutan dengan offset (P4). \\
+NATS JetStream dengan posisi baca per consumer & Dipertahankan & Kontrak event tidak berubah. Broker kini berjalan dengan tiga replika agar tahan terhadap kehilangan satu node. \\
+Log terstruktur dengan correlation ID & Dipertahankan & Tetap menjadi dasar penelusuran, kini dilengkapi metrik Prometheus dan trace Tempo di Grafana. \\
+\addlinespace
+Satu basis data PostgreSQL & Diubah & Diganti empat shard dengan tiga salinan per shard dan replikasi sinkron, agar data terbagi dan tidak hilang bersama satu node (P1). \\
+Satu instance Aggregator & Diubah & Berjalan dengan tiga replika atau lebih. Pengambilan tiap sumber dijaga satu pemilik melalui advisory lock dan generasi (P2). \\
+Penerimaan perubahan skema PVMBG & Diubah & Perubahan aditif tetap diterima otomatis. Perubahan tak kompatibel kini ditahan sebagai \texttt{parked} dan dapat di-replay oleh Ops (P3). \\
+Tim Lapangan hanya membaca & Diubah & Tim Lapangan memperoleh \path{POST /field-reports} dengan penerimaan durabel dan \path{Idempotency-Key} (P3). \\
+\addlinespace
+Docker Compose sebagai lingkungan deployment utama & Dibatalkan & Spesifikasi M2 mewajibkan Kubernetes dengan node ber-kernel terpisah. Compose hanya dipakai untuk pengembangan lokal. \\
+\bottomrule
+\end{tabularx}
+\caption{Keputusan M1 yang dipertahankan, diubah, dan dibatalkan.}
+\label{tab:m1-changes}
+\end{table}
+
 \section{Asumsi Perancangan dan Pengujian}
 \begin{itemize}
 \item Identitas sumber stabil untuk pembaruan satu kejadian. Rute penyimpanan mengandalkan pasangan \texttt{source} dan \texttt{source\_ref\_id}, sedangkan posisi lanjut setiap sumber mengikuti kontraknya.

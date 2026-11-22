@@ -62,6 +62,37 @@
 }
 
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\usepackage{listings}
+\renewcommand{\lstlistingname}{Kode}
+\lstdefinelanguage{Go}{
+  morekeywords={break,case,chan,const,continue,default,defer,else,for,func,go,if,import,interface,map,package,range,return,select,struct,switch,type,var,nil,true,false},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]",
+  morestring=[b]`,
+}
+\lstset{
+  language=Go,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{archink}\bfseries,
+  commentstyle=\color{archevent},
+  stringstyle=\color{archink!70},
+  backgroundcolor=\color{archlight},
+  frame=leftline,
+  framerule=2pt,
+  rulecolor=\color{archink},
+  xleftmargin=6pt,
+  framexleftmargin=6pt,
+  aboveskip=10pt,
+  belowskip=6pt,
+  columns=fullflexible,
+  keepspaces=true,
+  breaklines=true,
+  showstringspaces=false,
+  tabsize=4,
+  captionpos=b,
+}
 \makeatletter
 \newcommand{\terminalfigure}[3]{%
 \begin{center}\begin{minipage}{\textwidth}

@@ -154,6 +154,37 @@ Pada klaster lokal, dasbor dan Audit API sama-sama menghitung 120 kejadian pesis
 
 \section{Jawaban atas Butir ``Di laporan''}
 
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{1.6cm}>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{3.3cm}Y@{}}
+\toprule
+Kriteria & Persoalan & Istilah literatur & Mekanisme kelompok \\
+\midrule
+K1, K2 & Data tidak muat di satu tempat dan beban terpusat pada wilayah ramai & \emph{Partitioning}, \emph{skew}, \emph{hotspot} & Hash SHA-256 atas \texttt{source} dan \texttt{source\_ref\_id} ke 96 bucket dan 4 shard \\
+K3, K7 & Daftar dan agregat harus menggabungkan semua shard & \emph{Scatter-gather}, \emph{tail latency} & Pembacaan paralel dengan tenggat 200 dan 450~ms serta penanda \texttt{partial} \\
+K4, K6 & Data hilang bersama node & \emph{Replication}, \emph{failover} & Tiga salinan per shard, standby sinkron, promosi Patroni \\
+K5 & Node baru harus ikut menanggung beban & \emph{Rebalancing} & Replika dibangun ulang pada node baru, lalu \emph{switchover} \\
+\bottomrule
+\end{tabularx}
+\caption{Ringkasan persoalan dan mekanisme P1.}
+\label{tab:p1-ringkas}
+\end{table}
+
+\noindent\begin{minipage}{\linewidth}
+\begin{lstlisting}[caption={Penentuan shard dari identitas kejadian.},label={code:p1-partition}]
+// services/aggregator/internal/partition/partition.go
+func Unit(source contracts.Source, refID string) (string, error) {
+	if !source.Valid() || refID == "" {
+		return "", errors.New("valid source and reference ID required")
+	}
+	sum := sha256.Sum256([]byte(string(source) + "\x00" + refID))
+	bucket := binary.BigEndian.Uint64(sum[:8]) % BucketCount
+	return fmt.Sprintf("shard-%d", bucket%UnitCount), nil
+}
+\end{lstlisting}
+\end{minipage}
+
+
 \begin{enumerate}
 \item \textbf{Persoalan dan namanya dalam literatur.} Problem ini memuat empat persoalan. Pertama, \emph{partitioning} atau \emph{sharding}: satu basis data tidak lagi menampung seluruh kejadian, sehingga data dibagi ke beberapa unit. Kedua, \emph{skew} atau \emph{hotspot}: kunci partisi yang mengikuti wilayah atau sumber memusatkan beban pada satu unit ketika gempa terkonsentrasi di satu jalur. Ketiga, \emph{replication} dan \emph{failover}: data yang hanya disimpan di satu node hilang bersama node tersebut, sehingga setiap unit memerlukan salinan dan pemilihan primary baru. Keempat, \emph{rebalancing}: node baru harus ikut menanggung data tanpa menghentikan layanan \cite{kleppmann2017}. Pembacaan lintas shard juga menghadapi persoalan \emph{scatter-gather} dan \emph{tail latency}, karena hasil gabungan menunggu shard yang paling lambat \cite{dean2013}.
 
