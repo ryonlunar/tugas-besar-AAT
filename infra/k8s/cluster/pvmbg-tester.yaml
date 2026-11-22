@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pvmbg-tester
+  labels:
+    role: mock
+spec:
+  selector:
+    app: pvmbg-mock
+  # Keep the controls reachable while a simulated outage fails readiness.
+  publishNotReadyAddresses: true
+  ports:
+    - name: tester-admin
+      port: 8082
+      targetPort: tester-admin

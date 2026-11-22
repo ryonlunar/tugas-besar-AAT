@@ -11,6 +11,7 @@ resources:
   - aggregator-peers.yaml
   - audit-access.yaml
   - field-team-receiver.yaml
+  - pvmbg-tester.yaml
 replicas:
   - name: aggregator
     count: 3
@@ -34,6 +35,20 @@ patches:
             nodeSelector:
               aat.dev/control: "true"
   - path: aggregator.yaml
+  - target:
+      kind: Deployment
+      name: pvmbg-mock
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: PVMBG_TESTER_ADMIN_PORT
+          value: "8088"
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          name: tester-admin
+          containerPort: 8088
   - target:
       kind: Deployment
       name: dashboard-consumer|notifier-consumer

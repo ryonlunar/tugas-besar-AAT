@@ -183,6 +183,32 @@ func TestPVMBGHandlerAuthAdminSchemaAndOutage(t *testing.T) {
 	}
 }
 
+func TestTesterAdminPortOnlyServesMockControls(t *testing.T) {
+	catalog := testPVMBGCatalog(t)
+	tester := NewTesterAdminHandler(catalog)
+	primary := NewPVMBGHandler(PVMBGConfig{Token: "test-token"}, catalog, nil, nil)
+
+	schema := httptest.NewRecorder()
+	tester.ServeHTTP(schema, httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":2}`)))
+	if schema.Code != http.StatusOK {
+		t.Fatalf("tester schema status = %d: %s", schema.Code, schema.Body.String())
+	}
+
+	blocked := httptest.NewRecorder()
+	primary.ServeHTTP(blocked, httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":1}`)))
+	if blocked.Code != http.StatusUnauthorized {
+		t.Fatalf("primary admin status without token = %d", blocked.Code)
+	}
+
+	for _, path := range []string{"/volcanic-reports", "/health", "/ready"} {
+		resp := httptest.NewRecorder()
+		tester.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
+		if resp.Code != http.StatusNotFound {
+			t.Errorf("tester GET %s = %d", path, resp.Code)
+		}
+	}
+}
+
 func TestPVMBGRejectsUnknownAdminFieldsAndExposesPublicHealth(t *testing.T) {
 	h := NewPVMBGHandler(PVMBGConfig{Token: "test-token"}, testPVMBGCatalog(t), func(context.Context, time.Duration) error { return nil }, func(min, max time.Duration) time.Duration { return min })
 	req := httptest.NewRequest(http.MethodPost, "/admin/schema-version", strings.NewReader(`{"version":2,"extra":true}`))

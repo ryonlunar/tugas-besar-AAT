@@ -19,6 +19,15 @@ type SleepFunc func(context.Context, time.Duration) error
 type DelayPicker func(time.Duration, time.Duration) time.Duration
 
 func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pick DelayPicker) http.Handler {
+	return newPVMBGHandler(cfg, catalog, sleep, pick, false)
+}
+
+// NewTesterAdminHandler serves only mock controls on the cluster's restricted Tester Agent port.
+func NewTesterAdminHandler(catalog *PVMBGCatalog) http.Handler {
+	return newPVMBGHandler(PVMBGConfig{}, catalog, nil, nil, true)
+}
+
+func newPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pick DelayPicker, testerAdminOnly bool) http.Handler {
 	if sleep == nil {
 		sleep = sleepContext
 	}
@@ -26,6 +35,18 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 		pick = randomDelay
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/schema-version", "/admin/outage", "/admin/delay":
+			if !testerAdminOnly && r.Method == http.MethodPost && !authorizedPVMBG(r, cfg.Token) {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+				return
+			}
+		default:
+			if testerAdminOnly {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
+		}
 		switch r.URL.Path {
 		case "/health":
 			if r.Method != http.MethodGet {
@@ -85,10 +106,6 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 				methodNotAllowed(w, http.MethodPost)
 				return
 			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
 			var body struct {
 				Version *int    `json:"version"`
 				Mode    *string `json:"mode"`
@@ -112,10 +129,6 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 				methodNotAllowed(w, http.MethodPost)
 				return
 			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
 			var body struct {
 				Enabled *bool `json:"enabled"`
 			}
@@ -128,10 +141,6 @@ func NewPVMBGHandler(cfg PVMBGConfig, catalog *PVMBGCatalog, sleep SleepFunc, pi
 		case "/admin/delay":
 			if r.Method != http.MethodPost {
 				methodNotAllowed(w, http.MethodPost)
-				return
-			}
-			if !authorizedPVMBG(r, cfg.Token) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			var body struct {
@@ -166,10 +175,6 @@ func authorizedPVMBG(r *http.Request, token string) bool {
 	return ok && prefix == "Bearer" && subtle.ConstantTimeCompare([]byte(credential), []byte(token)) == 1 && !strings.Contains(credential, " ")
 }
 
-// schemaModeAliases hedges against an unconfirmed Tester Agent body shape
-// (K2 open: Task 0.4 has not observed what the Tester Agent "schema" practice
-// scenario actually sends). Accepting both the numeric "version" and a named
-// "mode" costs nothing and avoids a hard Tester Agent failure either way.
 // Named modes and the numeric "version" are mutually exclusive.
 var schemaModeAliases = map[string]int{
 	"compatible_v1":          1,

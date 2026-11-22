@@ -6,6 +6,7 @@ namespace=sistem-informasi-kebencanaan-bnpb
 kube=(kubectl --context aat-dev -n "$namespace")
 python3 scripts/m2/prepare.py
 kubectl --context aat-dev apply -f infra/k8s/dev/namespace.yaml -f .state/m2/configuration.json
+python3 scripts/m2/configure-tester-access.py
 runtime_setting() {
   python3 -c 'import json, sys; print(next(r["data"] for r in json.load(open(".state/m2/configuration.json"))["items"] if r["kind"]=="ConfigMap").get(sys.argv[1], ""))' "$1"
 }
