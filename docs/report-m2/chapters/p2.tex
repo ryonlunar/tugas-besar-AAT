@@ -53,6 +53,8 @@ Uji 22 November 2026 memakai BMKG dan PVMBG mock serta workload k6 yang disusun 
 
 Penambahan replika Client API diperlukan karena satu pod mencapai limit memori pada uji awal. Dalam pembandingan throughput, satu Aggregator dijadwalkan pada worker CCX23, sedangkan tiga Aggregator tersebar pada tiga worker. Rasio terukur mencakup pengaruh distribusi beban antarmesin. Respons lengkap dan HTTP~200 dilaporkan terpisah karena respons parsial tetap melayani client dengan data yang tersedia saat itu.
 
+Batas sesi 10~detik hanya berlaku selama PostgreSQL yang menyimpan sesi tetap berjalan. Uji 	extit{freeze} membekukan seluruh cgroup pod pada worker pemilik, sehingga pod PostgreSQL di worker itu ikut berhenti. Pada uji tersebut, replika lain baru mengambil alih setelah thaw, bukan 10~detik setelah freeze dimulai. Jika primary yang memegang sesi berada di worker yang dibekukan, lock baru dilepas setelah thaw atau setelah failover Patroni. Waktu pengambilalihan saat hanya container Aggregator yang dibekukan belum diukur secara terpisah.
+
 \section{Bukti Penyelesaian}
 
 \subsection{Lingkungan dan konfigurasi beban}
