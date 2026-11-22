@@ -72,6 +72,13 @@ Klaster k3s terdiri dari **empat node VM Ubuntu 24.04**, masing-masing dengan ke
 
 - **Multipass.** Keempat node berada pada satu laptop pengembangan dengan 12 logical CPU dan RAM 32 GiB. Setiap VM menggunakan disk 30 GiB.
 - **Hetzner.** Keempat node berada pada empat host fisik berbeda melalui satu [placement group tipe spread](https://docs.hetzner.com/cloud/placement-groups/overview/). VM load generator berada di jaringan privat yang sama, di luar placement group klaster. CPU/RAM fisik dikelola penyedia, sehingga tabel mencatat alokasi tiap VM.
+- **Azure.** Uji tambahan untuk P1 (worker mati dan diganti dengan disk kosong), P3 (penghentian pod penerima laporan dan replay PVMBG), dan P5.5 (prioritas saat beban berlebih) dijalankan pada tiga VM di region Indonesia Central. Kuota Azure for Students (6 vCPU per region) membatasi klaster menjadi tiga node, sehingga setiap shard menyimpan satu salinan per node dan batas penempatan Aggregator serta NATS dilonggarkan. Versi aplikasi (`1ab4ae6`) dan resource Lampiran B sama dengan uji Hetzner. Rincian perbedaan, log, dan skrip ada di [bukti Azure](docs/report-m2/evidence/azure/README.md).
+
+  | Node | Peran | Ukuran VM | vCPU / RAM |
+  | --- | --- | --- | --- |
+  | `aat-dev` | Control plane dan worker | Standard_B2as_v2 | 2 / 8 GiB |
+  | `aat-worker-1` | Worker | Standard_B2als_v2 | 2 / 4 GiB |
+  | `aat-worker-2` | Worker | Standard_B2als_v2 | 2 / 4 GiB |
 
 <div align="right"><a href="#readme-top">↖ Kembali ke atas</a></div>
 
